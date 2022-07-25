@@ -1,0 +1,11 @@
+[download]
+url = "https://downloads.apache.org/cassandra/4.1-alpha1/apache-cassandra-4.1-alpha1-bin.tar.gz"
+[config]
+env = [
+    "CASSANDRA_HOME=/"
+]
+[run.command]
+script = '''
+#!/bin/bash
+$CASSANDRA_HOME/bin/cassandra -f
+'''
