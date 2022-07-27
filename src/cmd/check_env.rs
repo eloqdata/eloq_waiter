@@ -1,40 +1,42 @@
-use std::env;
-use anyhow::Result;
-use crate::cmd::CmdErrorCode::UnSupportOS;
-use crate::cmd::Command;
+use std::collections::HashMap;
+use lazy_static::lazy_static;
+use crate::cmd::base::{Cmd, CmdContext, CmdStatus};
+use crate::cmd::cmd_utils::{curr_platform, invoke_sys_cmd};
 
-#[derive(Clone, Debug)]
+// Build and runtime dependencies. For now, it only supports Linux and macOS
+lazy_static! {
+    pub static ref DEPS: HashMap<&'static str, Vec<&'static str>> =  {
+        let mut dep_mapping = HashMap::new();
+        dep_mapping.insert("macos", vec!["git", "cmake", "ninja", "libuv", "glog","openssl",
+            "gnu-getopt", "coreutils", "gflags", "leveldb", "gperftools", "bison"]);
+        dep_mapping.insert("linux", vec!["git", "g++", "make", "libssl-dev","libgflags-dev",
+            "libgoogle-glog-dev", "libprotobuf-dev", "libprotoc-dev","protobuf-compiler",
+            "libleveldb-dev", "libsnappy-dev"]);
+        dep_mapping
+    };
+}
 /// Check if a monograph instance is started
 /// and if the installation compilation environment matches the requirements.
-struct CheckEnvCmd;
+#[derive(Clone, Debug)]
+struct CheckEnv;
 
-impl CheckEnvCmd {
-    pub fn check_dep(&self, os: String) -> Result<()> {
-        Ok(())
+impl Cmd for CheckEnv {
+    fn id() -> String {
+        "check".to_string()
     }
-}
 
-impl Command for CheckEnvCmd {
-    fn execute(&self) -> Option<Result<String>> {
-        let os_type = env::consts::OS;
-        println!("current os type = {},arch = {}", os_type, env::consts::ARCH);
-        if os_type.eq("windows") {
-            Some(Err(UnSupportOS("windows".to_string()).into()))
-        } else {
-            None
+    fn set_up(&self) -> CmdStatus {
+        match curr_platform().os_type.as_str() {
+            "macos" => {
+                invoke_sys_cmd("command".to_string(), Some(vec!["-v".to_string(), "brew".to_string()]))
+            }
+            _ => {
+                CmdStatus::default()
+            }
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use crate::cmd::check_env::CheckEnvCmd;
-    use crate::cmd::Command;
-
-    #[test]
-    pub fn test_os_type() {
-        let check_env_cmd = CheckEnvCmd {};
-
-        check_env_cmd.execute();
+    fn run(&mut self, context: &mut CmdContext<impl std::io::Write, impl Clone>) -> CmdStatus {
+        todo!()
     }
 }
