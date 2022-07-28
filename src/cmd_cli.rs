@@ -1,0 +1,92 @@
+use crate::cmd::base::SUPPORT_CMD_LIST;
+use dialoguer::theme::ColorfulTheme;
+use dialoguer::{Completion, History, Input};
+use std::collections::VecDeque;
+use std::process;
+use crate::cmd::cmd_runner::CmdRunner;
+use crate::cmd::cmd_utils::{all_support_cmd_string, default_log_handler};
+
+const MAX_INPUT_HISTORY: usize = 1000;
+const PROMPT_STR: &str = "[monograph_waiter]";
+
+pub struct CmdCli;
+
+impl CmdCli {
+    pub fn start_run(&self) {
+        let mut history = InputHistory::default();
+        let completion = InputCompletion::default();
+        let logger = default_log_handler().unwrap();
+        CmdRunner::new( &logger);
+        loop {
+            if let Ok(cmd) = Input::<String>::with_theme(&ColorfulTheme::default())
+                .with_prompt(PROMPT_STR.to_string())
+                .history_with(&mut history)
+                .completion_with(&completion)
+                .interact_text()
+            {
+                if cmd == "exit" {
+                    process::exit(0);
+                }
+                if !SUPPORT_CMD_LIST.contains(&cmd.as_str()) {
+                    println!("!!UnKnow Command {}.For now support command {}", cmd, all_support_cmd_string())
+                } else {
+                }
+            }
+        }
+    }
+}
+
+struct InputCompletion {
+    all_cmd_list: Vec<String>,
+}
+
+impl Completion for InputCompletion {
+    fn get(&self, input: &str) -> Option<String> {
+        let matches = self
+            .all_cmd_list
+            .iter()
+            .filter(|option| option.starts_with(input))
+            .collect::<Vec<_>>();
+
+        if matches.len() == 1 {
+            Some(matches[0].to_string())
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for InputCompletion {
+    fn default() -> Self {
+        Self {
+            all_cmd_list: SUPPORT_CMD_LIST.iter().map(|cmd| cmd.to_string()).collect(),
+        }
+    }
+}
+
+struct InputHistory {
+    max: usize,
+    history: VecDeque<String>,
+}
+
+impl Default for InputHistory {
+    fn default() -> Self {
+        InputHistory {
+            max: MAX_INPUT_HISTORY,
+            history: VecDeque::default(),
+        }
+    }
+}
+
+impl<T: ToString> History<T> for InputHistory {
+    fn read(&self, pos: usize) -> Option<String> {
+        self.history.get(pos).cloned()
+    }
+
+    fn write(&mut self, val: &T) {
+        if self.history.len() == self.max {
+            self.history.pop_back();
+        }
+        self.history.push_front(val.to_string());
+    }
+}

@@ -1,3 +1,3 @@
-fn main() {
-    println!("Hello, world!");
+fn main() -> Result<(), std::io::Error> {
+    Ok(())
 }

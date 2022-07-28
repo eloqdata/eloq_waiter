@@ -1,6 +1,10 @@
-use std::env;
+use crate::cmd::base::{CmdStatus, Platform, SUPPORT_CMD_LIST};
+use crate::output_handle;
 use indicatif::{ProgressBar, ProgressStyle};
-use crate::cmd::base::{CmdStatus, Platform};
+use std::env;
+use std::fs::{File, OpenOptions};
+use std::io::BufRead;
+use std::path::Path;
 
 pub fn curr_platform() -> Platform {
     Platform {
@@ -10,11 +14,24 @@ pub fn curr_platform() -> Platform {
     }
 }
 
+pub fn default_log_handler() -> anyhow::Result<File> {
+    let log = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(create_log_path_and_get());
+    if log.is_ok() {
+        Ok(log.ok().unwrap())
+    } else {
+        Err(anyhow::Error::from(log.err().unwrap()))
+    }
+}
+
 pub fn get_process_bar(progress_bar_type: &str, cmd: &str) -> ProgressBar {
     match progress_bar_type {
         "pipe" => pipe_progress_bar(cmd.to_string()),
         "elapsed" => elapsed_progress_bar(),
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
 
@@ -36,49 +53,69 @@ pub fn elapsed_progress_bar() -> ProgressBar {
     cmd_pb
 }
 
-pub fn invoke_sys_cmd(cmd_name: String, args: Option<Vec<String>>) -> CmdStatus {
-    let mut sys_cmd = std::process::Command::new(cmd_name.as_str());
-    if let Some(ref cmd_args) = args {
+pub fn cmd_process<F>(cmd_name: String, args: Option<Vec<String>>, mut stdout_f: F) -> CmdStatus
+    where
+        F: FnMut(&str),
+{
+    let mut cmd = std::process::Command::new(cmd_name.as_str());
+    if let Some(cmd_args) = args {
         for arg in cmd_args {
-            sys_cmd.arg(arg.as_str());
+            cmd.arg(arg.as_str());
         }
     }
-    let cmd_output = sys_cmd.output();
-    if let Ok(output) = cmd_output {
-        let cmd_succ = output.status.success();
-        let mut all_output = String::from_utf8_lossy(&output.stdout).to_string();
-        all_output.extend(String::from_utf8_lossy(&output.stderr).chars());
-        let final_output = if all_output.is_empty() {
-            "None Output".to_string()
-        } else {
-            all_output
-        };
+    let mut p = cmd
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    output_handle!(p.stdout.take().unwrap(), stdout_f, false);
+    let stderr_output_vec = output_handle!(
+        p.stderr.take().unwrap(),
+        |stderr: &str| {
+            println!("❗{}", stderr);
+        },
+        true
+    );
+    let stderr_output = stderr_output_vec
+        .iter()
+        .map(|stderr_str| stderr_str.clone() + "\n")
+        .collect::<String>();
+    let exists_rs = p.wait();
+    println!("ExistsRs={:?}", exists_rs);
+    if let Ok(exitstatus) = exists_rs {
         CmdStatus {
-            success: cmd_succ,
-            output: final_output,
+            success: exitstatus.success(),
+            output: Some(stderr_output),
             status_file: None,
         }
     } else {
-        println!("Exec Cmd {} {:?} Error", cmd_name.clone(), args);
         CmdStatus {
             success: false,
-            output: format!("❗ {} {:?} ERR:{}", cmd_name, args, cmd_output.err().unwrap()),
+            output: Some(stderr_output),
             status_file: None,
         }
     }
 }
 
+pub fn all_support_cmd_string() -> String {
+    SUPPORT_CMD_LIST
+        .iter()
+        .map(|cmd_str| format!("\t{}", cmd_str))
+        .collect::<Vec<String>>()
+        .join("\n")
+}
 
-#[cfg(test)]
-mod tests {
-    use crate::cmd::cmd_utils::*;
-
-    #[test]
-    pub fn test_invoke_sys_cmd() {
-        let cmd_status = invoke_sys_cmd("brew".to_string(), Some(vec!["info".to_string(), "rocksdb".to_string()]));
-        println!("{}", cmd_status);
-    }
-
-    #[test]
-    pub fn test_cmd_run_with_child() {}
+pub fn create_log_path_and_get() -> String {
+    let curr_path = if let Ok(log_path) = env::var("MONO_WAITER_LOG") {
+        log_path
+    } else {
+        "./.monograph_waiter/logs".to_string()
+    };
+    let path_buf = Path::new(&curr_path);
+    let rs = std::fs::create_dir_all(path_buf.as_os_str().to_str().unwrap());
+    println!(
+        "Curr LogPath={} create_log_path_if_need={:?}",
+        curr_path, rs
+    );
+    curr_path + "/monograph_waiter.log"
 }

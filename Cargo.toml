@@ -10,6 +10,9 @@ bytes = "1"
 clap = { version = "3", features = ["derive"] }
 crossterm = "0.23"
 indicatif = "0.16"
+console = "0.15"
+dialoguer = { version = "0.10", features = ["history", "completion", "fuzzy-select"] }
+
 lazy_static = "1"
 requestty = "0.4.1"
 reqwest = { version = "0.11" }

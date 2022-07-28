@@ -31,5 +31,5 @@ src/log/
 **/tags
 
 log/
-
+.monograph_waiter/
 .bin/
