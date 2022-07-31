@@ -7,6 +7,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub static MONO_WATER_CONF: &str = "MONO_WATER_CONF_DIR";
+
 lazy_static! {
     pub static ref SUPPORT_CMD_LIST: Vec<&'static str> =
         vec!["check", "build", "playground", "stop_all", "start_all"];
@@ -139,6 +141,10 @@ where
 {
     pub fn new(cmd_desc: CmdDesc, log: Log) -> Self {
         Self { cmd: cmd_desc, log }
+    }
+
+    pub fn get_cmd_desc(&self) -> CmdDesc {
+        self.cmd.clone()
     }
 
     pub fn record_context(&mut self) -> CmdStatus {
