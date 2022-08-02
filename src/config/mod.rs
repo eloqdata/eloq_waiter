@@ -5,16 +5,20 @@ use std::collections::HashMap;
 
 pub mod common;
 
+pub static MONO_WATER_CONFIG_DIR: &str = "MONO_WATER_CONF_DIR";
+
 #[macro_export]
 macro_rules! extract_config_value {
     ($config_obj_key:expr, $config_obj:ident, $input_config_path:expr) => {{
         use $crate::config::load_config;
+        use $crate::config::ConfigObject;
+        use $crate::config::MONO_WATER_CONFIG_DIR;
         let mut input_path = match $input_config_path {
             Some(val) => val,
             _ => "".to_string(),
         };
         if input_path.is_empty() {
-            input_path = std::env::var("MONO_WATER_CONF_DIR").unwrap_or_else(|_| {
+            input_path = std::env::var(MONO_WATER_CONFIG_DIR).unwrap_or_else(|_| {
                 panic!("Maybe it's a bug.The path to the configuration file must exist")
             });
         }
@@ -81,7 +85,7 @@ fn load_mysql_config(mysql_config_path: &str) -> Properties {
 #[cfg(test)]
 mod tests {
     use crate::config::common::Common;
-    use crate::config::{load_mysql_config, ConfigObject};
+    use crate::config::load_mysql_config;
 
     pub fn config_file(file: &str) -> String {
         let mut base_path = env!("CARGO_MANIFEST_DIR").to_owned();

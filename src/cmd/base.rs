@@ -25,25 +25,6 @@ lazy_static! {
     };
 }
 
-#[macro_export]
-macro_rules! output_handle {
-    ($cmd_output:expr, $output_by_line:expr, $has_output_post:expr) => {{
-        let mut output_vec: Vec<String> = Vec::default();
-        let buffer_reader = std::io::BufReader::new($cmd_output);
-        for line in buffer_reader.lines() {
-            let line = line.unwrap();
-            let stripped_line = line.trim();
-            if !stripped_line.is_empty() {
-                $output_by_line(stripped_line);
-            }
-            if $has_output_post {
-                output_vec.push(stripped_line.to_string() + "\n");
-            }
-        }
-        output_vec
-    }};
-}
-
 #[derive(Error, Debug)]
 pub enum CmdErrorCode {
     #[error("For now only support Linux and MacOS. current OS is {0}")]
@@ -56,6 +37,17 @@ pub struct CmdDesc {
     pub args: Option<Vec<String>>,
     pub show_progress_type: Option<String>,
     pub payload: Option<HashMap<String, String>>,
+}
+
+impl CmdDesc {
+    pub fn cmd_string(&self) -> String {
+        let args_string = if let Some(cmd_args) = &self.args {
+            cmd_args.join(" ")
+        } else {
+            "".to_string()
+        };
+        format!("{} {}", self.name, args_string)
+    }
 }
 
 impl Default for CmdDesc {

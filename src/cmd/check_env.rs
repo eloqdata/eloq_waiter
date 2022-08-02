@@ -93,7 +93,7 @@ mod tests {
                 "cmake".to_string(),
             ]),
             show_progress_type: Some("pipe".to_string()),
-            payload: None
+            payload: None,
         };
         (CheckEnv {}, check_env_cmd_desc)
     }

@@ -1,4 +1,4 @@
-workspace = "/user/workspace"
+workspace = "/Users/pangzhenzhou/Downloads/workspace/"
 
 [compile.download]
 protobuf = { url = "https://github.com/protocolbuffers/protobuf/releases/download/v3.17.3/protobuf-cpp-3.17.3.tar.gz", build = '''
@@ -14,7 +14,7 @@ make -j8
 ''' }
 braft = { git = "https://github.com/baidu/braft.git" }
 catch2 = { git = "https://github.com/catchorg/Catch2.git", branch = "v2.x" }
-aws = { git = "--recurse-submodules https://github.com/aws/aws-sdk-cpp.git" }
+aws = { git = "https://github.com/aws/aws-sdk-cpp.git", options = ["--recurse-submodules"] }
 
 [monograph]
 storage = "cassandra"

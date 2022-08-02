@@ -1,4 +1,5 @@
 use clap::Parser;
+use monograph_waiter::config::MONO_WATER_CONFIG_DIR;
 use monograph_waiter::term::CmdCli;
 
 const BANNER: &str = r#"
@@ -28,8 +29,9 @@ async fn main() -> anyhow::Result<()> {
     println!("!!!「Monograph Waiter」 is the productivity tool for developers.");
     println!("!!! Type help to list all commands. Use 'exit' to quit the command line.");
     println!();
-    let cmd_cli_options = CmdCliOptions::parse();
+    let cmd_cli_options: CmdCliOptions = CmdCliOptions::parse();
     println!("load config from={:?}", cmd_cli_options);
+    std::env::set_var(MONO_WATER_CONFIG_DIR, cmd_cli_options.config);
     CmdCli.start().await;
     Ok(())
 }

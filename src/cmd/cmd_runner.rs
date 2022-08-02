@@ -1,6 +1,6 @@
 use crate::cmd::base::{Cmd, CmdContext, CmdStatus, CMD_DESC_MAP};
-use crate::cmd::build_workspace::SetupWorkspace;
 use crate::cmd::check_env::CheckEnv;
+use crate::cmd::setup_workspace::SetupWorkspace;
 use std::collections::HashMap;
 use std::fs::File;
 
