@@ -1,10 +1,24 @@
+use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
+
+pub static MONOGRAPH_GIT_REPOS: Lazy<Vec<String>> = Lazy::new(|| {
+    vec![
+        "log_service".to_string(),
+        "tx_service".to_string(),
+        "monograph".to_string(),
+        "cass".to_string(),
+        "mariadb".to_string(),
+    ]
+});
 
 #[macro_export]
 macro_rules! git_clone {
-    ($git_obj:expr, $dest_dir:expr $(,$git_attr:ident)*) => {{
+    ($git_obj:expr $(,$git_attr:ident)*) => {{
         use $crate::cmd::base::CmdDesc;
+        use $crate::config::workspace_sub_dir;
+        use $crate::config::common::MONOGRAPH_GIT_REPOS;
         let mut cmd_desc_vec: Vec<CmdDesc> = vec![];
+        let workspace_sub_dirs = workspace_sub_dir();
         $(
            let mut cmd_desc = CmdDesc::default();
            cmd_desc.name = "git".to_string();
@@ -12,7 +26,14 @@ macro_rules! git_clone {
            if let Some(git_option) = $git_obj.$git_attr.options {
                git_clone_args.extend(git_option);
            }
-           let dest_name = format!("{}/{}", $dest_dir.to_string(), std::stringify!($git_attr).to_string());
+           let git_repo = std::stringify!($git_attr).to_string();
+
+           let dest_dir = if MONOGRAPH_GIT_REPOS.contains(&git_repo) {
+               workspace_sub_dirs.get("source").unwrap()
+           } else {
+               workspace_sub_dirs.get("third_party").unwrap()
+           };
+           let dest_name = format!("{}/{}", dest_dir, std::stringify!($git_attr).to_string());
            if let Some(branch_name) = $git_obj.$git_attr.branch {
               git_clone_args.extend(vec!["-b".to_string(), branch_name, $git_obj.$git_attr.git, dest_name]);
            } else {
@@ -48,6 +69,11 @@ pub struct Git {
     pub braft: GitArgs,
     pub catch2: GitArgs,
     pub aws: GitArgs,
+    pub log_service: GitArgs,
+    pub tx_service: GitArgs,
+    pub monograph: GitArgs,
+    pub cass: GitArgs,
+    pub mariadb: GitArgs,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -101,11 +127,16 @@ mod tests {
             brpc: test_git_attr.clone(),
             braft: test_git_attr.clone(),
             catch2: test_git_attr.clone(),
-            aws: test_git_attr,
+            aws: test_git_attr.clone(),
+            log_service: test_git_attr.clone(),
+            tx_service: test_git_attr.clone(),
+            monograph: test_git_attr.clone(),
+            cass: test_git_attr.clone(),
+            mariadb: test_git_attr,
         };
         let git_string = stringify!(Git);
         println!("git_string {}", git_string.to_string().to_lowercase());
-        let git_cmd = git_clone!(git, "~/Downloads", brpc, braft);
+        let git_cmd = git_clone!(git, brpc, braft);
         println!("Cmd {:?}", git_cmd);
         assert_eq!(2, git_cmd.len())
     }

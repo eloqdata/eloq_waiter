@@ -1,5 +1,6 @@
 use clap::Parser;
-use monograph_waiter::config::MONO_WATER_CONFIG_DIR;
+use monograph_waiter::config::{MONOGRAPH_WATER_CONFIG_DIR, MONOGRAPH_WORKSPACE_DIR};
+use monograph_waiter::extract_config_value;
 use monograph_waiter::term::CmdCli;
 
 const BANNER: &str = r#"
@@ -31,7 +32,13 @@ async fn main() -> anyhow::Result<()> {
     println!();
     let cmd_cli_options: CmdCliOptions = CmdCliOptions::parse();
     println!("load config from={:?}", cmd_cli_options);
-    std::env::set_var(MONO_WATER_CONFIG_DIR, cmd_cli_options.config);
+    std::env::set_var(MONOGRAPH_WATER_CONFIG_DIR, cmd_cli_options.config.clone());
+    std::env::set_var(
+        MONOGRAPH_WORKSPACE_DIR,
+        extract_config_value!("common", Common, Some(cmd_cli_options.config))
+            .clone()
+            .workspace,
+    );
     CmdCli.start().await;
     Ok(())
 }

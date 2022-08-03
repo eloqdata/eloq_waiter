@@ -1,48 +1,47 @@
 use crate::cmd::base::{Cmd, CmdDesc, CmdStatus};
 use crate::cmd::cmd_utils::{cmd_process, curr_platform};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 // Build and runtime dependencies. For now, it only supports Linux and macOS
-lazy_static! {
-    pub static ref DEPS: HashMap<&'static str, Vec<&'static str>> = {
-        let mut dep_mapping = HashMap::new();
-        dep_mapping.insert(
-            "macos",
-            vec![
-                "git",
-                "cmake",
-                "ninja",
-                "libuv",
-                "glog",
-                "openssl@1.1",
-                "gnu-getopt",
-                "coreutils",
-                "gflags",
-                "leveldb",
-                "gperftools",
-                "bison",
-            ],
-        );
-        dep_mapping.insert(
-            "linux",
-            vec![
-                "git",
-                "g++",
-                "make",
-                "libssl-dev",
-                "libgflags-dev",
-                "libgoogle-glog-dev",
-                "libprotobuf-dev",
-                "libprotoc-dev",
-                "protobuf-compiler",
-                "libleveldb-dev",
-                "libsnappy-dev",
-            ],
-        );
-        dep_mapping
-    };
-}
+pub static DEPS: Lazy<HashMap<&'static str, Vec<&'static str>>> = Lazy::new(|| {
+    let mut dep_mapping = HashMap::new();
+    dep_mapping.insert(
+        "macos",
+        vec![
+            "git",
+            "cmake",
+            "ninja",
+            "libuv",
+            "glog",
+            "openssl@1.1",
+            "gnu-getopt",
+            "coreutils",
+            "gflags",
+            "leveldb",
+            "gperftools",
+            "bison",
+        ],
+    );
+    dep_mapping.insert(
+        "linux",
+        vec![
+            "git",
+            "g++",
+            "make",
+            "libssl-dev",
+            "libgflags-dev",
+            "libgoogle-glog-dev",
+            "libprotobuf-dev",
+            "libprotoc-dev",
+            "protobuf-compiler",
+            "libleveldb-dev",
+            "libsnappy-dev",
+        ],
+    );
+    dep_mapping
+});
+
 /// Check if a monograph instance is started
 /// and if the installation compilation environment matches the requirements.
 #[derive(Clone, Debug)]
@@ -67,7 +66,7 @@ impl Cmd for CheckEnv {
     fn set_up(&self) -> CmdStatus {
         match curr_platform().os_type.as_str() {
             "macos" => cmd_process(
-                "command".to_string(),
+                "command",
                 Some(vec!["-v".to_string(), "brew".to_string()]),
                 |stdout: &str| {
                     println!("brew location {}", stdout);

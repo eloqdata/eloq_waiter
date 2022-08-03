@@ -1,29 +1,29 @@
 use crate::cmd::check_env::CheckEnv;
 use crate::cmd::cmd_utils::{cmd_process, get_process_bar};
 use async_trait::async_trait;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
-use std::path::PathBuf;
 use thiserror::Error;
 
 pub static MONO_WATER_CONF: &str = "MONO_WATER_CONF_DIR";
 
-lazy_static! {
-    pub static ref SUPPORT_CMD_LIST: Vec<&'static str> = vec![
+pub static SUPPORT_CMD_LIST: Lazy<Vec<&'static str>> = Lazy::new(|| {
+    vec![
         "check",
         "setup_workspace",
         "playground",
         "stop_all",
-        "start_all"
-    ];
-    pub static ref CMD_DESC_MAP: HashMap<&'static str, CmdDesc> = {
-        let mut cmd_desc_mapping = HashMap::new();
-        cmd_desc_mapping.insert("check", CheckEnv {}.cmd_desc());
-        cmd_desc_mapping
-    };
-}
+        "start_all",
+    ]
+});
+
+pub static CMD_DESC_MAP: Lazy<HashMap<&'static str, CmdDesc>> = Lazy::new(|| {
+    let mut cmd_desc_mapping = HashMap::new();
+    cmd_desc_mapping.insert("check", CheckEnv {}.cmd_desc());
+    cmd_desc_mapping
+});
 
 #[derive(Error, Debug)]
 pub enum CmdErrorCode {
@@ -74,7 +74,7 @@ pub trait Cmd: 'static + Send {
     }
     /// Execute the OS command in a synchronized way, e.g.: brew list leveldb
     fn exec(&self, context: &mut CmdContext<impl Write>) -> CmdStatus {
-        println!("Trait Cmd Exec= {:?}", self.cmd_desc());
+        println!("run command={:?}", self.cmd_desc().cmd_string());
         context.record_context()
     }
     /// Actions executed after the command finishes running,
@@ -114,7 +114,7 @@ pub struct Platform {
 pub struct CmdStatus {
     pub(crate) success: bool,
     pub(crate) output: Option<String>,
-    pub(crate) status_file: Option<PathBuf>,
+    // pub(crate) status_file: Option<PathBuf>,
 }
 
 impl Display for CmdStatus {
@@ -138,7 +138,7 @@ impl Default for CmdStatus {
         Self {
             success: true,
             output: None,
-            status_file: None,
+            //status_file: None,
         }
     }
 }
@@ -168,7 +168,7 @@ where
         let cmd_status = if let Some(progress_type) = self.cmd.clone().show_progress_type {
             let pb = get_process_bar(progress_type.as_str(), self.cmd.name.as_str());
             cmd_process(
-                self.cmd.clone().name,
+                self.cmd.clone().name.as_str(),
                 self.cmd.clone().args,
                 |output_by_line: &str| {
                     pb.set_message(output_by_line.to_owned());
@@ -176,7 +176,7 @@ where
             )
         } else {
             cmd_process(
-                self.cmd.clone().name,
+                self.cmd.clone().name.as_str(),
                 self.cmd.clone().args,
                 |output_by_line: &str| {
                     println!("{}", output_by_line);

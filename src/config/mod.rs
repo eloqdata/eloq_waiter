@@ -1,24 +1,38 @@
 use crate::config::common::{Cassandra, Common};
 use ini::{Ini, Properties};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 
 pub mod common;
 
-pub static MONO_WATER_CONFIG_DIR: &str = "MONO_WATER_CONF_DIR";
+pub static MONOGRAPH_WATER_CONFIG_DIR: &str = "MONO_WATER_CONF_DIR";
+pub static MONOGRAPH_WORKSPACE_DIR: &str = "MONOGRAPH_WORKSPACE_DIR";
+
+pub static WORKSPACE_LAYOUT: Lazy<HashMap<String, String>> = Lazy::new(|| {
+    let mut workspace_layout_map = HashMap::new();
+    workspace_layout_map.insert("data".to_string(), "/monograph/datafarm".to_string());
+    workspace_layout_map.insert("etc".to_string(), "/monograph/etc".to_string());
+    workspace_layout_map.insert("install".to_string(), "/monograph/install".to_string());
+    workspace_layout_map.insert("source".to_string(), "/monograph/source".to_string());
+    workspace_layout_map.insert(
+        "third_party".to_string(),
+        "/monograph/third_party".to_string(),
+    );
+    workspace_layout_map
+});
 
 #[macro_export]
 macro_rules! extract_config_value {
     ($config_obj_key:expr, $config_obj:ident, $input_config_path:expr) => {{
         use $crate::config::load_config;
         use $crate::config::ConfigObject;
-        use $crate::config::MONO_WATER_CONFIG_DIR;
+        use $crate::config::MONOGRAPH_WATER_CONFIG_DIR;
         let mut input_path = match $input_config_path {
             Some(val) => val,
             _ => "".to_string(),
         };
         if input_path.is_empty() {
-            input_path = std::env::var(MONO_WATER_CONFIG_DIR).unwrap_or_else(|_| {
+            input_path = std::env::var(MONOGRAPH_WATER_CONFIG_DIR).unwrap_or_else(|_| {
                 panic!("Maybe it's a bug.The path to the configuration file must exist")
             });
         }
@@ -49,6 +63,21 @@ pub enum ConfigObject {
     MySQL(Properties),
 }
 
+pub fn workspace_sub_dir() -> HashMap<String, String> {
+    let workspace = extract_config_value!("common", Common, None)
+        .clone()
+        .workspace;
+    WORKSPACE_LAYOUT
+        .iter()
+        .map(|entry| {
+            (
+                entry.0.clone(),
+                format!("{}/{}", workspace, entry.1.clone()),
+            )
+        })
+        .collect::<HashMap<String, String>>()
+}
+
 pub fn load_config(config_dir: &str) -> &'static HashMap<String, ConfigObject> {
     static INSTANCE: OnceCell<HashMap<String, ConfigObject>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
@@ -58,6 +87,8 @@ pub fn load_config(config_dir: &str) -> &'static HashMap<String, ConfigObject> {
             format!("{}/{}", config_dir, "/common.toml").as_str(),
             Common
         );
+        // set workspace dir
+        std::env::set_var(MONOGRAPH_WORKSPACE_DIR, common_object.clone().workspace);
         if common_object.monograph.storage.eq("cassandra") {
             let cassandra = load_toml_config!(
                 format!("{}/{}", config_dir, "/cassandra.toml").as_str(),
@@ -85,7 +116,7 @@ fn load_mysql_config(mysql_config_path: &str) -> Properties {
 #[cfg(test)]
 mod tests {
     use crate::config::common::Common;
-    use crate::config::load_mysql_config;
+    use crate::config::{load_mysql_config, workspace_sub_dir};
 
     pub fn config_file(file: &str) -> String {
         let mut base_path = env!("CARGO_MANIFEST_DIR").to_owned();
@@ -108,6 +139,7 @@ mod tests {
 
     #[test]
     pub fn test_extract_config_value() {
+        workspace_sub_dir();
         let common_path = config_file("/config");
         let common_config = extract_config_value!("common", Common, Some(common_path.clone()));
         println!("{:?} -> {:?}", common_path, common_config);

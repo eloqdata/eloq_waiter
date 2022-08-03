@@ -28,18 +28,19 @@ impl CmdCli {
                     println!("all command list \n{}", all_support_cmd_string());
                     continue;
                 }
-                if cmd == "exit" {
+                if cmd == "exit" || cmd == "quit" {
                     process::exit(0);
                 }
                 if !SUPPORT_CMD_LIST.contains(&cmd.as_str()) {
                     println!(
-                        "warn: Not support command {}.For now support command list: \n{}",
+                        "Warn: not support command {}.For now support command list: \n{}",
                         cmd,
                         all_support_cmd_string()
                     )
                 } else {
                     let cmd_status = runner.run(cmd.to_string()).await;
-                    println!("{}", cmd_status);
+                    println!();
+                    println!("{}:{}", cmd, cmd_status);
                 }
             }
         }

@@ -9,15 +9,16 @@ sudo make install
 ''' }
 
 [compile.git]
-brpc = { git = "https://github.com/apache/incubator-brpc.git", build = '''
+brpc = { git = "https://github.com/apache/incubator-brpc.git", third_party = true, build = '''
 make -j8
 ''' }
 braft = { git = "https://github.com/baidu/braft.git" }
 catch2 = { git = "https://github.com/catchorg/Catch2.git", branch = "v2.x" }
 aws = { git = "https://github.com/aws/aws-sdk-cpp.git", options = ["--recurse-submodules"] }
-log_service = { git = "https://github.com/monographdb/log_service.git" }
-tx_service = { git = "https://github.com/monographdb/tx_service.git" }
-monograph = { git = "https://github.com/monographdb/monographdb_engine_for_mariadb.git" }
-
+log_service = { git = "git@github.com:monographdb/log_service.git" }
+tx_service = { git = "git@github.com:monographdb/tx_service.git" }
+monograph = { git = "git@github.com:monographdb/monographdb_engine_for_mariadb.git" }
+cass = { git = "https://github.com/datastax/cpp-driver.git" }
+mariadb = { git = "git@github.com:monographdb/mariadb.git", branch = "monograph-10.6.5" }
 [monograph]
 storage = "cassandra"

@@ -5,25 +5,6 @@ use std::fs::{File, OpenOptions};
 use std::io::BufRead;
 use std::path::Path;
 
-//TODO: may be use fn
-#[macro_export]
-macro_rules! stdio_handle {
-   ($stdio_closure:expr $(,$stdio_pipe:expr)*) => {{
-        $(
-          if let Some(std_out) = $stdio_pipe {
-              let buffer_reader = std::io::BufReader::new(std_out);
-              for line in buffer_reader.lines() {
-                  let line = line.unwrap();
-                  let stripped_line = line.trim();
-                  if !stripped_line.is_empty() {
-                    $stdio_closure(stripped_line);
-                  }
-              }
-          }
-        )*
-   }};
-}
-
 pub fn curr_platform() -> Platform {
     Platform {
         os_type: env::consts::OS.to_string(),
@@ -83,36 +64,49 @@ pub fn elapsed_progress_bar(len: Option<u64>, customer_msg: Option<String>) -> P
     cmd_pb
 }
 
-pub fn cmd_process<F>(cmd_name: String, args: Option<Vec<String>>, mut stdout_f: F) -> CmdStatus
+pub fn cmd_process<F>(cmd_name: &str, args: Option<Vec<String>>, mut stdout_f: F) -> CmdStatus
 where
     F: FnMut(&str),
 {
-    let mut cmd = std::process::Command::new(cmd_name.as_str());
+    let mut cmd = std::process::Command::new(cmd_name);
     if let Some(cmd_args) = args {
-        for arg in cmd_args {
-            cmd.arg(arg.as_str());
-        }
+        let real_args = cmd_args.iter().map(|c| c.as_str()).collect::<Vec<_>>();
+        cmd.args(real_args);
     }
-    let mut child = cmd
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    // .expect(format!("{} command failed to start", cmd_name).as_str());
-    stdio_handle!(stdout_f, child.stderr.take());
-    let exists_rs = child.wait();
-    println!("ExistsRs={:?}", exists_rs);
-    if let Ok(exitstatus) = exists_rs {
-        CmdStatus {
-            success: exitstatus.success(),
-            output: None,
-            status_file: None,
+    let pipe_rs = os_pipe::pipe();
+    if let Ok((reader, writer)) = pipe_rs {
+        let writer_clone = writer.try_clone().unwrap();
+        let mut child = cmd.stdout(writer).stderr(writer_clone).spawn().unwrap();
+        drop(cmd);
+
+        let buffer_reader = std::io::BufReader::new(reader);
+        for line_rs in buffer_reader.lines() {
+            let line = line_rs.unwrap();
+            let stripped_line = line.trim();
+            if !stripped_line.is_empty() {
+                stdout_f(stripped_line);
+            }
+        }
+        let child_exist_status = child.wait();
+        println!("cmd exist status={:?}", child_exist_status);
+        if let Ok(exitstatus) = child_exist_status {
+            CmdStatus {
+                success: exitstatus.success(),
+                output: None,
+            }
+        } else {
+            CmdStatus {
+                success: false,
+                output: None, //Some(stderr_output),
+            }
         }
     } else {
         CmdStatus {
             success: false,
-            output: None, //Some(stderr_output),
-            status_file: None,
+            output: Some(format!(
+                "os_pipe::pipe() error. cause by {}",
+                pipe_rs.err().unwrap()
+            )),
         }
     }
 }
