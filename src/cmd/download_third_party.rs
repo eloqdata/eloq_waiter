@@ -1,6 +1,7 @@
 use crate::cmd::base::{CmdDef, CmdStatus};
 use crate::cmd::cmd_utils::elapsed_progress_bar;
 
+use crate::cmd::cmd_const::{CASSANDRA_TAR_FILE_NAME, PROTOBUF_TAR_FILE_NAME};
 use crate::config::MONOGRAPH_WORKSPACE_DIR;
 use crate::extract_config_value;
 use futures::stream::StreamExt;
@@ -10,8 +11,6 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-static PROTOBUF_TAR_FILE_NAME: &str = "protobuf-bin.tar.gz";
-static CASSANDRA_TAR_FILE_NAME: &str = "cassandra-bin.tar.gz";
 #[macro_export]
 macro_rules! download_task {
     ($multi_progress:expr, $extract_closure:expr) => {{

@@ -1,5 +1,7 @@
 use crate::cmd::base::*;
 use crate::cmd::cmd_utils::*;
+use crate::extract_config_value;
+use crate::{build_script, cmd};
 
 #[macro_export]
 macro_rules! sync_cmd_impl {
@@ -50,6 +52,15 @@ sync_cmd_impl!(MkdirWorkspace, CmdDef, CmdExec, || {
     }
 });
 
+sync_cmd_impl!(ExtractTarFile, PipeDef, PipeExec, || {
+    use cmd::cmd_const::{PROTOBUF_TAR_FILE_NAME, CASSANDRA_TAR_FILE_NAME}
+    let extract_protobuf = extract_tar_cmd(PROTOBUF_TAR_FILE_NAME.to_string());
+    let extract_cassandra = extract_tar_cmd(CASSANDRA_TAR_FILE_NAME.to_string());
+    PipeDef {
+        cmd_vec: vec![extract_protobuf, extract_cassandra]
+    }
+});
+
 sync_cmd_impl!(LinkMonographSource, CmdDef, CmdExec, || {
     CmdDef {
         name: "bash".to_string(),
@@ -76,4 +87,12 @@ sync_cmd_impl!(LinkMonographSource, CmdDef, CmdExec, || {
         show_progress_type: None,
         payload: None,
     }
+});
+
+sync_cmd_impl!(ProtobufBuild, PipeDef, PipeExec, || {
+    build_script!(download, None, protobuf)
+});
+
+sync_cmd_impl!(GitRepoBuild, PipeDef, PipeExec, || {
+    build_script!(git, None, brpc, braft, catch2, aws)
 });

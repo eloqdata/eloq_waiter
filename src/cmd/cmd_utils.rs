@@ -1,5 +1,6 @@
 use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform};
 use crate::cmd::cmd_const::{DEPS, SUPPORT_CMD_LIST};
+use crate::config;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::env;
@@ -194,4 +195,22 @@ pub fn cmd_status_ok(input_status: &[(CmdDef, CmdStatus)]) -> bool {
         .filter(|(_, status)| !status.success)
         .count()
         == 0
+}
+
+pub fn extract_tar_cmd(file_name: String) -> CmdDef {
+    let third_party = config::workspace_sub_dir(None)
+        .get("third_party")
+        .unwrap()
+        .clone();
+    CmdDef {
+        name: "tar".to_string(),
+        args: Some(vec![
+            "-zxvf".to_string(),
+            format!("{}/{}", third_party.clone(), file_name),
+            "-C".to_string(),
+            third_party,
+        ]),
+        show_progress_type: Some("pipe".to_string()),
+        payload: None,
+    }
 }

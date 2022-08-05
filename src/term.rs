@@ -1,6 +1,6 @@
 use crate::cmd::cmd_const::SUPPORT_CMD_LIST;
 use crate::cmd::cmd_runner::CmdRunner;
-use crate::cmd::cmd_utils::{all_support_cmd_string, default_log_handler};
+use crate::cmd::cmd_utils::{all_support_cmd_string, cmd_status_ok, default_log_handler};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Completion, History, Input};
 use std::collections::VecDeque;
@@ -40,7 +40,12 @@ impl CmdCli {
                 } else {
                     let cmd_status = runner.run(cmd.to_string()).await;
                     println!();
-                    println!("{:#?}", cmd_status);
+                    if cmd_status_ok(&cmd_status) {
+                        println!("Cmd ✅ {} Success.", cmd);
+                    } else {
+                        println!("Cmd ❗ {} Failure!!!\n. {:#?}", cmd, cmd_status);
+                    }
+                    println!();
                 }
             }
         }

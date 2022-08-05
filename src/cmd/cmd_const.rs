@@ -1,8 +1,9 @@
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 
 pub static MONO_WATER_CONF: &str = "MONO_WATER_CONF_DIR";
-
+pub static PROTOBUF_TAR_FILE_NAME: &str = "protobuf-bin.tar.gz";
+pub static CASSANDRA_TAR_FILE_NAME: &str = "cassandra-bin.tar.gz";
 // Build and runtime dependencies. For now, it only supports Linux and macOS
 pub static DEPS: Lazy<HashMap<&'static str, Vec<&'static str>>> = Lazy::new(|| {
     let mut dep_mapping = HashMap::new();
@@ -52,4 +53,3 @@ pub static SUPPORT_CMD_LIST: Lazy<Vec<&'static str>> = Lazy::new(|| {
         "start_all",
     ]
 });
-

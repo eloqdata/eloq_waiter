@@ -5,6 +5,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 
 pub mod common;
+#[macro_use]
 pub mod config_macro;
 
 pub static MONOGRAPH_WATER_CONFIG_DIR: &str = "MONO_WATER_CONF_DIR";

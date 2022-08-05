@@ -5,7 +5,7 @@ use futures_util::future::join_all;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-static GIT_CLONE_SEMAPHORE: usize = 3;
+static GIT_CLONE_SEMAPHORE: usize = 4;
 pub struct GitCloneSource;
 
 impl GitCloneSource {
