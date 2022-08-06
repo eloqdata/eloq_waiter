@@ -26,7 +26,7 @@ macro_rules! sync_cmd_impl {
                 &self,
                 context: &mut CmdContext<impl std::io::Write>,
             ) -> Vec<(CmdDef, CmdStatus)> {
-                context.record_context(CmdEnum::$cmd_enum(self.definition()))
+                context.run_and_record_context(CmdEnum::$cmd_enum(self.definition()))
             }
         }
     };
@@ -53,11 +53,11 @@ sync_cmd_impl!(MkdirWorkspace, CmdDef, CmdExec, || {
 });
 
 sync_cmd_impl!(ExtractTarFile, PipeDef, PipeExec, || {
-    use cmd::cmd_const::{PROTOBUF_TAR_FILE_NAME, CASSANDRA_TAR_FILE_NAME}
+    use cmd::cmd_const::{CASSANDRA_TAR_FILE_NAME, PROTOBUF_TAR_FILE_NAME};
     let extract_protobuf = extract_tar_cmd(PROTOBUF_TAR_FILE_NAME.to_string());
     let extract_cassandra = extract_tar_cmd(CASSANDRA_TAR_FILE_NAME.to_string());
     PipeDef {
-        cmd_vec: vec![extract_protobuf, extract_cassandra]
+        cmd_vec: vec![extract_protobuf, extract_cassandra],
     }
 });
 
@@ -95,4 +95,8 @@ sync_cmd_impl!(ProtobufBuild, PipeDef, PipeExec, || {
 
 sync_cmd_impl!(GitRepoBuild, PipeDef, PipeExec, || {
     build_script!(git, None, brpc, braft, catch2, aws)
+});
+
+sync_cmd_impl!(InitMySqlInstance, CmdDef, CmdExec, || {
+    init_mysql_instance_cmd()
 });

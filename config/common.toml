@@ -1,5 +1,6 @@
 workspace = "/Users/pangzhenzhou/Downloads/workspace/"
-
+initialize_script = '''{INSTALL_DIR}/scripts/mysql_install_db --defaults-file=${CONFIG_FILE}/my-conf-1.cnf \
+ --basedir={INSTALL_DIR} --datadir={DATA_DIR} --plugin-dir={INSTALL_DIR}/lib/plugin'''
 [compile.download]
 protobuf = { url = "https://github.com/protocolbuffers/protobuf/releases/download/v3.17.3/protobuf-cpp-3.17.3.tar.gz", build = '''
 #!/bin/bash

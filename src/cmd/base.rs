@@ -134,7 +134,7 @@ pub struct CmdContext<Log>
 where
     Log: Write,
 {
-    log: Log,
+    logger: Log,
 }
 
 impl<Log> CmdContext<Log>
@@ -142,7 +142,7 @@ where
     Log: Write,
 {
     pub fn new(log: Log) -> Self {
-        Self { log }
+        Self { logger: log }
     }
 
     pub fn cmd_run(&mut self, cmd: CmdDef) -> CmdStatus {
@@ -160,7 +160,7 @@ where
             })
         };
         let write_status_to_log = writeln!(
-            self.log,
+            self.logger,
             "command={}, \n{}\n,status={}",
             cmd, runtime_log, cmd_status
         );
@@ -170,7 +170,11 @@ where
         cmd_status
     }
 
-    pub fn record_context(&mut self, cmd: CmdEnum) -> Vec<(CmdDef, CmdStatus)> {
+    pub fn logging(&mut self, log: String) {
+        let _rs = writeln!(self.logger, "{}", log);
+    }
+
+    pub fn run_and_record_context(&mut self, cmd: CmdEnum) -> Vec<(CmdDef, CmdStatus)> {
         match cmd {
             CmdEnum::CmdExec(cmd_def) => {
                 vec![(cmd_def.clone(), self.cmd_run(cmd_def))]

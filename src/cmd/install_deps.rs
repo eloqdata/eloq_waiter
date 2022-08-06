@@ -1,6 +1,6 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdEnum, CmdStatus, CmdV2, PipeDef};
 use crate::cmd::cmd_macro::CheckDeps;
-use crate::cmd::cmd_utils::install_deps;
+use crate::cmd::cmd_utils::install_deps_cmd;
 use std::io::Write;
 
 pub struct InstallDeps;
@@ -14,7 +14,7 @@ impl InstallDeps {
             if !status.success {
                 let args = cmd.clone().args.unwrap();
                 let dep_name = args.get(1).unwrap();
-                let install_dep = install_deps(dep_name.to_string());
+                let install_dep = install_deps_cmd(dep_name.to_string());
                 println!("Install Dep {}", install_dep);
                 install_dep_pipe.push(install_dep);
             }
@@ -23,7 +23,7 @@ impl InstallDeps {
             println!("Success, All dependencies are installed.");
             vec![]
         } else {
-            context.record_context(CmdEnum::PipeExec(PipeDef {
+            context.run_and_record_context(CmdEnum::PipeExec(PipeDef {
                 cmd_vec: install_dep_pipe,
             }))
         }

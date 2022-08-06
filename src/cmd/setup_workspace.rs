@@ -33,13 +33,13 @@ impl SetupWorkspace {
                 return git_clone_status;
             }
             println!("git clone third party source code success.");
-            let link_source = LinkMonographSource {}.exec(context);
+            let link_source_status = LinkMonographSource {}.exec(context);
             vec![
                 &mk_workspace[..],
                 &download_status[..],
                 &extract_status[..],
                 &git_clone_status[..],
-                &link_source[..],
+                &link_source_status[..],
             ]
             .concat()
         }

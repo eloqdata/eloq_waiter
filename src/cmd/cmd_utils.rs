@@ -1,6 +1,8 @@
 use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform};
 use crate::cmd::cmd_const::{DEPS, SUPPORT_CMD_LIST};
-use crate::config;
+use crate::config::workspace_sub_dir;
+use crate::{config, extract_config_value};
+use anyhow::anyhow;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::env;
@@ -92,8 +94,8 @@ where
             }
         }
         let child_exist_status = child.wait();
-        println!("{} {:?}", cmd_desc, child_exist_status);
         if let Ok(exitstatus) = child_exist_status {
+            println!("{} success={}", cmd_desc, exitstatus.success());
             CmdStatus {
                 success: exitstatus.success(),
                 output: None,
@@ -152,7 +154,7 @@ pub fn get_http_proxy() -> Option<HashMap<&'static str, String>> {
     }
 }
 
-pub fn install_deps(dep: String) -> CmdDef {
+pub fn install_deps_cmd(dep: String) -> CmdDef {
     let platform = curr_platform();
     match platform.os_type.as_str() {
         "macos" => CmdDef {
@@ -198,19 +200,109 @@ pub fn cmd_status_ok(input_status: &[(CmdDef, CmdStatus)]) -> bool {
 }
 
 pub fn extract_tar_cmd(file_name: String) -> CmdDef {
-    let third_party = config::workspace_sub_dir(None)
-        .get("third_party")
-        .unwrap()
-        .clone();
+    let third_party = workspace_sub_dir(None).get("third_party").unwrap().clone();
     CmdDef {
         name: "tar".to_string(),
         args: Some(vec![
             "-zxvf".to_string(),
-            format!("{}/{}", third_party.clone(), file_name),
+            format!("{}/{}", third_party, file_name),
             "-C".to_string(),
             third_party,
         ]),
         show_progress_type: Some("pipe".to_string()),
         payload: None,
     }
+}
+
+pub fn set_storage_env(dir: Option<String>) -> anyhow::Result<()> {
+    let third_path = if let Some(third_party_dir) = dir {
+        third_party_dir
+    } else {
+        let sub_dirs = workspace_sub_dir(None);
+        sub_dirs.get("third_party").unwrap().to_string()
+    };
+    let red_dir = Path::new(third_path.as_str()).read_dir().unwrap();
+    for dir_entry in red_dir {
+        if dir_entry.is_err() {
+            return Err(anyhow::Error::from(dir_entry.err().unwrap()));
+        }
+        let dir = dir_entry.unwrap();
+        let path = dir.path();
+        if path.is_dir() {
+            let file_name = path.file_name().unwrap().to_str().unwrap();
+            if file_name.contains("cassandra") {
+                env::set_var(
+                    "CASSANDRA_BIN_DIR",
+                    format!("{}/bin", path.to_str().unwrap()),
+                );
+                return Ok(());
+            }
+        }
+    }
+    return Err(anyhow!("not found storage from {}", third_path));
+}
+
+pub fn init_mysql_instance_cmd() -> CmdDef {
+    let sub_dir = config::workspace_sub_dir(None);
+    let third_party_dir = sub_dir.get("third_party").unwrap().clone();
+    let set_env_rs = set_storage_env(Some(third_party_dir));
+    if set_env_rs.is_err() {
+        panic!("set cassandra env error!");
+    }
+    let install_dir = sub_dir.get("install").unwrap();
+    let etc_dir = sub_dir.get("etc").unwrap();
+    let data = sub_dir.get("data").unwrap();
+    let common = extract_config_value!("common", Common, None);
+    let init_script = common.clone().initialize_script;
+
+    let mut exec_script = init_script.replace("INSTALL_DIR", install_dir);
+    exec_script = exec_script.replace("CONFIG_FILE", etc_dir);
+    exec_script = exec_script.replace("DATA_DIR", data);
+
+    CmdDef {
+        name: "bash".to_string(),
+        args: Some(vec!["-c".to_string(), exec_script]),
+        payload: None,
+        show_progress_type: None,
+    }
+}
+
+pub fn mk_data_dir_cmd(count: usize) -> PipeDef {
+    let sub_dir = config::workspace_sub_dir(None);
+    let data_dir = sub_dir.get("data").unwrap();
+    let mut mkdir_cmd_vec = Vec::default();
+    for i in 1..=count {
+        mkdir_cmd_vec.push(CmdDef {
+            name: "mkdir".to_string(),
+            args: Some(vec!["-p".to_string(), format!("{}/data_{}", data_dir, i)]),
+            show_progress_type: None,
+            payload: None,
+        });
+    }
+    PipeDef {
+        cmd_vec: mkdir_cmd_vec,
+    }
+}
+
+pub fn copy_data_dir_cmd(source_dir: String, dest_dir: Vec<String>) -> PipeDef {
+    let sub_dir = config::workspace_sub_dir(None);
+    let data_dir = sub_dir.get("data").unwrap();
+    let mut cp_cmd = vec![];
+    for dest in dest_dir {
+        let absolute_dest_dir = format!("{}/{}", data_dir, dest);
+        let cp_cmd_vec = vec!["mysql", "sys", "test", "performance_schema"]
+            .iter()
+            .map(|schema| {
+                let source = format!("{}/{}/{}", data_dir, source_dir, schema);
+                CmdDef {
+                    name: "cp".to_string(),
+                    args: Some(vec!["-r".to_string(), source, absolute_dest_dir.clone()]),
+                    show_progress_type: None,
+                    payload: None,
+                }
+            })
+            .collect::<Vec<_>>();
+        cp_cmd.extend(cp_cmd_vec);
+    }
+    PipeDef { cmd_vec: cp_cmd }
 }

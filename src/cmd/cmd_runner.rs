@@ -1,5 +1,6 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
-use crate::cmd::cmd_macro::CheckDeps;
+use crate::cmd::cmd_macro::{CheckDeps, GitRepoBuild, ProtobufBuild};
+use crate::cmd::cmd_utils::cmd_status_ok;
 use crate::cmd::install_deps::InstallDeps;
 use crate::cmd::setup_workspace::SetupWorkspace;
 use std::collections::HashMap;
@@ -13,18 +14,31 @@ macro_rules! cmd_exec {
     }};
 }
 
+#[macro_export]
+macro_rules! cmd_context_mapping {
+    ($log:expr $(,$cmd_string:expr)*) => {{
+        let mut cmd_context_mapping = HashMap::new();
+        $(
+          cmd_context_mapping.insert($cmd_string, CmdContext::new($log));
+        )*
+        cmd_context_mapping
+    }}
+}
+
 pub struct CmdRunner<'s> {
     cmd_context_mapping: HashMap<&'s str, CmdContext<&'s File>>,
 }
 
 impl<'s> CmdRunner<'s> {
     pub fn new(log: &'s File) -> Self {
-        let mut cmd_context_mapping = HashMap::new();
-        cmd_context_mapping.insert("check_deps", CmdContext::new(log));
-        cmd_context_mapping.insert("install_deps", CmdContext::new(log));
-        cmd_context_mapping.insert("setup_workspace", CmdContext::new(log));
         Self {
-            cmd_context_mapping,
+            cmd_context_mapping: cmd_context_mapping!(
+                log,
+                "check_deps",
+                "install_deps",
+                "setup_workspace",
+                "build"
+            ),
         }
     }
 
@@ -40,6 +54,16 @@ impl<'s> CmdRunner<'s> {
             "setup_workspace" => {
                 let context = self.cmd_context_mapping.get(cmd_str);
                 SetupWorkspace {}.exec(&mut context.unwrap().clone()).await
+            }
+            "build" => {
+                let mut protobuf_build = cmd_exec!(self, cmd_str, ProtobufBuild);
+                if !cmd_status_ok(&protobuf_build) {
+                    protobuf_build
+                } else {
+                    let git_repo_build = cmd_exec!(self, cmd_str, GitRepoBuild);
+                    protobuf_build.extend(git_repo_build);
+                    protobuf_build
+                }
             }
             _ => {
                 unreachable!()

@@ -1,6 +1,6 @@
 use crate::config::common::{Cassandra, Common};
 use crate::{extract_config_value, load_toml_config};
-use ini::{Ini, Properties};
+use ini::Ini;
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 
@@ -27,7 +27,7 @@ pub static WORKSPACE_LAYOUT: Lazy<HashMap<String, String>> = Lazy::new(|| {
 pub enum ConfigObject {
     Common(Box<Common>),
     Storage(Cassandra),
-    MySQL(Properties),
+    MySQL(Ini),
 }
 
 pub fn workspace_sub_dir(path: Option<String>) -> HashMap<String, String> {
@@ -68,23 +68,19 @@ pub fn load_config(config_dir: &str) -> &'static HashMap<String, ConfigObject> {
             "common".to_string(),
             ConfigObject::Common(Box::new(common_object)),
         );
-        let properties =
-            load_mysql_config(format!("{}/{}", config_dir, "/mysql/mysql_template.cnf").as_str());
-        config_mapping.insert("mysql".to_string(), ConfigObject::MySQL(properties));
+        let mysql_cnf_ini =
+            Ini::load_from_file(format!("{}/{}", config_dir, "/mysql/mysql_template.cnf")).unwrap();
+        config_mapping.insert("mysql".to_string(), ConfigObject::MySQL(mysql_cnf_ini));
         config_mapping
     })
-}
-
-fn load_mysql_config(mysql_config_path: &str) -> Properties {
-    let my_cnf = Ini::load_from_file(mysql_config_path).unwrap();
-    my_cnf.section(Some("mariadb")).unwrap().clone()
 }
 
 #[cfg(test)]
 mod tests {
     use crate::config::common::Common;
-    use crate::config::load_mysql_config;
+    use crate::config::workspace_sub_dir;
     use crate::{build_script, extract_config_value, load_toml_config};
+    use std::io::stdout;
 
     pub fn config_file(file: &str) -> String {
         let mut base_path = env!("CARGO_MANIFEST_DIR").to_owned();
@@ -97,12 +93,6 @@ mod tests {
         let common_path = config_file("/config/common.toml");
         let common = load_toml_config!(common_path.as_str(), Common);
         println!("Common {:?}", common);
-    }
-
-    #[test]
-    pub fn test_load_mysql_config() {
-        let mysql_config_path = config_file("/config/mysql/mysql_template.cnf");
-        load_mysql_config(mysql_config_path.as_str());
     }
 
     #[test]
@@ -122,5 +112,26 @@ mod tests {
         println!("{:?}", thirty_party_git_build);
         assert_eq!(protobuf_build_cmd.cmd_vec.len(), 1);
         assert_eq!(thirty_party_git_build.cmd_vec.len(), 4);
+    }
+
+    #[test]
+    pub fn test_gen_multi_mysql_config() {
+        let config_path = config_file("/config");
+        let mut mysql_config =
+            extract_config_value!("mysql", MySQL, Some(config_path.clone())).clone();
+
+        let sub_dir = workspace_sub_dir(Some(config_path));
+        println!("{:#?}", sub_dir);
+        let data_dir = sub_dir.get("data").unwrap();
+        let install_dir = sub_dir.get("install").unwrap();
+
+        let lc_message_dir = mysql_config.get_from(Some("mariadb"), "monograph_local_ip");
+        println!("lc_message_dir={:?}", lc_message_dir);
+        mysql_config
+            .with_section(Some("mariadb"))
+            .set("datadir", data_dir)
+            .set("lc_messages_dir", format!("{}/share", install_dir));
+
+        mysql_config.write_to(&mut stdout()).unwrap();
     }
 }
