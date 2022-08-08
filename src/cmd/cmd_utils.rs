@@ -285,7 +285,7 @@ pub fn mk_data_dir_cmd(count: usize) -> PipeDef {
 }
 
 pub fn copy_data_dir_cmd(source_dir: String, dest_dir: Vec<String>) -> PipeDef {
-    let sub_dir = config::workspace_sub_dir(None);
+    let sub_dir = workspace_sub_dir(None);
     let data_dir = sub_dir.get("data").unwrap();
     let mut cp_cmd = vec![];
     for dest in dest_dir {

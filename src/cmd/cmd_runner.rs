@@ -1,5 +1,5 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
-use crate::cmd::cmd_macro::{CheckDeps, GitRepoBuild, ProtobufBuild};
+use crate::cmd::cmd_macro::*;
 use crate::cmd::cmd_utils::cmd_status_ok;
 use crate::cmd::install_deps::InstallDeps;
 use crate::cmd::setup_workspace::SetupWorkspace;
@@ -37,6 +37,7 @@ impl<'s> CmdRunner<'s> {
                 "check_deps",
                 "install_deps",
                 "setup_workspace",
+                "ln_source",
                 "build"
             ),
         }
@@ -54,6 +55,9 @@ impl<'s> CmdRunner<'s> {
             "setup_workspace" => {
                 let context = self.cmd_context_mapping.get(cmd_str);
                 SetupWorkspace {}.exec(&mut context.unwrap().clone()).await
+            }
+            "ln_source" => {
+                cmd_exec!(self, cmd_str, LinkMonographSource)
             }
             "build" => {
                 let mut protobuf_build = cmd_exec!(self, cmd_str, ProtobufBuild);

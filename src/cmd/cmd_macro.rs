@@ -68,19 +68,21 @@ sync_cmd_impl!(LinkMonographSource, CmdDef, CmdExec, || {
             "-c".to_string(),
             r#"
     #!/bin/bash
-    source_dir=${MONOGRAPH_WORKSPACE_DIR}/source
+    source_dir=${MONOGRAPH_WORKSPACE_DIR}/monograph/source
     monograph_dir=${source_dir}/monograph
     mariadb_dir=${source_dir}/mariadb
-    echo ${source_dir} ${monograph_dir} ${mariadb_dir}
-    cd $mariadb_dir
+    printf "workspace source dir %s \n" ${source_dir}
+    printf "workspace monograph source dir %s \n" ${monograph_dir}
+    printf "workspace mariadb  source dir %s \n" ${mariadb_dir}
+    cd ${mariadb_dir}
     echo "MariaDB git submodule init"
     git_submodel_init="git submodule init"
     eval ${git_submodel_init}
     echo "Link Monograph Source"
-    ln -s ${monograph_dir} ${mariadb_dir}/storage/monograph
-    ln -s ${source_dir}/log_service ${source_dir}/tx_service/log_service
-    ln -s ${source_dir}/cass ${monograph_dir}/cass
-    ln -s ${source_dir}/tx_service ${monograph_dir}/tx_service
+    ln -nsF ${source_dir}/log_service ${source_dir}/tx_service/log_service
+    ln -nsF ${source_dir}/cass ${monograph_dir}/cass
+    ln -nsF ${source_dir}/tx_service ${monograph_dir}/tx_service
+    ln -nsF ${monograph_dir} ${mariadb_dir}/storage/monograph
 "#
             .to_string(),
         ]),

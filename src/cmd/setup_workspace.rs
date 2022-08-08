@@ -1,5 +1,5 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
-use crate::cmd::cmd_macro::{ExtractTarFile, LinkMonographSource, MkdirWorkspace};
+use crate::cmd::cmd_macro::{ExtractTarFile, MkdirWorkspace};
 use crate::cmd::cmd_utils::cmd_status_ok;
 use crate::cmd::download_third_party::DownloadThirdParty;
 use crate::cmd::git_clone_source::GitCloneSource;
@@ -33,13 +33,11 @@ impl SetupWorkspace {
                 return git_clone_status;
             }
             println!("git clone third party source code success.");
-            let link_source_status = LinkMonographSource {}.exec(context);
             vec![
                 &mk_workspace[..],
                 &download_status[..],
                 &extract_status[..],
                 &git_clone_status[..],
-                &link_source_status[..],
             ]
             .concat()
         }
