@@ -1,21 +1,28 @@
 use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform};
-use crate::cmd::cmd_const::{DEPS, SUPPORT_CMD_LIST};
-use crate::config::workspace_sub_dir;
-use crate::{config, extract_config_value};
+use crate::cmd::cmd_const::{SUPPORT_CMD_LIST, SYSTEM_DEPS, SYSTEM_INFO};
+use crate::config::{workspace_sub_dir, MONOGRAPH_WATER_CONFIG_DIR};
+use crate::{check_deps_cmds, config, extract_config_value};
 use anyhow::anyhow;
 use indicatif::{ProgressBar, ProgressStyle};
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{File, OpenOptions};
-use std::io::BufRead;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub fn curr_platform() -> Platform {
-    Platform {
-        os_type: env::consts::OS.to_string(),
-        arch: env::consts::ARCH.to_string(),
-        family: env::consts::FAMILY.to_string(),
-    }
+pub fn get_platform_info(config_path: Option<String>) -> &'static Platform {
+    static INSTANCE: OnceCell<Platform> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        let sys_deps = load_deps(config_path);
+        let os_type = SYSTEM_INFO.get("os_type").unwrap();
+        Platform {
+            os_type: os_type.clone(),
+            arch: env::consts::ARCH.to_string(),
+            family: env::consts::FAMILY.to_string(),
+            deps: sys_deps.get(os_type).unwrap().clone(),
+        }
+    })
 }
 
 pub fn default_log_handler() -> anyhow::Result<File> {
@@ -155,7 +162,7 @@ pub fn get_http_proxy() -> Option<HashMap<&'static str, String>> {
 }
 
 pub fn install_deps_cmd(dep: String) -> CmdDef {
-    let platform = curr_platform();
+    let platform = get_platform_info(None);
     match platform.os_type.as_str() {
         "macos" => CmdDef {
             name: "brew".to_string(),
@@ -170,20 +177,13 @@ pub fn install_deps_cmd(dep: String) -> CmdDef {
 }
 
 pub fn check_deps_as_pipe() -> PipeDef {
-    let platform = curr_platform();
+    let platform = get_platform_info(None);
     match platform.os_type.as_str() {
-        "macos" => PipeDef {
-            cmd_vec: DEPS
-                .get("macos")
-                .unwrap()
-                .iter()
-                .map(|dep| CmdDef {
-                    name: "brew".to_string(),
-                    args: Some(vec!["list".to_string(), dep.to_string()]),
-                    show_progress_type: Some("pipe".to_string()),
-                    payload: None,
-                })
-                .collect::<Vec<_>>(),
+        "Darwin" => PipeDef {
+            cmd_vec: check_deps_cmds!(platform.clone(), "brew", "list"),
+        },
+        "Ubuntu" => PipeDef {
+            cmd_vec: check_deps_cmds!(platform.clone(), "dpkg", "-s"),
         },
         _ => {
             panic!("not support platform");
@@ -305,4 +305,61 @@ pub fn copy_data_dir_cmd(source_dir: String, dest_dir: Vec<String>) -> PipeDef {
         cp_cmd.extend(cp_cmd_vec);
     }
     PipeDef { cmd_vec: cp_cmd }
+}
+
+pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
+    let sys_dep_path = if let Some(path) = deps_path {
+        format!("{}/deps", path)
+    } else {
+        format!(
+            "{}/deps",
+            std::env::var(MONOGRAPH_WATER_CONFIG_DIR).unwrap()
+        )
+    };
+    let read_dir_rs = std::fs::read_dir(Path::new(sys_dep_path.as_str()));
+    if read_dir_rs.is_err() {
+        panic!(
+            "Load system deps failure. Please check if the path = {}",
+            sys_dep_path
+        );
+    }
+    let read_dir = read_dir_rs.unwrap();
+    read_dir
+        .into_iter()
+        .map(|dir_entry_rs| dir_entry_rs.unwrap())
+        .filter(|dir_entry_rs| {
+            let path = dir_entry_rs.path();
+            path.is_file()
+        })
+        .filter(|file_entry| {
+            let file_name_os_tstr = file_entry.file_name();
+            let file_name_str = file_name_os_tstr.to_str().unwrap();
+            SYSTEM_DEPS.contains(&file_name_str)
+        })
+        .map(|file_entry| {
+            let path = file_entry.path();
+            let file_name = path.file_name().unwrap();
+            let file_name_str = file_name.to_str().unwrap().to_string();
+            let file = std::fs::File::open(path).unwrap();
+            let file_reader = BufReader::new(file);
+            let dep_list = file_reader
+                .lines()
+                .filter_map(Result::ok)
+                .collect::<Vec<_>>();
+
+            (file_name_str, dep_list)
+        })
+        .collect::<HashMap<String, Vec<String>>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cmd::cmd_utils::load_deps;
+
+    #[test]
+    pub fn test_load_deps() {
+        let path =
+            "/Users/pangzhenzhou/workspace/monograph/source/monograph_waiter/config".to_string();
+        load_deps(Some(path));
+    }
 }
