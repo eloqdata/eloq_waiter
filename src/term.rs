@@ -43,7 +43,11 @@ impl CmdCli {
                     if cmd_status_ok(&cmd_status) {
                         println!("Cmd ✅ {} Success.", cmd);
                     } else {
-                        println!("Cmd ❗ {} Failure!!!\n. {:#?}", cmd, cmd_status);
+                        let failure_status = cmd_status
+                            .iter()
+                            .filter(|(_, status)| !status.success)
+                            .collect::<Vec<_>>();
+                        println!("{:#?} ❗ {} Failure!!!", failure_status, cmd);
                     }
                     println!();
                 }
