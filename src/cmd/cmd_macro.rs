@@ -1,7 +1,25 @@
 use crate::cmd::base::*;
 use crate::cmd::cmd_utils::*;
 use crate::extract_config_value;
+
 use crate::{build_script, cmd};
+
+#[macro_export]
+macro_rules! check_deps_cmds {
+    ($platform:expr, $check_cmd:expr, $check_cmd_arg:expr) => {{
+        use $crate::cmd::base::CmdDef;
+        $platform
+            .deps
+            .iter()
+            .map(|dep| CmdDef {
+                name: $check_cmd.to_string(),
+                args: Some(vec![$check_cmd_arg.to_string(), dep.to_string()]),
+                show_progress_type: Some("pipe".to_string()),
+                payload: None,
+            })
+            .collect::<Vec<_>>()
+    }};
+}
 
 #[macro_export]
 macro_rules! sync_cmd_impl {
@@ -32,7 +50,21 @@ macro_rules! sync_cmd_impl {
     };
 }
 
-sync_cmd_impl!(CheckDeps, PipeDef, PipeExec, || { check_deps_as_pipe() });
+sync_cmd_impl!(CheckDeps, PipeDef, PipeExec, || {
+    let platform = get_platform_info(None);
+    println!("current OS Name is {}", platform.os_type);
+    match platform.os_type.as_str() {
+        "darwin" => PipeDef {
+            cmd_vec: check_deps_cmds!(platform.clone(), "brew", "list"),
+        },
+        "ubuntu" => PipeDef {
+            cmd_vec: check_deps_cmds!(platform.clone(), "dpkg", "-s"),
+        },
+        _ => {
+            panic!("not support platform");
+        }
+    }
+});
 
 sync_cmd_impl!(MkdirWorkspace, CmdDef, CmdExec, || {
     use crate::config::{MONOGRAPH_WORKSPACE_DIR, WORKSPACE_LAYOUT};

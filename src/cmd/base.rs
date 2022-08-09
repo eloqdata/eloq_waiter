@@ -5,22 +5,6 @@ use std::fmt::{Display, Formatter};
 use std::io::Write;
 use thiserror::Error;
 
-#[macro_export]
-macro_rules! check_deps_cmds {
-    ($platform:expr, $check_cmd:expr, $check_cmd_arg:expr) => {{
-        use $crate::cmd::base::CmdDef;
-        $platform
-            .deps
-            .iter()
-            .map(|dep| CmdDef {
-                name: $check_cmd.to_string(),
-                args: Some(vec![$check_cmd_arg.to_string(), dep.to_string()]),
-                show_progress_type: Some("pipe".to_string()),
-                payload: None,
-            })
-            .collect::<Vec<_>>()
-    }};
-}
 #[derive(Debug, Clone)]
 pub enum CmdEnum {
     CmdExec(CmdDef),
@@ -108,11 +92,19 @@ pub trait AsyncCmd: 'static + Send + CmdV2 {
 }
 
 #[derive(Clone, Debug)]
+pub struct UserInfo {
+    pub is_root: bool,
+    pub has_sudo: bool,
+    pub user_name: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct Platform {
     pub os_type: String,
     pub arch: String,
     pub family: String,
     pub deps: Vec<String>,
+    pub user: UserInfo,
 }
 
 #[derive(Clone, Debug)]
@@ -204,20 +196,5 @@ where
                 cmd_status_rs
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cmd::cmd_utils::get_platform_info;
-
-    #[test]
-    pub fn test_dep_macro() {
-        let mut base_path = env!("CARGO_MANIFEST_DIR").to_owned();
-        base_path.push_str("/config");
-        let platform = get_platform_info(Some(base_path));
-        println!("platform = {:?}", platform);
-        let cmd_vec = check_deps_cmds!(platform, "brew", "list");
-        println!("cmd_vec = {:?}", cmd_vec);
     }
 }

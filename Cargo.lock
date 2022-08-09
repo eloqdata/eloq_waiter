@@ -622,6 +622,7 @@ dependencies = [
  "futures",
  "futures-util",
  "indicatif",
+ "libc",
  "once_cell",
  "os_pipe",
  "reqwest",

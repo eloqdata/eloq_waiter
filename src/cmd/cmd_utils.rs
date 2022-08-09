@@ -1,7 +1,7 @@
-use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform};
+use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform, UserInfo};
 use crate::cmd::cmd_const::{SUPPORT_CMD_LIST, SYSTEM_DEPS, SYSTEM_INFO};
 use crate::config::{workspace_sub_dir, MONOGRAPH_WATER_CONFIG_DIR};
-use crate::{check_deps_cmds, config, extract_config_value};
+use crate::{config, extract_config_value};
 use anyhow::anyhow;
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
@@ -10,6 +10,7 @@ use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::str::FromStr;
 
 pub fn get_platform_info(config_path: Option<String>) -> &'static Platform {
     static INSTANCE: OnceCell<Platform> = OnceCell::new();
@@ -21,6 +22,11 @@ pub fn get_platform_info(config_path: Option<String>) -> &'static Platform {
             arch: env::consts::ARCH.to_string(),
             family: env::consts::FAMILY.to_string(),
             deps: sys_deps.get(os_type).unwrap().clone(),
+            user: UserInfo {
+                is_root: bool::from_str(SYSTEM_INFO.get("is_root").unwrap()).unwrap(),
+                has_sudo: bool::from_str(SYSTEM_INFO.get("has_sudo").unwrap()).unwrap(),
+                user_name: SYSTEM_INFO.get("current_user").unwrap().to_string(),
+            },
         }
     })
 }
@@ -144,58 +150,6 @@ pub fn create_log_path_and_get() -> String {
         println!("Create Log root error path={} err={:?}", curr_path, err);
     }
     curr_path + "/monograph_waiter.log"
-}
-
-pub fn get_http_proxy() -> Option<HashMap<&'static str, String>> {
-    let mut proxy = HashMap::new();
-    if env::var("https_proxy").is_ok() {
-        proxy.insert("https.proxy", env::var("https_proxy").unwrap());
-    }
-    if env::var("http_proxy").is_ok() {
-        proxy.insert("http.proxy", env::var("http_proxy").unwrap());
-    }
-    if proxy.is_empty() {
-        None
-    } else {
-        Some(proxy)
-    }
-}
-
-pub fn install_deps_cmd(dep: String) -> CmdDef {
-    let platform = get_platform_info(None);
-    match platform.os_type.as_str() {
-        "darwin" => CmdDef {
-            name: "brew".to_string(),
-            args: Some(vec!["install".to_string(), dep]),
-            show_progress_type: None,
-            payload: None,
-        },
-        "ubuntu" => CmdDef {
-            name: "apt-get".to_string(),
-            args: Some(vec!["install".to_string(), "-y".to_string(), dep]),
-            show_progress_type: None,
-            payload: None,
-        },
-        _ => {
-            panic!("not support platform");
-        }
-    }
-}
-
-pub fn check_deps_as_pipe() -> PipeDef {
-    let platform = get_platform_info(None);
-    println!("current OS Name is {}", platform.os_type);
-    match platform.os_type.as_str() {
-        "darwin" => PipeDef {
-            cmd_vec: check_deps_cmds!(platform.clone(), "brew", "list"),
-        },
-        "ubuntu" => PipeDef {
-            cmd_vec: check_deps_cmds!(platform.clone(), "dpkg", "-s"),
-        },
-        _ => {
-            panic!("not support platform");
-        }
-    }
 }
 
 pub fn cmd_status_ok(input_status: &[(CmdDef, CmdStatus)]) -> bool {
@@ -357,16 +311,4 @@ pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
             (file_name_str, dep_list)
         })
         .collect::<HashMap<String, Vec<String>>>()
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cmd::cmd_utils::load_deps;
-
-    #[test]
-    pub fn test_load_deps() {
-        let path =
-            "/Users/pangzhenzhou/workspace/monograph/source/monograph_waiter/config".to_string();
-        load_deps(Some(path));
-    }
 }
