@@ -8,3 +8,4 @@ pub mod gen_mysql_cnf;
 pub mod git_clone_source;
 pub mod install_deps;
 pub mod setup_workspace;
+pub mod init_db;

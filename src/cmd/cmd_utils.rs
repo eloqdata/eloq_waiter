@@ -1,7 +1,6 @@
 use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform, UserInfo};
 use crate::cmd::cmd_const::{SUPPORT_CMD_LIST, SYSTEM_DEPS, SYSTEM_INFO};
 use crate::config::{workspace_sub_dir, MONOGRAPH_WATER_CONFIG_DIR};
-use crate::{config, extract_config_value};
 use anyhow::anyhow;
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
@@ -203,33 +202,8 @@ pub fn set_storage_env(dir: Option<String>) -> anyhow::Result<()> {
     return Err(anyhow!("not found storage from {}", third_path));
 }
 
-pub fn init_mysql_instance_cmd() -> CmdDef {
-    let sub_dir = config::workspace_sub_dir(None);
-    let third_party_dir = sub_dir.get("third_party").unwrap().clone();
-    let set_env_rs = set_storage_env(Some(third_party_dir));
-    if set_env_rs.is_err() {
-        panic!("set cassandra env error!");
-    }
-    let install_dir = sub_dir.get("install").unwrap();
-    let etc_dir = sub_dir.get("etc").unwrap();
-    let data = sub_dir.get("data").unwrap();
-    let common = extract_config_value!("common", Common, None);
-    let init_script = common.clone().initialize_script;
-
-    let mut exec_script = init_script.replace("INSTALL_DIR", install_dir);
-    exec_script = exec_script.replace("CONFIG_FILE", etc_dir);
-    exec_script = exec_script.replace("DATA_DIR", data);
-
-    CmdDef {
-        name: "bash".to_string(),
-        args: Some(vec!["-c".to_string(), exec_script]),
-        payload: None,
-        show_progress_type: None,
-    }
-}
-
 pub fn mk_data_dir_cmd(count: usize) -> PipeDef {
-    let sub_dir = config::workspace_sub_dir(None);
+    let sub_dir = workspace_sub_dir(None);
     let data_dir = sub_dir.get("data").unwrap();
     let mut mkdir_cmd_vec = Vec::default();
     for i in 1..=count {
@@ -293,8 +267,8 @@ pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
             path.is_file()
         })
         .filter(|file_entry| {
-            let file_name_os_tstr = file_entry.file_name();
-            let file_name_str = file_name_os_tstr.to_str().unwrap();
+            let file_name_os_str = file_entry.file_name();
+            let file_name_str = file_name_os_str.to_str().unwrap();
             SYSTEM_DEPS.contains(&file_name_str)
         })
         .map(|file_entry| {

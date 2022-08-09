@@ -16,8 +16,7 @@ pub static SUPPORT_CMD_LIST: Lazy<Vec<&'static str>> = Lazy::new(|| {
         "gen_mysql_cnf",
         "build",
         "playground",
-        "stop_all",
-        "start_all",
+        "init_db",
     ]
 });
 

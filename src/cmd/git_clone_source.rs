@@ -5,7 +5,8 @@ use futures_util::future::join_all;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-static GIT_CLONE_SEMAPHORE: usize = 2;
+// if the network situation is good, this restriction is not necessary.
+static GIT_CLONE_SEMAPHORE: usize = 3;
 pub struct GitCloneSource;
 
 impl GitCloneSource {

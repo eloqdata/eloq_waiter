@@ -1,6 +1,11 @@
 workspace = "/test_workspace"
-initialize_script = '''{INSTALL_DIR}/scripts/mysql_install_db --defaults-file=${CONFIG_FILE}/my-conf-1.cnf \
- --basedir={INSTALL_DIR} --datadir={DATA_DIR} --plugin-dir={INSTALL_DIR}/lib/plugin'''
+initialize_script = '''
+#!/bin/bash
+mkdir -p ${MONOGRAPH_WORKSPACE_DIR}/monograph/datafarm/data_0
+${MONOGRAPH_WORKSPACE_DIR}/monograph/install/scripts/mysql_install_db --defaults-file=${CONFIG_FILE}/my-conf-1.cnf \
+ --basedir=${MONOGRAPH_WORKSPACE_DIR}/monograph/install/scripts/mysql_install_db \
+ --datadir=${MONOGRAPH_WORKSPACE_DIR}/monograph/datafarm/data_0  --plugin-dir=${MONOGRAPH_WORKSPACE_DIR}/monograph/install/lib/plugin
+ '''
 [compile.download]
 protobuf = { url = "https://github.com/protocolbuffers/protobuf/releases/download/v3.17.3/protobuf-cpp-3.17.3.tar.gz", build = '''
 #!/bin/bash
@@ -11,6 +16,7 @@ pwd
 make -j$(nproc)
 make check
 sudo make install
+sudo ldconfig
 ''' }
 
 [compile.git]
@@ -66,7 +72,7 @@ cd ${MONOGRAPH_WORKSPACE_DIR}/monograph/source/mariadb
 echo 'build MonographDB'
 pwd
 mkdir -p bld && rm -rf ./bld/* && cd bld
-cmake ../ -DCMAKE_INSTALL_PREFIX=${MONOGRAPH_WORKSPACE_DIR}/install -DCMAKE_BUILD_TYPE=Debug -DPLUGIN_{HANDLERSOCKET,ROCKSDB,ARIA,ARCHIVE,CVS,FEDERATEDX,TOKUDB,MROONGA,OQGRAPH,CONNECT,PERFSCHEMA,SPIDER,SPHINX,HEAP,MYISAMMRG,SEQUENCE}=NO -DINSTALL_MYSQLTESTDIR="" -DCMAKE_CXX_FLAGS_DEBUG="${CMAKE_CXX_FLAGS_DEBUG} -Wno-error" -DMYSQL_MAINTAINER_MODE=OFF -DWITH_SSL=system -DWITH_DEBUG=1
+cmake ../ -DCMAKE_INSTALL_PREFIX=${MONOGRAPH_WORKSPACE_DIR}/monograph/install -DCMAKE_BUILD_TYPE=Debug -DPLUGIN_{HANDLERSOCKET,ROCKSDB,ARIA,ARCHIVE,CVS,FEDERATEDX,TOKUDB,MROONGA,OQGRAPH,CONNECT,PERFSCHEMA,SPIDER,SPHINX,HEAP,MYISAMMRG,SEQUENCE}=NO -DINSTALL_MYSQLTESTDIR="" -DCMAKE_CXX_FLAGS_DEBUG="${CMAKE_CXX_FLAGS_DEBUG} -Wno-error" -DMYSQL_MAINTAINER_MODE=OFF -DWITH_SSL=system -DWITH_DEBUG=1
 cmake --build . --config Debug -j4
 cmake --install . --config Debug
 ''' }

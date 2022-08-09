@@ -2,6 +2,7 @@ use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::cmd_macro::*;
 use crate::cmd::cmd_utils::cmd_status_ok;
 use crate::cmd::gen_mysql_cnf::GenMySQLConf;
+use crate::cmd::init_db::InitDB;
 use crate::cmd::install_deps::InstallDeps;
 use crate::cmd::setup_workspace::SetupWorkspace;
 use std::collections::HashMap;
@@ -40,7 +41,8 @@ impl<'s> CmdRunner<'s> {
                 "setup_workspace",
                 "ln_source",
                 "gen_mysql_cnf",
-                "build"
+                "build",
+                "init_db"
             ),
         }
     }
@@ -63,8 +65,6 @@ impl<'s> CmdRunner<'s> {
             }
             "gen_mysql_cnf" => {
                 cmd_exec!(self, cmd_str, GenMySQLConf)
-                // let context = self.cmd_context_mapping.get(cmd_str);
-                // GenMySQLConf {}.exec(&mut context.unwrap().clone())
             }
             "build" => {
                 let mut protobuf_build = cmd_exec!(self, cmd_str, ProtobufBuild);
@@ -75,6 +75,9 @@ impl<'s> CmdRunner<'s> {
                     protobuf_build.extend(git_repo_build);
                     protobuf_build
                 }
+            }
+            "init_db" => {
+                cmd_exec!(self, cmd_str, InitDB)
             }
             _ => {
                 unreachable!()

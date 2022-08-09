@@ -1,7 +1,6 @@
 use crate::cmd::base::*;
 use crate::cmd::cmd_utils::*;
 use crate::extract_config_value;
-
 use crate::{build_script, cmd};
 
 #[macro_export]
@@ -131,6 +130,26 @@ sync_cmd_impl!(GitRepoBuild, PipeDef, PipeExec, || {
     build_script!(git, None, brpc, braft, catch2, aws)
 });
 
-sync_cmd_impl!(InitMySqlInstance, CmdDef, CmdExec, || {
-    init_mysql_instance_cmd()
+sync_cmd_impl!(MkDataDir, PipeDef, PipeExec, || { mk_data_dir_cmd(3) });
+// TODO: fixed hard code
+sync_cmd_impl!(CopySchemData, PipeDef, PipeExec, || {
+    copy_data_dir_cmd(
+        "data_0".to_string(),
+        vec![
+            "data_1".to_string(),
+            "data_2".to_string(),
+            "data_3".to_string(),
+        ],
+    )
+});
+
+sync_cmd_impl!(InitMySQLInstance, CmdDef, CmdExec, || {
+    let common = extract_config_value!("common", Common, None).clone();
+    let init_script = common.initialize_script;
+    CmdDef {
+        name: "bash".to_string(),
+        args: Some(vec!["-c".to_string(), init_script]),
+        show_progress_type: None,
+        payload: None,
+    }
 });
