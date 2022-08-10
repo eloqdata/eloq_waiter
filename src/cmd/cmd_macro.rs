@@ -106,14 +106,15 @@ sync_cmd_impl!(LinkMonographSource, CmdDef, CmdExec, || {
     printf "workspace monograph source dir %s \n" ${monograph_dir}
     printf "workspace mariadb  source dir %s \n" ${mariadb_dir}
     cd ${mariadb_dir}
+    pwd
     echo "MariaDB git submodule init"
     git_submodel_init="git submodule init"
     eval ${git_submodel_init}
     echo "Link Monograph Source"
-    ln -nsF ${source_dir}/log_service ${source_dir}/tx_service/log_service
-    ln -nsF ${source_dir}/cass ${monograph_dir}/cass
-    ln -nsF ${source_dir}/tx_service ${monograph_dir}/tx_service
-    ln -nsF ${monograph_dir} ${mariadb_dir}/storage/monograph
+    ln -nsf ${source_dir}/log_service ${source_dir}/tx_service/log_service
+    ln -nsf ${source_dir}/cass ${monograph_dir}/cass
+    ln -nsf ${source_dir}/tx_service ${monograph_dir}/tx_service
+    ln -nsf ${monograph_dir} ${mariadb_dir}/storage/monograph
 "#
             .to_string(),
         ]),
@@ -123,11 +124,15 @@ sync_cmd_impl!(LinkMonographSource, CmdDef, CmdExec, || {
 });
 
 sync_cmd_impl!(ProtobufBuild, PipeDef, PipeExec, || {
-    build_script!(download, None, protobuf)
+    build_script!(download, "".to_string(), protobuf)
 });
 
 sync_cmd_impl!(GitRepoBuild, PipeDef, PipeExec, || {
-    build_script!(git, None, brpc, braft, catch2, aws)
+    build_script!(git, "".to_string(), brpc, braft, catch2, aws, mariadb)
+});
+
+sync_cmd_impl!(BuildMonograph, PipeDef, PipeExec, || {
+    build_script!(git, "".to_string(), mariadb)
 });
 
 sync_cmd_impl!(MkDataDir, PipeDef, PipeExec, || { mk_data_dir_cmd(3) });
@@ -144,7 +149,7 @@ sync_cmd_impl!(CopySchemData, PipeDef, PipeExec, || {
 });
 
 sync_cmd_impl!(InitMySQLInstance, CmdDef, CmdExec, || {
-    let common = extract_config_value!("common", Common, None).clone();
+    let common = extract_config_value!("common", Common, "".to_string()).clone();
     let init_script = common.initialize_script;
     CmdDef {
         name: "bash".to_string(),
@@ -153,3 +158,43 @@ sync_cmd_impl!(InitMySQLInstance, CmdDef, CmdExec, || {
         payload: None,
     }
 });
+
+sync_cmd_impl!(StoragePrepare, PipeDef, PipeExec, || {
+    let mut cmd_vec = vec![];
+    let cassandra_bin = set_storage_env_cmd(None).unwrap();
+    std::env::set_var("CASSANDRA_BIN_DIR", cassandra_bin);
+    if !storage_service_running() {
+        let start_cassandra = start_storage_service_cmd(None);
+        cmd_vec.push(start_cassandra);
+    }
+    PipeDef { cmd_vec }
+});
+
+#[cfg(test)]
+mod tests {
+    use crate::build_script;
+    use crate::cmd::base::*;
+    use crate::cmd::cmd_utils::get_platform_info;
+    use crate::config::MONOGRAPH_WATER_CONFIG_DIR;
+    use crate::extract_config_value;
+
+    // build time too long
+    #[test]
+    #[ignore]
+    pub fn test_monograph_build() {
+        let config_path = format!("{}/config", env!("CARGO_MANIFEST_DIR").to_owned());
+        std::env::set_var(MONOGRAPH_WATER_CONFIG_DIR, config_path.clone());
+        let platform = get_platform_info(Some(config_path));
+        println!("platform = {:?}", platform.clone());
+        if platform.os_type.eq("ubuntu") {
+            println!("current platform is ubuntu");
+            sync_cmd_impl!(TestMariaDBBuild, PipeDef, PipeExec, || {
+                build_script!(git, "".to_string(), mariadb)
+            });
+
+            let stdout = std::io::stdout();
+            let mut context = CmdContext::new(stdout);
+            TestMariaDBBuild {}.exec(&mut context);
+        }
+    }
+}

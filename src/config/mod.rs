@@ -31,9 +31,15 @@ pub enum ConfigObject {
 }
 
 pub fn workspace_sub_dir(path: Option<String>) -> HashMap<String, String> {
-    let workspace = extract_config_value!("common", Common, path)
-        .clone()
-        .workspace;
+    let workspace = if let Some(config_path) = path {
+        extract_config_value!("common", Common, config_path)
+            .clone()
+            .workspace
+    } else {
+        extract_config_value!("common", Common, "".to_string())
+            .clone()
+            .workspace
+    };
     WORKSPACE_LAYOUT
         .iter()
         .map(|entry| {
@@ -99,16 +105,15 @@ mod tests {
     #[test]
     pub fn test_extract_config_value() {
         let common_path = config_file("/config");
-        let common_config = extract_config_value!("common", Common, Some(common_path.clone()));
+        let common_config = extract_config_value!("common", Common, common_path.clone());
         println!("{:?} -> {:?}", common_path, common_config);
     }
 
     #[test]
     pub fn test_build_script() {
         let config_path = config_file("/config");
-        let protobuf_build_cmd = build_script!(download, Some(config_path.clone()), protobuf);
-        let thirty_party_git_build =
-            build_script!(git, Some(config_path), brpc, braft, catch2, aws);
+        let protobuf_build_cmd = build_script!(download, config_path.clone(), protobuf);
+        let thirty_party_git_build = build_script!(git, config_path, brpc, braft, catch2, aws);
         println!("{:?}", protobuf_build_cmd);
         println!("{:?}", thirty_party_git_build);
         assert_eq!(protobuf_build_cmd.cmd_vec.len(), 1);
@@ -118,8 +123,7 @@ mod tests {
     #[test]
     pub fn test_gen_multi_mysql_config() {
         let config_path = config_file("/config");
-        let mut mysql_cnf =
-            extract_config_value!("mysql", MySQL, Some(config_path.clone())).clone();
+        let mut mysql_cnf = extract_config_value!("mysql", MySQL, config_path.clone()).clone();
 
         let workspace_sub_dir = workspace_sub_dir(Some(config_path));
         let data_dir = workspace_sub_dir.get("data").unwrap().clone();

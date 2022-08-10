@@ -10,6 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{ProcessExt, SystemExt};
 
 pub fn get_platform_info(config_path: Option<String>) -> &'static Platform {
     static INSTANCE: OnceCell<Platform> = OnceCell::new();
@@ -174,34 +176,6 @@ pub fn extract_tar_cmd(file_name: String) -> CmdDef {
     }
 }
 
-pub fn set_storage_env(dir: Option<String>) -> anyhow::Result<()> {
-    let third_path = if let Some(third_party_dir) = dir {
-        third_party_dir
-    } else {
-        let sub_dirs = workspace_sub_dir(None);
-        sub_dirs.get("third_party").unwrap().to_string()
-    };
-    let red_dir = Path::new(third_path.as_str()).read_dir().unwrap();
-    for dir_entry in red_dir {
-        if dir_entry.is_err() {
-            return Err(anyhow::Error::from(dir_entry.err().unwrap()));
-        }
-        let dir = dir_entry.unwrap();
-        let path = dir.path();
-        if path.is_dir() {
-            let file_name = path.file_name().unwrap().to_str().unwrap();
-            if file_name.contains("cassandra") {
-                env::set_var(
-                    "CASSANDRA_BIN_DIR",
-                    format!("{}/bin", path.to_str().unwrap()),
-                );
-                return Ok(());
-            }
-        }
-    }
-    return Err(anyhow!("not found storage from {}", third_path));
-}
-
 pub fn mk_data_dir_cmd(count: usize) -> PipeDef {
     let sub_dir = workspace_sub_dir(None);
     let data_dir = sub_dir.get("data").unwrap();
@@ -285,4 +259,81 @@ pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
             (file_name_str, dep_list)
         })
         .collect::<HashMap<String, Vec<String>>>()
+}
+
+pub fn storage_service_running() -> bool {
+    let sys = sysinfo::System::new_all();
+    // for now monograph use cassandra
+    let process_vec = sys.processes_by_name("java");
+    process_vec
+        .into_iter()
+        .filter(|process| {
+            let process_cmd_args = process.cmd();
+            process_cmd_args
+                .iter()
+                .filter(|cmd| !cmd.is_empty() && cmd.contains("cassandra"))
+                .count()
+                > 0
+        })
+        .count()
+        > 0
+}
+
+pub fn start_storage_service_cmd(third_party_dir: Option<String>) -> CmdDef {
+    let set_env = set_storage_env_cmd(third_party_dir);
+    if set_env.is_err() {
+        panic!(
+            "set CASSANDRA_BIN_DIR Err. please check if \
+        [$MONOGRAPH_WORKSPACE_DIR/thirty_party/cassandra_XXX] exists"
+        );
+    }
+    let bin_dir = env::var("CASSANDRA_BIN_DIR").unwrap();
+    let user_info = get_platform_info(None).clone().user;
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let in_ms = since_the_epoch.as_millis();
+    let start_cmd = if user_info.has_sudo || user_info.is_root {
+        println!("It is not recommended to start with the root user");
+        format!(
+            "{}/cassandra -f -R > cassandra_start_{}.log 2>&1 &",
+            bin_dir, in_ms
+        )
+    } else {
+        format!(
+            "{}/cassandra -f > cassandra_start_{}.log 2>&1 &",
+            bin_dir, in_ms
+        )
+    };
+    CmdDef {
+        name: "bash".to_string(),
+        args: Some(vec!["-c".to_string(), start_cmd]),
+        show_progress_type: None,
+        payload: None,
+    }
+}
+
+pub fn set_storage_env_cmd(dir: Option<String>) -> anyhow::Result<String> {
+    let third_path = if let Some(third_party_dir) = dir {
+        third_party_dir
+    } else {
+        let sub_dirs = workspace_sub_dir(None);
+        sub_dirs.get("third_party").unwrap().to_string()
+    };
+    let red_dir = Path::new(third_path.as_str()).read_dir().unwrap();
+    for dir_entry in red_dir {
+        if dir_entry.is_err() {
+            return Err(anyhow::Error::from(dir_entry.err().unwrap()));
+        }
+        let dir = dir_entry.unwrap();
+        let path = dir.path();
+        if path.is_dir() {
+            let file_name = path.file_name().unwrap().to_str().unwrap();
+            if file_name.contains("cassandra") {
+                return Ok(format!("{}/bin", path.to_str().unwrap()));
+            }
+        }
+    }
+    return Err(anyhow!("not found storage from {}", third_path));
 }

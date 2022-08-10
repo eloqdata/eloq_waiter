@@ -11,7 +11,7 @@ pub struct GitCloneSource;
 
 impl GitCloneSource {
     pub async fn exec(&self) -> Vec<(CmdDef, CmdStatus)> {
-        let common = extract_config_value!("common", Common, None);
+        let common = extract_config_value!("common", Common, "".to_string());
         let mut git_clone_status = vec![];
         let git = common.clone().compile.git;
         let git_clone_cmd_vec = git_clone!(

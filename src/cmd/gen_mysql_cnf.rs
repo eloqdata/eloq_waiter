@@ -21,7 +21,7 @@ impl CmdV2 for GenMySQLConf {
     }
 
     fn exec(&self, context: &mut CmdContext<impl Write>) -> Vec<(CmdDef, CmdStatus)> {
-        let mut mysql_cnf = extract_config_value!("mysql", MySQL, None).clone();
+        let mut mysql_cnf = extract_config_value!("mysql", MySQL, "".to_string()).clone();
 
         let local_ip = mysql_cnf.get(MARIADB_SECTION, "monograph_local_ip");
         if local_ip.is_none() {

@@ -93,7 +93,7 @@ impl DownloadThirdParty {
             .unwrap_or_else(|_| panic!("MONOGRAPH_WORKSPACE_DIR not set"));
 
         let protobuf_download_cl = || {
-            let common = extract_config_value!("common", Common, None);
+            let common = extract_config_value!("common", Common, "".to_string());
             (
                 common.clone().compile.download.protobuf.url,
                 PROTOBUF_TAR_FILE_NAME,
@@ -102,7 +102,7 @@ impl DownloadThirdParty {
         };
 
         let cassandra_download_cl = || {
-            let cassandra = extract_config_value!("cassandra", Storage, None);
+            let cassandra = extract_config_value!("cassandra", Storage, "".to_string());
             (
                 cassandra.clone().download.url,
                 CASSANDRA_TAR_FILE_NAME,

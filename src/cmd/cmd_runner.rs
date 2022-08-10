@@ -41,7 +41,8 @@ impl<'s> CmdRunner<'s> {
                 "setup_workspace",
                 "ln_source",
                 "gen_mysql_cnf",
-                "build",
+                "build_all",
+                "build_monograph",
                 "init_db"
             ),
         }
@@ -66,7 +67,7 @@ impl<'s> CmdRunner<'s> {
             "gen_mysql_cnf" => {
                 cmd_exec!(self, cmd_str, GenMySQLConf)
             }
-            "build" => {
+            "build_all" => {
                 let mut protobuf_build = cmd_exec!(self, cmd_str, ProtobufBuild);
                 if !cmd_status_ok(&protobuf_build) {
                     protobuf_build
@@ -75,6 +76,9 @@ impl<'s> CmdRunner<'s> {
                     protobuf_build.extend(git_repo_build);
                     protobuf_build
                 }
+            }
+            "build_monograph" => {
+                cmd_exec!(self, cmd_str, BuildMonograph)
             }
             "init_db" => {
                 cmd_exec!(self, cmd_str, InitDB)

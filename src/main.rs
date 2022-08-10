@@ -34,14 +34,14 @@ async fn main() -> anyhow::Result<()> {
     std::env::set_var(MONOGRAPH_WATER_CONFIG_DIR, cmd_cli_options.config.clone());
     std::env::set_var(
         MONOGRAPH_WORKSPACE_DIR,
-        extract_config_value!("common", Common, Some(cmd_cli_options.config))
+        extract_config_value!("common", Common, cmd_cli_options.config.to_string())
             .clone()
             .workspace,
     );
     println!(
-        "ENV MONOGRAPH_WATER_CONFIG_DIR {:?}\n MONOGRAPH_WORKSPACE_DIR {:?}",
-        std::env::var(MONOGRAPH_WATER_CONFIG_DIR),
-        std::env::var(MONOGRAPH_WORKSPACE_DIR)
+        "MONOGRAPH_WATER_CONFIG_DIR={:?}\nMONOGRAPH_WORKSPACE_DIR={:?}",
+        std::env::var(MONOGRAPH_WATER_CONFIG_DIR).unwrap(),
+        std::env::var(MONOGRAPH_WORKSPACE_DIR).unwrap()
     );
     CmdCli.start().await;
     Ok(())

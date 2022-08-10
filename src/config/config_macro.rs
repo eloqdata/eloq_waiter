@@ -4,13 +4,10 @@ macro_rules! extract_config_value {
         use $crate::config::load_config;
         use $crate::config::ConfigObject;
         use $crate::config::MONOGRAPH_WATER_CONFIG_DIR;
-        let mut input_path = match $input_config_path {
-            Some(val) => val,
-            _ => "".to_string(),
-        };
+        let mut input_path = $input_config_path;
         if input_path.is_empty() {
             input_path = std::env::var(MONOGRAPH_WATER_CONFIG_DIR).unwrap_or_else(|_| {
-                panic!("Maybe it's a bug.The path to the configuration file must exist")
+                panic!("Maybe it's a bug.The path to the config file must exist")
             });
         }
         let config_mapping = load_config(input_path.as_str());
@@ -119,7 +116,7 @@ mod tests {
         let root = env!("CARGO_MANIFEST_DIR");
         let config_path = format!("{}/{}", root, "config");
         env::set_var(MONOGRAPH_WATER_CONFIG_DIR, config_path);
-        let common = extract_config_value!("common", Common, None);
+        let common = extract_config_value!("common", Common, "".to_string());
         env::set_var(MONOGRAPH_WATER_CONFIG_DIR, common.clone().workspace);
         println!("git_string {}", git_string.to_string().to_lowercase());
         let git_cmd = git_clone!(git, brpc, braft);
