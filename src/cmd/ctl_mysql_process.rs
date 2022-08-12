@@ -1,11 +1,11 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::check_mysql_status::CheckMysqlStatus;
+use crate::cmd::cmd_macro::StoragePrepare;
 use crate::cmd::cmd_utils::cmd_status_ok;
-use crate::config::workspace_sub_dir;
+use crate::cmd::mysql_ctl_util::list_mysql_cnf;
 use std::io::Write;
 use std::path::Path;
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
-use crate::cmd::mysql_ctl_util::list_mysql_cnf;
 
 #[derive(Clone, Debug)]
 pub enum MySQLOpCode {
@@ -13,9 +13,9 @@ pub enum MySQLOpCode {
     Stop,
 }
 
-impl Into<String> for MySQLOpCode {
-    fn into(self) -> String {
-        match self {
+impl From<MySQLOpCode> for String {
+    fn from(op_code: MySQLOpCode) -> Self {
+        match op_code {
             MySQLOpCode::Start => "start".to_string(),
             MySQLOpCode::Stop => "stop".to_string(),
         }
@@ -34,7 +34,7 @@ impl From<String> for MySQLOpCode {
 
 #[derive(Clone, Debug)]
 pub struct CtlMySQLProcess {
-    op_code: MySQLOpCode,
+    pub op_code: MySQLOpCode,
 }
 
 impl CmdV2 for CtlMySQLProcess {
@@ -43,7 +43,7 @@ impl CmdV2 for CtlMySQLProcess {
 
     fn definition(&self) -> CmdDef {
         CmdDef {
-            name: self.op_code.clone().into(),
+            name: format!("CtlMySQLProcess:{:?}", self.op_code.clone()),
             args: None,
             show_progress_type: None,
             payload: None,
@@ -51,54 +51,81 @@ impl CmdV2 for CtlMySQLProcess {
     }
 
     fn exec(&self, context: &mut CmdContext<impl Write>) -> Vec<(CmdDef, CmdStatus<()>)> {
+        println!("Receive OP_CODE={:?}", self.op_code);
+        let mut mysql_cnf_list = list_mysql_cnf(None);
+        if mysql_cnf_list.is_empty() {
+            println!("MySQL config file not exists.in etc directory");
+            return vec![(
+                CmdDef::default(),
+                CmdStatus {
+                    success: false,
+                    output: Some("not found mysql config in etc".to_string()),
+                    data: None,
+                },
+            )];
+        }
         let check_mysql = CheckMysqlStatus {};
         let check_mysql_status = check_mysql.exec(context);
         if !cmd_status_ok(&check_mysql_status) {
-            return check_mysql_status
-                .iter()
-                .map(|(cmd, status)| {
-                    let mut new_status: CmdStatus<()> = CmdStatus::default();
-                    new_status.success = status.success;
-                    new_status.output = status.clone().output;
-                    (cmd.clone(), new_status)
-                })
-                .collect::<Vec<_>>();
+            return vec![(
+                CmdDef {
+                    name: "check_mysql_status".to_string(),
+                    args: None,
+                    show_progress_type: None,
+                    payload: None,
+                },
+                CmdStatus::default(),
+            )];
         }
-
-        let mut mysql_cnf_list = list_mysql_cnf(None);
-        let monnograph_process = check_mysql_status
-            .iter()
-            .filter(|(_, status)| status.clone().data.unwrap().is_monograph_instance())
-            .filter(|(_, status)| status.clone().data.unwrap().config_file().is_some())
-            .map(|(_, status)| status.clone().data.unwrap())
-            .collect::<Vec<_>>();
-
-        mysql_cnf_list.retain(|cnf| {
-            monnograph_process
-                .iter()
-                .filter(|process| {
-                    let start_config = process.config_file().unwrap();
-                    let file_name_os_str = Path::new(&start_config).file_name().unwrap();
-                    let file_name = file_name_os_str.to_str().unwrap();
-                    !cnf.eq(file_name)
-                })
-                .count()
-                > 0
-        });
+        let (_, monnograph_process_list) = check_mysql_status.first().unwrap();
+        assert!(monnograph_process_list.data.is_some());
+        let process_list = monnograph_process_list.data.clone().unwrap();
+        for process in process_list {
+            let config = process.config_file();
+            if config.is_none() {
+                continue;
+            }
+            let cnf = config.unwrap();
+            let process_file_name = Path::new(cnf.as_str())
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap();
+            mysql_cnf_list.retain(|x| {
+                let file_name = Path::new(x.as_str()).file_name().unwrap().to_str().unwrap();
+                file_name == process_file_name
+            });
+        }
         let mut vec_rs = vec![];
         match self.op_code.clone() {
             MySQLOpCode::Start => {
-                for cnf in mysql_cnf_list {
+                let start_storage_if_need = StoragePrepare {}.exec(context);
+                if !cmd_status_ok(&start_storage_if_need) {
+                    println!("Storage Service may be not running. start storage service failed.");
+                    return start_storage_if_need;
+                }
+                println!("use mysql config list = {:?}", mysql_cnf_list);
+                for cnf in &mysql_cnf_list {
                     println!("start mysql use default_file={}", cnf);
+                    let file_name = Path::new(cnf.as_str())
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap();
                     let start_script = format!(
                         r#"
                       #!/bin/bash
                       install_dir=${{MONOGRAPH_WORKSPACE_DIR}}/monograph/install
+                      echo ${{install_dir}}
                       now=`date +%F_%H_%M_%S`
                       log_file={}_${{now}}.log
-                      start_cmd="${{install_dir}}/bin/mysqld --defaults-file=${{MONOGRAPH_WORKSPACE_DIR}}/monograph/etc/{} > ${{log_file}} 2>&1 &"
+                      mkdir_log_dir="mkdir -p ${{install_dir}}/logs/"
+                      eval ${{mkdir_log_dir}}
+                      start_cmd="${{install_dir}}/bin/mysqld --defaults-file={} > ${{install_dir}}/logs/${{log_file}} 2>&1 &"
+                      echo ${{start_cmd}}
+                      eval ${{start_cmd}}
                     "#,
-                        cnf.replace(".", ""),
+                        file_name.replace(".cnf", ""),
                         cnf
                     );
                     let cmd = CmdDef {
@@ -115,7 +142,7 @@ impl CmdV2 for CtlMySQLProcess {
             }
             MySQLOpCode::Stop => {
                 let sys = sysinfo::System::new_all();
-                for process in monnograph_process {
+                for process in monnograph_process_list.data.clone().unwrap() {
                     let sys_process = sys.process(Pid::from_u32(process.pid));
                     let mut kill_cmd_status = CmdStatus::default();
                     if let Some(pro) = sys_process {

@@ -1,6 +1,7 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::cmd_macro::*;
 use crate::cmd::cmd_utils::cmd_status_ok;
+use crate::cmd::ctl_mysql_process::{CtlMySQLProcess, MySQLOpCode};
 use crate::cmd::gen_mysql_cnf::GenMySQLConf;
 use crate::cmd::init_db::InitDB;
 use crate::cmd::install_deps::InstallDeps;
@@ -43,7 +44,9 @@ impl<'s> CmdRunner<'s> {
                 "gen_mysql_cnf",
                 "build_all",
                 "build_monograph",
-                "init_db"
+                "init_db",
+                "start",
+                "stop"
             ),
         }
     }
@@ -82,6 +85,13 @@ impl<'s> CmdRunner<'s> {
             }
             "init_db" => {
                 cmd_exec!(self, cmd_str, InitDB)
+            }
+            "start" | "stop" => {
+                let context = self.cmd_context_mapping.get(cmd_str);
+                let ctl_mysql = CtlMySQLProcess {
+                    op_code: MySQLOpCode::from(cmd_str.to_string()),
+                };
+                ctl_mysql.exec(&mut context.unwrap().clone())
             }
             _ => {
                 unreachable!()

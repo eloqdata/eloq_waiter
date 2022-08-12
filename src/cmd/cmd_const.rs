@@ -18,6 +18,8 @@ pub static SUPPORT_CMD_LIST: Lazy<Vec<&'static str>> = Lazy::new(|| {
         "build_monograph",
         "playground",
         "init_db",
+        "stop",
+        "start",
     ]
 });
 

@@ -1,6 +1,7 @@
 use crate::cmd::base::{CmdDef, CmdStatus, PipeDef, Platform, UserInfo};
 use crate::cmd::cmd_const::{SUPPORT_CMD_LIST, SYSTEM_DEPS, SYSTEM_INFO};
 use crate::config::{workspace_sub_dir, MONOGRAPH_WATER_CONFIG_DIR};
+use crate::extract_config_value;
 use anyhow::anyhow;
 use indicatif::{ProgressBar, ProgressStyle};
 use once_cell::sync::OnceCell;
@@ -273,7 +274,7 @@ pub fn storage_service_running() -> bool {
     let sys = sysinfo::System::new_all();
     // for now monograph use cassandra
     let process_vec = sys.processes_by_name("java");
-    process_vec
+    let has_process = process_vec
         .into_iter()
         .filter(|process| {
             let process_cmd_args = process.cmd();
@@ -284,7 +285,32 @@ pub fn storage_service_running() -> bool {
                 > 0
         })
         .count()
-        > 0
+        > 0;
+    if !has_process {
+        false
+    } else {
+        let cassandra_bin = env::var("CASSANDRA_BIN_DIR");
+        if cassandra_bin.is_err() {
+            println!("not found ENV CASSANDRA_BIN_DIR");
+            false
+        } else {
+            let node_tools = CmdDef {
+                name: "bash".to_string(),
+                args: Some(vec![
+                    "-c".to_string(),
+                    format!("{}/nodetool status", cassandra_bin.unwrap()),
+                ]),
+                show_progress_type: None,
+                payload: None,
+            };
+            let mut is_un_status = false;
+            let status: CmdStatus<()> = cmd_process(node_tools, |stdout| {
+                is_un_status = stdout.starts_with("UN");
+                println!("{}", stdout);
+            });
+            status.success && is_un_status
+        }
+    }
 }
 
 pub fn start_storage_service_cmd(third_party_dir: Option<String>) -> CmdDef {
@@ -305,13 +331,17 @@ pub fn start_storage_service_cmd(third_party_dir: Option<String>) -> CmdDef {
     let start_cmd = if user_info.has_sudo || user_info.is_root {
         println!("It is not recommended to start with the root user");
         format!(
-            "{}/cassandra -f -R > cassandra_start_{}.log 2>&1 &",
-            bin_dir, in_ms
+            "{}/cassandra -f -R > {}/cassandra_start_{}.log 2>&1 &",
+            bin_dir,
+            format_args!("{}/..", bin_dir),
+            in_ms
         )
     } else {
         format!(
-            "{}/cassandra -f > cassandra_start_{}.log 2>&1 &",
-            bin_dir, in_ms
+            "{}/cassandra -f > {}/cassandra_start_{}.log 2>&1 &",
+            bin_dir,
+            format_args!("{}/..", bin_dir),
+            in_ms
         )
     };
     CmdDef {
@@ -346,3 +376,18 @@ pub fn set_storage_env_cmd(dir: Option<String>) -> anyhow::Result<String> {
     return Err(anyhow!("not found storage from {}", third_path));
 }
 
+pub fn workspace_is_empty(config: Option<String>) -> bool {
+    let path_string = if let Some(config_path) = config {
+        config_path
+    } else {
+        "".to_string()
+    };
+    let common = extract_config_value!("common", Common, path_string).clone();
+    let workspace = common.workspace;
+    let path = Path::new(workspace.as_str());
+    if !path.exists() {
+        true
+    } else {
+        std::fs::read_dir(path).unwrap().count() == 0
+    }
+}

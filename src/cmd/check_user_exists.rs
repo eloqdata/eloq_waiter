@@ -1,6 +1,6 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::cmd_utils::get_platform_info;
-use crate::cmd::mysql_ctl_util::{connect_mysqld_from_cli, list_mysql_cnf};
+use crate::cmd::mysql_ctl_util::get_mysql_prepare_cmd;
 use indicatif::ProgressBar;
 use std::io::Write;
 
@@ -11,20 +11,11 @@ impl CmdV2 for CheckDBUser {
     type StatsData = bool;
 
     fn definition(&self) -> CmdDef {
-        let mysql_conf = list_mysql_cnf(None);
-        if mysql_conf.is_empty() {
-            println!("not found mysql config in $MONOGRAPH_WORKSPACE_DIR");
-            return CmdDef::default();
-        }
-        let mut conn_mysql = connect_mysqld_from_cli(mysql_conf.first().unwrap().to_string());
-        conn_mysql.push("-e".to_string());
-        conn_mysql.push("select user from mysql.user where length(user)>0".to_string());
-        CmdDef {
-            name: "sudo".to_string(),
-            args: Some(conn_mysql),
-            show_progress_type: None,
-            payload: None,
-        }
+        let check_user_sql = vec![
+            "-e".to_string(),
+            "select user from mysql.user where length(user)>0".to_string(),
+        ];
+        get_mysql_prepare_cmd(None, check_user_sql)
     }
 
     fn exec(&self, context: &mut CmdContext<impl Write>) -> Vec<(CmdDef, CmdStatus<bool>)> {
@@ -59,11 +50,11 @@ impl CmdV2 for CheckDBUser {
         if !check_user_status.success {
             return vec![(cmd, check_user_status)];
         }
-        let has_mono = &user_table[1..]
-            .into_iter()
-            .filter(|user| user.clone().eq("mono"))
+        let has_mono = user_table[1..]
+            .iter()
+            .filter(|user| <&String>::clone(user).eq("mono"))
             .count()
-            > &0_usize;
+            > 0_usize;
         vec![(
             cmd,
             CmdStatus {

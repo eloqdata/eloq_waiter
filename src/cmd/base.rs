@@ -120,15 +120,6 @@ pub struct Platform {
     pub user: UserInfo,
 }
 
-// #[allow(dead_code)]
-// #[derive(Clone, Debug)]
-// pub struct CmdStatus {
-//     pub(crate) success: bool,
-//     pub(crate) output: Option<String>,
-//     pub(crate) data: Option<HashMap<String, String>>,
-// }
-
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CmdStatus<T>
 where

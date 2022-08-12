@@ -1,6 +1,6 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::cmd_macro::{CopySchemData, InitMySQLInstance, MkDataDir, StoragePrepare};
-use crate::cmd::cmd_utils::cmd_status_ok;
+use crate::cmd::cmd_utils::{cmd_status_ok, storage_service_running};
 use std::io::Write;
 
 pub struct InitDB;
@@ -12,6 +12,19 @@ impl InitDB {
             return set_storage_env_status;
         }
         println!("storage prepare success");
+        //TODO refactor it.
+        let mut wait_storage_service = 0;
+        loop {
+            if wait_storage_service > 500 {
+                println!("Storage Service is not running.");
+                return vec![(CmdDef::default(), CmdStatus::default())];
+            }
+            if storage_service_running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            wait_storage_service += 1;
+        }
         let init_db_instance = InitMySQLInstance {};
         let db_instance_status = init_db_instance.exec(context);
         if !cmd_status_ok(&db_instance_status) {

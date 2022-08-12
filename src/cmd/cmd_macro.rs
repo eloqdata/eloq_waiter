@@ -1,5 +1,6 @@
 use crate::cmd::base::*;
 use crate::cmd::cmd_utils::*;
+use crate::cmd::mysql_ctl_util::*;
 use crate::extract_config_value;
 use crate::{build_script, cmd};
 
@@ -169,6 +170,14 @@ sync_cmd_impl!(StoragePrepare, PipeDef, PipeExec, || {
         cmd_vec.push(start_cassandra);
     }
     PipeDef { cmd_vec }
+});
+
+sync_cmd_impl!(CreateDBUser, CmdDef, CmdExec, || {
+    let create_user_sql = vec![
+        "-e".to_string(),
+        "CREATE USER 'mono'@'localhost' IDENTIFIED BY 'mono'".to_string(),
+    ];
+    get_mysql_prepare_cmd(None, create_user_sql)
 });
 
 #[cfg(test)]
