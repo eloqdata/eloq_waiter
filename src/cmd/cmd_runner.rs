@@ -5,6 +5,7 @@ use crate::cmd::ctl_mysql_process::{CtlMySQLProcess, MySQLOpCode};
 use crate::cmd::gen_mysql_cnf::GenMySQLConf;
 use crate::cmd::init_db::InitDB;
 use crate::cmd::install_deps::InstallDeps;
+use crate::cmd::playground::Playground;
 use crate::cmd::setup_workspace::SetupWorkspace;
 use std::collections::HashMap;
 use std::fs::File;
@@ -45,6 +46,7 @@ impl<'s> CmdRunner<'s> {
                 "build_all",
                 "build_monograph",
                 "init_db",
+                "playground",
                 "start",
                 "stop"
             ),
@@ -92,6 +94,9 @@ impl<'s> CmdRunner<'s> {
                     op_code: MySQLOpCode::from(cmd_str.to_string()),
                 };
                 ctl_mysql.exec(&mut context.unwrap().clone())
+            }
+            "playground" => {
+                cmd_exec!(self, cmd_str, Playground)
             }
             _ => {
                 unreachable!()

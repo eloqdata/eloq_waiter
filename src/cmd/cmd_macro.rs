@@ -178,7 +178,7 @@ sync_cmd_impl!(CreateDBUser, CmdDef, CmdExec, || {
         "-e".to_string(),
         "CREATE USER 'mono'@'localhost' IDENTIFIED BY 'mono'".to_string(),
     ];
-    get_mysql_prepare_cmd(None, create_user_sql)
+    get_mysql_prepare_cmd("root".to_string(), None, None, create_user_sql)
 });
 
 #[cfg(test)]

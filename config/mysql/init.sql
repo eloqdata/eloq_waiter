@@ -1,8 +1,8 @@
-CREATE TABLE IF NOT EXISTS t1
+CREATE TABLE IF NOT EXISTS test.test_table
 (
     i int primary key,
     j int
 ) engine=monograph;
-INSERT INTO t1 VALUES (1, 2);
-INSERT INTO t1 VALUES (3, 4);
-INSERT INTO t1 VALUES (5, 6);
+INSERT INTO test.test_table VALUES (11, 22);
+INSERT INTO test.test_table VALUES (33, 44);
+INSERT INTO test.test_table VALUES (55, 66);

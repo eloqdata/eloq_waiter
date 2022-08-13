@@ -144,7 +144,6 @@ impl CmdV2 for CtlMySQLProcess {
                     let status = context.cmd_run(cmd.clone(), |stdout, _| {
                         println!("{}", stdout);
                     });
-                    std::thread::sleep(Duration::from_millis(500));
                     vec_rs.push((cmd, status));
                 }
             }

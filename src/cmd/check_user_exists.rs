@@ -15,7 +15,7 @@ impl CmdV2 for CheckDBUser {
             "-e".to_string(),
             "select user from mysql.user where length(user)>0".to_string(),
         ];
-        get_mysql_prepare_cmd(None, check_user_sql)
+        get_mysql_prepare_cmd("root".to_string(), None, None, check_user_sql)
     }
 
     fn exec(&self, context: &mut CmdContext<impl Write>) -> Vec<(CmdDef, CmdStatus<bool>)> {

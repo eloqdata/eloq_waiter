@@ -23,6 +23,7 @@ pub struct CmdDef {
     pub name: String,
     pub args: Option<Vec<String>>,
     pub show_progress_type: Option<String>,
+    // TODO: refactor use generic
     pub payload: Option<HashMap<String, String>>,
 }
 
