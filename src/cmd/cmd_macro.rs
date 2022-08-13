@@ -166,6 +166,7 @@ sync_cmd_impl!(StoragePrepare, PipeDef, PipeExec, || {
     let cassandra_bin = set_storage_env_cmd(None).unwrap();
     std::env::set_var("CASSANDRA_BIN_DIR", cassandra_bin);
     if !storage_service_running() {
+        println!("cassandra not running. Starting cassandra");
         let start_cassandra = start_storage_service_cmd(None);
         cmd_vec.push(start_cassandra);
     }

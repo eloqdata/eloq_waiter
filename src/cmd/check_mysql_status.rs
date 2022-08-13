@@ -28,7 +28,8 @@ impl MySQLProcess {
         let exec_cmd = self
             .cmd
             .iter()
-            .filter(|arg| (*arg).contains("--defaults-file=")).cloned()
+            .filter(|arg| (*arg).contains("--defaults-file="))
+            .cloned()
             .collect::<Vec<_>>();
         if exec_cmd.is_empty() {
             false
@@ -129,55 +130,5 @@ impl CmdV2 for CheckMysqlStatus {
                 data: Some(mysql_process_vec),
             },
         )]
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cmd::base::{CmdContext, CmdV2};
-    use crate::cmd::check_mysql_status::CheckMysqlStatus;
-    use crate::config::{MONOGRAPH_WATER_CONFIG_DIR, MONOGRAPH_WORKSPACE_DIR};
-
-    #[test]
-    pub fn test_diff_config() {
-        let mut mysql_config_list = vec![
-            "/test_workspace//monograph/etc/my-conf-3317.cnf".to_string(),
-            "/test_workspace//monograph/etc/my-conf-3318.cnf".to_string(),
-            "/test_workspace//monograph/etc/my-conf-3319.cnf".to_string(),
-        ];
-
-        let curr_list = vec![
-            "/test_workspace//monograph/etc/my-conf-3317.cnf".to_string(),
-            "/test_workspace//monograph/etc/my-conf-3318.cnf".to_string(),
-            "/test_workspace//monograph/etc/my-conf-3319.cnf".to_string(),
-        ];
-
-        for process in &curr_list {
-            if mysql_config_list.is_empty() {
-                break;
-            }
-            mysql_config_list.retain(|x| x != process);
-        }
-
-        println!("{:?}", mysql_config_list);
-    }
-
-    #[test]
-    pub fn test_mysql_process() {
-        std::env::set_var(MONOGRAPH_WORKSPACE_DIR, "/test_workspace");
-        std::env::set_var(
-            MONOGRAPH_WATER_CONFIG_DIR,
-            "/home/mono/monograph_waiter/HH3JxhQgv2/config",
-        );
-        let mut context = CmdContext::new(std::io::stdout());
-        let check_mysql_status = CheckMysqlStatus {};
-        let cmd_status = check_mysql_status.exec(&mut context);
-        println!("{:?}", cmd_status);
-        assert!(!cmd_status.is_empty());
-        let (_, check_status) = cmd_status.get(0).unwrap();
-        println!("mono graph instance = {:?}", check_status);
-
-        //let process_list = check_status.data.clone().unwrap();
-        //let mysql_cnf_list = list_mysql_cnf(None);
     }
 }

@@ -12,7 +12,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sysinfo::{ProcessExt, SystemExt};
 
 pub fn get_platform_info(config_path: Option<String>) -> &'static Platform {
@@ -286,6 +286,7 @@ pub fn storage_service_running() -> bool {
         })
         .count()
         > 0;
+    println!("list java process {}", has_process);
     if !has_process {
         false
     } else {
@@ -303,14 +304,51 @@ pub fn storage_service_running() -> bool {
                 show_progress_type: None,
                 payload: None,
             };
-            let mut is_un_status = false;
+            println!("Check cassandra status {}", node_tools);
+            let mut has_un_status = false;
+            let mut node_status_outpout = String::new();
             let status: CmdStatus<()> = cmd_process(node_tools, |stdout| {
-                is_un_status = stdout.starts_with("UN");
+                node_status_outpout.push_str(format!("{}\n", stdout).as_str());
+                has_un_status = stdout.starts_with("UN");
                 println!("{}", stdout);
             });
-            status.success && is_un_status
+            let mut has_host_name = false;
+            if has_un_status {
+                for line in node_status_outpout.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    if !line.contains(char::is_whitespace) {
+                        continue;
+                    }
+                    if line.starts_with("UN") {
+                        let split_rs = line.split_whitespace().collect::<Vec<_>>();
+                        has_host_name = split_rs.len() == 8;
+                        println!("{:?}", split_rs);
+                    }
+                }
+            }
+            status.success && has_host_name
         }
     }
+}
+
+pub fn wait_storage_status_running(interval: Duration) -> bool {
+    let mut retry_count = 0;
+    loop {
+        if retry_count > 500 {
+            break;
+        }
+        if storage_service_running() {
+            // dirty hack
+            std::thread::sleep(Duration::from_secs(5));
+            return true;
+        } else {
+            std::thread::sleep(interval);
+            retry_count += 1
+        }
+    }
+    storage_service_running()
 }
 
 pub fn start_storage_service_cmd(third_party_dir: Option<String>) -> CmdDef {

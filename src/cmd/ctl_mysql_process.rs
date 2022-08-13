@@ -1,10 +1,11 @@
 use crate::cmd::base::{CmdContext, CmdDef, CmdStatus, CmdV2};
 use crate::cmd::check_mysql_status::CheckMysqlStatus;
 use crate::cmd::cmd_macro::StoragePrepare;
-use crate::cmd::cmd_utils::cmd_status_ok;
+use crate::cmd::cmd_utils::{cmd_status_ok, wait_storage_status_running};
 use crate::cmd::mysql_ctl_util::list_mysql_cnf;
 use std::io::Write;
 use std::path::Path;
+use std::time::Duration;
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 
 #[derive(Clone, Debug)]
@@ -104,6 +105,12 @@ impl CmdV2 for CtlMySQLProcess {
                     println!("Storage Service may be not running. start storage service failed.");
                     return start_storage_if_need;
                 }
+                let storage_status_running =
+                    wait_storage_status_running(Duration::from_millis(500));
+                if !storage_status_running {
+                    println!("cassandra is still unavailable. pleas check");
+                    return vec![(self.definition(), CmdStatus::default())];
+                }
                 println!("use mysql config list = {:?}", mysql_cnf_list);
                 for cnf in &mysql_cnf_list {
                     println!("start mysql use default_file={}", cnf);
@@ -137,6 +144,7 @@ impl CmdV2 for CtlMySQLProcess {
                     let status = context.cmd_run(cmd.clone(), |stdout, _| {
                         println!("{}", stdout);
                     });
+                    std::thread::sleep(Duration::from_millis(500));
                     vec_rs.push((cmd, status));
                 }
             }
