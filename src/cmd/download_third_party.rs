@@ -118,7 +118,7 @@ impl DownloadThirdParty {
             CmdStatus {
                 success: false,
                 output: Some("Download task may be failed".to_string()),
-                data: None
+                data: None,
             }
         } else {
             println!("Download third_party complete");

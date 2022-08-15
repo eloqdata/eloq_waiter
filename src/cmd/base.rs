@@ -23,7 +23,7 @@ pub struct CmdDef {
     pub name: String,
     pub args: Option<Vec<String>>,
     pub show_progress_type: Option<String>,
-    // TODO: refactor use generic
+    // TODO refactor use generic
     pub payload: Option<HashMap<String, String>>,
 }
 
@@ -90,7 +90,7 @@ pub trait CmdV2: 'static + Send {
     /// Description of executable command, can be [`CmdDef`]  or [`PipeDef`].
     /// for example : command -v brew.
     fn definition(&self) -> Self::Executable;
-    /// Execute the command and log it, e.g.: brew list leveldb
+    /// Eecute the command and log it, e.g.: brew list leveldb
     fn exec(
         &self,
         context: &mut CmdContext<impl Write>,
@@ -128,6 +128,8 @@ where
 {
     pub success: bool,
     pub output: Option<String>,
+    /// The data returned by completing the command execution,
+    /// for i. e. checking the status of a process, will return information about it.
     pub data: Option<T>,
 }
 

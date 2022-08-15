@@ -1,4 +1,4 @@
-workspace = "/test_workspace"
+workspace = "~/monograph_workspace"
 initialize_script = '''
 #!/bin/bash
 rm -rf ${MONOGRAPH_WORKSPACE_DIR}/monograph/datafarm/data_0/
@@ -25,7 +25,7 @@ sudo ldconfig
 ''' }
 
 [compile.git]
-brpc = { git = "https://github.com/apache/incubator-brpc.git", third_party = true, build = '''
+brpc = { git = "https://github.com/apache/incubator-brpc.git", build = '''
 #!/bin/bash
 brpc_dir=${MONOGRAPH_WORKSPACE_DIR}/monograph/third_party/brpc
 echo 'build brpc'

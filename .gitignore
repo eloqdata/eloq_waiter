@@ -4,6 +4,7 @@
 # Visual Studio Code
 .vscode/
 .devcontainer/
+mono_waiter_dist/
 *.bash
 *.sh
 # JetBrains

@@ -10,8 +10,8 @@ RUN set -ex; \
     rm -rf /var/lib/apt/lists/*
 
 RUN echo 'root:PASSWORD' | chpasswd
-# create admin user mono, default password cz123
-RUN useradd -rm -s /bin/bash -g root -G sudo -p "$(openssl passwd -1 cz123)" mono && \
+# create admin user mono, default password mono
+RUN useradd -rm -s /bin/bash -g root -G sudo -p "$(openssl passwd -1 mono)" mono && \
     echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
     sudo ln -s /usr/bin/python3.8 /usr/bin/python && \
     mkdir /var/crash && chown -R mono /var/crash
