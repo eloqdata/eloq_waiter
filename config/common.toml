@@ -1,4 +1,4 @@
-workspace = "~/monograph_workspace"
+workspace = "/tmp/monograph_workspace"
 initialize_script = '''
 #!/bin/bash
 rm -rf ${MONOGRAPH_WORKSPACE_DIR}/monograph/datafarm/data_0/
