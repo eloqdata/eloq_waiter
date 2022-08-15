@@ -122,7 +122,11 @@ impl DownloadThirdParty {
             }
         } else {
             println!("Download third_party complete");
-            CmdStatus::default()
+            CmdStatus {
+                success: true,
+                output: None,
+                data: None,
+            }
         };
 
         vec![(
