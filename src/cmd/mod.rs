@@ -1,25 +1,17 @@
-pub mod check_env;
-
-use anyhow::Result;
-use thiserror::Error;
-
-const MAC_DEPENDENCIES: &'static [&'static str] = &["git", "cmake", "ninja", "libuv", "glog",
-    "openssl", "gnu-getopt", "coreutils", "gflags", "leveldb", "gperftools", "bison"];
-
-const LINUX_DEPENDENCIES: &'static [&'static str] = &["git", "g++", "make", "libssl-dev",
-    "libgflags-dev", "libgoogle-glog-dev", "libprotobuf-dev", "libprotoc-dev",
-    "protobuf-compiler", "libleveldb-dev", "libsnappy-dev"];
-
-pub trait Command {
-    fn set_up(&self) {
-        println!("Cmd is not required.");
-    }
-
-    fn execute(&self) -> Option<Result<String>>;
-}
-
-#[derive(Error, Debug)]
-pub enum CmdErrorCode {
-    #[error("For now only support Linux and MacOS. current OS is {0}")]
-    UnSupportOS(String)
-}
+pub mod base;
+pub mod check_mysql_status;
+pub mod check_user_exists;
+pub mod cmd_const;
+pub mod cmd_macro;
+pub mod cmd_runner;
+pub mod cmd_utils;
+pub mod ctl_mysql_process;
+pub mod download_third_party;
+pub mod exec_init_sql_script;
+pub mod gen_mysql_cnf;
+pub mod git_clone_source;
+pub mod init_db;
+pub mod install_deps;
+pub mod mysql_ctl_util;
+pub mod playground;
+pub mod setup_workspace;

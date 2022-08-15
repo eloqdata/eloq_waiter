@@ -4,7 +4,9 @@
 # Visual Studio Code
 .vscode/
 .devcontainer/
-
+mono_waiter_dist/
+*.bash
+*.sh
 # JetBrains
 .idea/
 *.iml
@@ -31,5 +33,5 @@ src/log/
 **/tags
 
 log/
-
+.monograph_waiter/
 .bin/

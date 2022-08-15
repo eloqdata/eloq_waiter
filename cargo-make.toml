@@ -7,24 +7,36 @@ args = ["fmt", "--", "--emit=files"]
 command = "cargo"
 args = ["clean"]
 
-[tasks.build]
-command = "cargo"
-args = ["build"]
-dependencies = ["clean", "format"]
-
 [tasks.test]
 command = "cargo"
-args = ["test"]
-dependencies = ["build"]
+args = ["test", "--tests"]
+dependencies = ["clippy"]
+
+[tasks.build]
+command = "cargo"
+args = ["build", "--release"]
 
 [tasks.clippy]
 command = "cargo"
-args = ["clippy", "--all-targets"]
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.pkg]
+script = '''
+#!/bin/bash
+echo "build package"
+MONO_DIST_DIR="mono_waiter_dist"
+function build_package() {
+  mkdir_dist_dir=`rm -rf "$MONO_DIST_DIR" && mkdir -p "$MONO_DIST_DIR" && mkdir -p "$MONO_DIST_DIR"/config`
+  cp -r ./config/* "$MONO_DIST_DIR/config"
+  cp ./target/release/monograph_waiter "$MONO_DIST_DIR"
+}
+build_package
+'''
 
 [tasks.all-flow]
 dependencies = [
+    "clean",
     "format",
     "build",
-    "clippy",
-    "test"
+    "pkg"
 ]
