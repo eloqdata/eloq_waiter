@@ -91,5 +91,14 @@ cmake ../ -DCMAKE_INSTALL_PREFIX="${MONOGRAPH_WORKSPACE_DIR}/monograph/install" 
 cmake --build . --config Debug -j4
 cmake --install . --config Debug
 ''' }
+rocksdb = { git = "https://github.com/facebook/rocksdb.git", build= '''
+#!/bin/bash
+rocksdb_dir=${MONOGRAPH_WORKSPACE_DIR}/monograph/source/rocksdb
+cd ${rocksdb_dir}
+echo 'build rocksdb'
+export PORTABLE=1
+make clean && make -j4 shared_lib && sudo make install-shared
+sudo ldconfig
+'''}
 [monograph]
 storage = "cassandra"

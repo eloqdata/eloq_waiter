@@ -3,6 +3,7 @@ use serde_derive::Deserialize;
 
 pub static MONOGRAPH_GIT_REPOS: Lazy<Vec<String>> = Lazy::new(|| {
     vec![
+        "rocksdb".to_string(),
         "log_service".to_string(),
         "tx_service".to_string(),
         "monograph".to_string(),
@@ -10,6 +11,7 @@ pub static MONOGRAPH_GIT_REPOS: Lazy<Vec<String>> = Lazy::new(|| {
         "mariadb".to_string(),
     ]
 });
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Common {
     pub workspace: String,
@@ -40,6 +42,7 @@ pub struct Git {
     pub monograph: GitArgs,
     pub cass: GitArgs,
     pub mariadb: GitArgs,
+    pub rocksdb: GitArgs,
 }
 
 #[derive(Clone, Debug, Deserialize)]

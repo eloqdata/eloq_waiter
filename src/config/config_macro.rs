@@ -110,7 +110,8 @@ mod tests {
             tx_service: test_git_attr.clone(),
             monograph: test_git_attr.clone(),
             cass: test_git_attr.clone(),
-            mariadb: test_git_attr,
+            mariadb: test_git_attr.clone(),
+            rocksdb: test_git_attr,
         };
         let git_string = stringify!(Git);
         let root = env!("CARGO_MANIFEST_DIR");

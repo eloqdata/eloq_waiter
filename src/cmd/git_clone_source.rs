@@ -7,6 +7,7 @@ use tokio::sync::Semaphore;
 
 // if the network situation is good, this restriction is not necessary.
 static GIT_CLONE_SEMAPHORE: usize = 3;
+
 pub struct GitCloneSource;
 
 impl GitCloneSource {
@@ -19,6 +20,7 @@ impl GitCloneSource {
             brpc,
             braft,
             catch2,
+            rocksdb,
             tx_service,
             log_service,
             monograph,
