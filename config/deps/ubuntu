@@ -19,3 +19,7 @@ protobuf-compiler
 libleveldb-dev
 libsnappy-dev
 openssh-server
+lcov
+libbz2-dev
+liblz4-dev
+libzstd-dev
