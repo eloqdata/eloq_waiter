@@ -1,0 +1,18 @@
+#!/bin/bash
+export CASSANDRA_BIN_DIR=_CASSANDRA_STORAGE_BIN
+export MONOGRAPH_DB_INSTALL=_MONOGRAPH_DB_HOME
+function monograph_install_db() {
+  data_dir="$MONOGRAPH_DB_INSTALL"/datafarm
+  printf "MonographDB Install Database Start. \n"
+  printf "CASSANDRA_BIN=%s\n" $CASSANDRA_BIN_DIR
+  printf "MONOGRAPH_DB_INSTALL=%s\n" $MONOGRAPH_DB_INSTALL
+  mkdir -p $data_dir
+  init_db_script="${MONOGRAPH_DB_INSTALL}/script/mysql_install_db \
+    --defaults-file=_MY_CONF --basedir=${MONOGRAPH_DB_INSTALL} \
+    --datadir=${data_dir} \
+    --plugin-dir=${MONOGRAPH_DB_INSTALL}/lib/plugin"
+  echo "$init_db_script"
+  eval "$init_db_script"
+}
+
+monograph_install_db

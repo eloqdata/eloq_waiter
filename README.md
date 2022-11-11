@@ -28,7 +28,7 @@ cargo install --force cargo-make
 - Compile and generate release files
 
 ```shell
-cargo make --makefile cargo-make.toml all-flow
+cargo make --makefile Makefile.toml all-flow
 ```
 
 - Run
