@@ -1,4 +1,4 @@
-use crate::cli::config::{DeploymentConfig, DeploymentService};
+use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::download_dir;
 use crate::cli::task::task_base::{
     ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
@@ -11,27 +11,37 @@ use std::path::PathBuf;
 use tracing::info;
 
 pub(crate) const SOURCE_PATH: &str = "source_file";
+pub(crate) const DB_CONFIG_UPLOAD_TASK: &str = "db_config_upload";
+pub(crate) const INSTALL_MONOGRAPH_UPLOAD_TASK: &str = "install_monograph_script_upload";
+pub(crate) const MONOGRAPH_CONFIG_UPLOAD_TASK: &str = "monograph_config_upload";
+pub(crate) const MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK: &str = "monograph_install_db_conf_upload";
+
+pub(crate) const ALL_UPLOAD_TASKS: [&str; 4] = [
+    DB_CONFIG_UPLOAD_TASK,
+    INSTALL_MONOGRAPH_UPLOAD_TASK,
+    MONOGRAPH_CONFIG_UPLOAD_TASK,
+    MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK,
+];
 
 #[derive(Clone)]
 pub struct UploadTask {
-    // source_path: PathBuf,
     config: DeploymentConfig,
     task_host: TaskHost,
     task_id: TaskId,
 }
 #[macro_export]
 macro_rules! monograph_config_task_execution {
-    ( $({$execution_vec:expr, $task_name:expr, $config:expr, $task_host:expr, $source_path:expr}),*) => {
+    ( $({$execution_vec:expr, $task_name:expr, $config:expr, $source_task_host:expr,$task_host:expr, $source_path:expr}),*) => {
         $(
         $execution_vec.push(
            TaskExecutionContext {
            task_input: HashMap::from([(SOURCE_PATH.to_string(),TaskValue::Str($source_path))]),
            task: Box::new(UploadTask::new(
                $config.clone(),
-               $task_host.clone(),
+               $source_task_host.clone(),
                TaskId {
                    cmd: "deploy".to_string(),
-                   task: format!("{}_upload", $task_name),
+                   task: $task_name,
                },)
            ),
            task_host: $task_host.clone(),
@@ -42,19 +52,58 @@ macro_rules! monograph_config_task_execution {
 }
 
 impl UploadTask {
+    pub fn build_datafarm_tasks(
+        config: &DeploymentConfig,
+        source_host: TaskHost,
+        dest_hosts: Vec<TaskHost>,
+    ) -> Vec<TaskExecutionContext> {
+        let datafarm = format!("{}/datafarm", config.install_dir());
+        dest_hosts
+            .iter()
+            .map(|dest_host| TaskExecutionContext {
+                task_input: HashMap::from([(
+                    SOURCE_PATH.to_string(),
+                    TaskValue::Str(datafarm.clone()),
+                )]),
+                task: Box::new(UploadTask::new(
+                    config.clone(),
+                    source_host.clone(),
+                    TaskId {
+                        cmd: "install".to_string(),
+                        task: "upload_datafarm".to_string(),
+                    },
+                )),
+                task_host: dest_host.clone(),
+            })
+            .collect_vec()
+    }
+
     fn tasks_from_host_list(
         service: DeploymentService,
         host_vec: Vec<String>,
         config: &DeploymentConfig,
     ) -> anyhow::Result<Vec<TaskExecutionContext>> {
         let download_files = config.download_file_as_map()?;
-        let db_start_script_path = if service == DeploymentService::Monograph {
-            Some(config.gen_db_start_script()?)
+
+        let install_db_script_opt = if service == DeploymentService::Monograph {
+            let db_config_pair = config.gen_install_db_script()?;
+            Some(db_config_pair)
         } else {
             None
         };
+
+        // let db_start_script_path =
+        let install_db_config_path = config.clone().gen_monograph_config(None)?;
+
+        let install_db_config = install_db_config_path.to_str().unwrap().to_string();
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
+        let source_task_host = TaskHost::Remote {
+            user: conn_user.clone(),
+            port: ssh_port as usize,
+            hosts: "127.0.0.1".to_string(),
+        };
+        let storage_provider = config.get_monograph_storage()?;
         let execution_context_vec = host_vec
             .into_iter()
             .map(|remote_host| {
@@ -65,41 +114,45 @@ impl UploadTask {
                 };
                 match service {
                     DeploymentService::Storage => {
-                        let cassandra_download_file =
-                            download_files.get(&DeploymentService::Storage).unwrap();
+                        let mut upload_storage_task_execution= vec![];
+                        if storage_provider == StorageProvider::Cassandra {
+                            let cassandra_download_file =
+                                download_files.get(&DeploymentService::Storage).unwrap();
 
-                        let cassandra_download_path = download_dir()
-                            .join(cassandra_download_file)
-                            .to_str()
-                            .unwrap()
-                            .to_string();
+                            let cassandra_download_path = download_dir()
+                                .join(cassandra_download_file)
+                                .to_str()
+                                .unwrap()
+                                .to_string();
 
-                        let upload_cassandra = UploadTask::new(
-                            config.clone(),
-                            task_host.clone(),
-                            TaskId {
-                                cmd: "deploy".to_string(),
-                                task: format!("{}_upload", "cassandra"),
-                            },
-                        );
-                        vec![TaskExecutionContext {
-                            task_input: HashMap::from([(
-                                SOURCE_PATH.to_string(),
-                                TaskValue::Str(cassandra_download_path),
-                            )]),
-                            task: Box::new(upload_cassandra),
-                            task_host,
-                        }]
+                            let upload_cassandra = UploadTask::new(
+                                config.clone(),
+                                task_host.clone(),
+                                TaskId {
+                                    cmd: "deploy".to_string(),
+                                    task: format!("{}_upload", "cassandra"),
+                                },
+                            );
+                            upload_storage_task_execution.push(TaskExecutionContext {
+                                task_input: HashMap::from([(
+                                    SOURCE_PATH.to_string(),
+                                    TaskValue::Str(cassandra_download_path),
+                                )]),
+                                task: Box::new(upload_cassandra),
+                                task_host,
+                            });
+                        }
+                        upload_storage_task_execution
                     }
                     DeploymentService::Monograph => {
                         let mut task_execution_vec = vec![];
                         let db_config_path =
-                            config.clone().gen_monograph_config(remote_host).unwrap();
+                            config.clone().gen_monograph_config(Some(remote_host)).unwrap();
 
+                        let install_db_script = install_db_script_opt.as_ref().unwrap().clone();
                         let db_config_path_str = db_config_path.to_str().unwrap().to_string();
                         // $execution_vec:expr, $task_name:expr, $config:expr, $task_host:expr, $source_path:expr
-                        let start_db_script = db_start_script_path.clone().unwrap();
-                        let start_db_script_path_string = start_db_script.to_str().unwrap().to_string();
+                        let install_db_path_string = install_db_script.to_str().unwrap().to_string();
 
                         let monograph_download_file =
                              download_files.get(&DeploymentService::Monograph).unwrap();
@@ -108,9 +161,10 @@ impl UploadTask {
                             join(monograph_download_file).to_str().
                             unwrap().to_string();
                         monograph_config_task_execution! {
-                            {task_execution_vec, "db_config", config, task_host, db_config_path_str},
-                            {task_execution_vec, "db_script", config, task_host, start_db_script_path_string},
-                            {task_execution_vec, "monograph", config, task_host, monograph_download_location}
+                            {task_execution_vec, DB_CONFIG_UPLOAD_TASK.to_string(), config, source_task_host, task_host, db_config_path_str},
+                            {task_execution_vec, INSTALL_MONOGRAPH_UPLOAD_TASK.to_string(), config, source_task_host, task_host, install_db_path_string},
+                            {task_execution_vec, MONOGRAPH_CONFIG_UPLOAD_TASK.to_string(), config, source_task_host, task_host, monograph_download_location},
+                            {task_execution_vec, MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK.to_string(), config, source_task_host, task_host, install_db_config.clone()}
                         }
                         task_execution_vec
                     }
@@ -139,7 +193,6 @@ impl UploadTask {
     }
 
     pub fn new(
-        // source_path: PathBuf,
         config: DeploymentConfig,
         task_host: TaskHost,
         task_id: TaskId,
@@ -165,18 +218,18 @@ impl TaskExecutor for UploadTask {
     ) -> anyhow::Result<Option<ExecutionResult>> {
         ssh_conn_info! {
             self.config.connection.clone(),
-            task_host,
+            self.task_host.clone(),
             ssh_conn,
-            conn_user,
-            conn_host
+            _conn_user,
+            _conn_host
         }
+        let (remote_user, port, remote_host) = task_host.ssh_conn_tuple();
         let source_path_str =
             TaskValue::into_inner_value::<String>(task_input.get(SOURCE_PATH).unwrap().clone());
 
         let source_path_buf = PathBuf::from(source_path_str.as_str());
         // scp /xxx/local_file user@remote_host:remote_dir/file
         let remote_install_dir = self.config.install_dir();
-        let ssh_port = self.config.connection.ssh_port();
         //let local_file = self.source_path.to_str().unwrap();
         info!(
             "UploadFileTask will be start local_file={}",
@@ -187,10 +240,10 @@ impl TaskExecutor for UploadTask {
             // dir port, usr host remote_dir file_name
             r#"mkdir -p {} && scp -P {} {} {}@{}:{}/{}"#,
             remote_install_dir,
-            ssh_port,
+            port,
             source_path_str,
-            conn_user,
-            conn_host,
+            remote_user,
+            remote_host,
             remote_install_dir,
             source_file_name
         );
@@ -201,19 +254,4 @@ impl TaskExecutor for UploadTask {
         );
         Ok(None)
     }
-
-    // async fn post_execute(
-    //     &self,
-    //     execution_rs: anyhow::Result<Option<ExecutionResult>>,
-    // ) -> anyhow::Result<Option<ExecutionResult>> {
-    //     let conn_tuple = self.task_host.ssh_conn_tuple();
-    //     let task_id_string = self.task_id.as_string();
-    //     task_execute_post!(
-    //         execution_rs,
-    //         self.config.deployment.clone().cluster_name,
-    //         task_id_string,
-    //         "deploy",
-    //         conn_tuple.2
-    //     )
-    // }
 }

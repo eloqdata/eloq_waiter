@@ -1,7 +1,8 @@
 use crate::cli::config::Auth;
 use crate::cli::task::task_base::{CmdErr, ExecutionResult, TaskHost, TaskValue};
 use anyhow::anyhow;
-use ssh2::Session;
+use ssh2::{Channel, Session};
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::TcpStream;
@@ -26,6 +27,13 @@ impl SSHAuth {
             SSHAuth::KeyPair(conn_auth.keypair.unwrap())
         }
     }
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub enum RemoteCmdOutput {
+    None,
+    Sync,
+    Stream,
 }
 
 #[derive(Clone)]
@@ -150,10 +158,10 @@ impl SSHConn {
         }
     }
 
-    pub fn run_cmd_with_env(
+    fn run_cmd_with_env(
         &self,
         cmd: String,
-        collect_output: bool,
+        cmd_output: RemoteCmdOutput,
         env: Option<HashMap<String, String>>,
     ) -> anyhow::Result<ExecutionResult> {
         let session_channel_rs = self.session.channel_session();
@@ -196,23 +204,17 @@ impl SSHConn {
             );
             return Err(anyhow!(CmdErr::SSHRemoteCmdErr(cmd, run_cmd_err)));
         }
-        let mut cmd_output = String::new();
-        let mut buffer = [0; 256];
-        loop {
-            let read_len_rs = channel.read(&mut buffer[..]);
-            if read_len_rs.is_err() {
-                break;
+        let cmd_output = match cmd_output {
+            RemoteCmdOutput::Stream | RemoteCmdOutput::None => {
+                self.read_output_to_buf(channel.borrow_mut(), cmd_output)
             }
-            let read_len = read_len_rs.unwrap();
-            if read_len == 0 {
-                break;
+            _ => {
+                let mut output = Vec::new();
+                channel.read_to_end(&mut output)?;
+                String::from_utf8(output)?
             }
-            if collect_output {
-                let output = String::from_utf8(buffer[0..read_len].to_vec()).unwrap();
-                println!("{}", output);
-                cmd_output.push_str(String::from_utf8(buffer.to_vec()).unwrap().as_str());
-            }
-        }
+        };
+
         let wait_close_rs = channel.wait_close();
         if wait_close_rs.is_err() {
             let wait_close_err = wait_close_rs.err().unwrap().to_string();
@@ -239,7 +241,41 @@ impl SSHConn {
         Ok(cmd_exec_rtn)
     }
 
+    pub fn read_output_to_buf(
+        &self,
+        channel: &mut Channel,
+        output_enum: RemoteCmdOutput,
+    ) -> String {
+        let mut cmd_output = String::new();
+        let mut buffer = [0; 512];
+        loop {
+            let read_len_rs = channel.read(&mut buffer[..]);
+            if read_len_rs.is_err() {
+                break;
+            }
+            let read_len = read_len_rs.unwrap();
+            if read_len == 0 {
+                break;
+            }
+            if output_enum != RemoteCmdOutput::None {
+                let output = String::from_utf8(buffer[0..read_len].to_vec()).unwrap();
+                println!("{}", output);
+                cmd_output.push_str(String::from_utf8(buffer.to_vec()).unwrap().as_str());
+            }
+        }
+        cmd_output.clone()
+    }
+
     pub fn run_cmd(&self, cmd: String, collect_output: bool) -> anyhow::Result<ExecutionResult> {
-        self.run_cmd_with_env(cmd, collect_output, None)
+        let cmd_output = if collect_output {
+            RemoteCmdOutput::Stream
+        } else {
+            RemoteCmdOutput::None
+        };
+        self.run_cmd_with_env(cmd, cmd_output, None)
+    }
+
+    pub fn run_cmd_sync_output(&self, cmd: String) -> anyhow::Result<ExecutionResult> {
+        self.run_cmd_with_env(cmd, RemoteCmdOutput::Sync, None)
     }
 }

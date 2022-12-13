@@ -1,5 +1,6 @@
 use crate::cli::{
-    download_dir, MONOGRAPH_CONF_TEMPLATE, MONOGRAPH_INSTALL_TEMPLATE, START_MONOGRAPH_SCRIPT,
+    download_dir, MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE,
+    MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE, START_MONOGRAPH_SCRIPT,
     START_MONOGRAPH_TEMPLATE,
 };
 use anyhow::anyhow;
@@ -11,7 +12,16 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+use strum_macros::AsRefStr;
+use thiserror::Error;
 use tracing::{error, info};
+
+#[derive(PartialEq, Eq, Clone, Error, Debug)]
+pub enum ConfigErr {
+    #[error("MonographDB storage provider config error [{0}].For now only support Cassandra or DynamoDB, \
+    You can choose either one.")]
+    StorageConfigErr(String),
+}
 
 pub const CONFIG_PATH_DIR: &str = "CLUSTER_MGR_CLI_CONFIG";
 pub const CONFIG_MARIADB_SECTION: &str = "mariadb";
@@ -31,10 +41,18 @@ macro_rules! gen_db_script {
     }};
 }
 
-#[derive(Hash, Debug, Clone, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr)]
 pub enum DeploymentService {
+    #[strum(serialize = "monograph")]
     Monograph,
+    #[strum(serialize = "storage")]
     Storage,
+}
+
+#[derive(Hash, Debug, Clone, PartialEq, Eq)]
+pub enum StorageProvider {
+    Cassandra,
+    DynamoDB,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -109,7 +127,20 @@ pub struct Cassandra {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Dynamodb {
-    pub service_addr: String,
+    pub access_key_id: String,
+    pub secret_key: String,
+    pub region: String,
+    pub endpoint: String,
+}
+
+#[macro_export]
+macro_rules! gen_db_misc_files {
+    ($self:ident,$build_func:ident, $script_template:expr) => {{
+        let script = $self.$build_func()?;
+        let script_location = download_dir().join($script_template);
+        std::fs::write(script_location.clone(), script).unwrap();
+        Ok(script_location)
+    }};
 }
 
 impl DeploymentConfig {
@@ -119,40 +150,59 @@ impl DeploymentConfig {
         let deployment_cloned = self.deployment.clone();
         let storage = deployment_cloned.storage_service.cassandra;
         let monograph_download_url = deployment_cloned.install_image;
+        let storage_provider = self.get_monograph_storage();
+        let provider = storage_provider.as_ref().unwrap().clone();
         hosts
             .into_iter()
             .map(|entry| {
                 let hosts = entry.1;
                 let service = entry.0;
-                let file_name = if service == DeploymentService::Storage {
-                    let storage = storage.as_ref().unwrap();
-                    self.extract_file_name(storage.download_url.as_str())
-                        .unwrap()
-                } else {
-                    self.extract_file_name(monograph_download_url.as_str())
-                        .unwrap()
-                };
+                let file_name =
+                    if service == DeploymentService::Storage && storage_provider.as_ref().is_ok() {
+                        if provider == StorageProvider::Cassandra {
+                            let storage = storage.as_ref().unwrap();
+                            self.extract_file_name(storage.download_url.as_str())
+                                .unwrap()
+                        } else {
+                            "".to_string()
+                        }
+                    } else {
+                        self.extract_file_name(monograph_download_url.as_str())
+                            .unwrap()
+                    };
                 (file_name, hosts)
             })
+            .filter(|rs_entry| !rs_entry.0.is_empty())
             .collect::<HashMap<String, Vec<String>>>()
     }
 
-    pub fn gen_db_start_script(&self) -> anyhow::Result<PathBuf> {
-        let script = self.build_start_monograph_script()?;
-        let start_script_location = download_dir().join(START_MONOGRAPH_SCRIPT);
-        std::fs::write(start_script_location.clone(), script).unwrap();
-        Ok(start_script_location)
+    pub fn gen_install_db_script(&self) -> anyhow::Result<PathBuf> {
+        gen_db_misc_files!(
+            self,
+            build_install_monograph_script,
+            MONOGRAPH_INSTALL_SCRIPT
+        )
     }
 
-    pub fn gen_monograph_config(&self, db_host: String) -> anyhow::Result<PathBuf> {
+    pub fn gen_db_start_script(&self) -> anyhow::Result<PathBuf> {
+        gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
+    }
+
+    pub fn gen_monograph_config(&self, db_host: Option<String>) -> anyhow::Result<PathBuf> {
         let port = self.deployment.clone().port.monograph_port.start + 1;
         let my_ini_rs = self.build_monograph_config();
-        let db_config_location = download_dir().join(format!("my_{}.cnf", db_host));
+
+        let host_and_file_tuple = if let Some(host) = db_host {
+            (host.clone(), host)
+        } else {
+            ("127.0.0.1".to_string(), "local".to_string())
+        };
+        let db_config_location = download_dir().join(format!("my_{}.cnf", host_and_file_tuple.1));
         if let Ok(mut my_ini) = my_ini_rs {
             my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_local_ip",
-                Some(format!("{}:{}", db_host, port)),
+                Some(format!("{}:{}", host_and_file_tuple.0, port)),
             );
 
             if let Err(err) = my_ini.write(db_config_location.clone()) {
@@ -236,7 +286,7 @@ impl DeploymentConfig {
         }
     }
 
-    pub fn build_install_monograph_script(&self, host: String) -> anyhow::Result<String> {
+    pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
         let install_db_template = DeploymentConfig::config_template(MONOGRAPH_INSTALL_TEMPLATE)?;
         let remote_install_dir = self.install_dir();
 
@@ -244,7 +294,7 @@ impl DeploymentConfig {
         let final_script = rs
             .replace(
                 "_CASSANDRA_STORAGE_BIN",
-                format!("{}/{}", remote_install_dir, "apache-cassandra").as_str(),
+                format!("{}/{}", remote_install_dir, "apache-cassandra/bin").as_str(),
             )
             .replace(
                 "_MONOGRAPH_DB_HOME",
@@ -252,8 +302,9 @@ impl DeploymentConfig {
             )
             .replace(
                 "_MY_CONF",
-                format!("{}/{}", remote_install_dir, host).as_str(),
-            );
+                format!("{}/my_local.cnf", remote_install_dir).as_str(),
+            )
+            .replace("_MY_CLUSTER_HOME", remote_install_dir.as_str());
         Ok(final_script)
     }
 
@@ -267,10 +318,53 @@ impl DeploymentConfig {
     }
 
     pub fn build_monograph_config(&self) -> anyhow::Result<Ini> {
-        let path_buf = DeploymentConfig::config_template(MONOGRAPH_CONF_TEMPLATE)?;
-        let mut mysql_ini = Ini::new();
+        let storage_provider = self.get_monograph_storage()?;
         let deployment = self.deployment.clone();
-        mysql_ini.load(path_buf.as_path()).unwrap();
+        let mut mysql_ini = Ini::new();
+        match storage_provider {
+            StorageProvider::Cassandra => {
+                mysql_ini
+                    .load(DeploymentConfig::config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
+                    .unwrap();
+
+                let cassandra_hosts = self.get_host_list(DeploymentService::Storage).join(",");
+                mysql_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_cass_hosts",
+                    Some(cassandra_hosts),
+                );
+            }
+            StorageProvider::DynamoDB => {
+                mysql_ini
+                    .load(
+                        DeploymentConfig::config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?
+                            .as_path(),
+                    )
+                    .unwrap();
+
+                let dynamodb = deployment.storage_service.dynamodb.unwrap();
+                mysql_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_aws_access_key_id",
+                    Some(dynamodb.access_key_id),
+                );
+                mysql_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_aws_secret_key",
+                    Some(dynamodb.secret_key),
+                );
+                mysql_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_dynamodb_region",
+                    Some(dynamodb.region),
+                );
+                mysql_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_dynamodb_endpoint",
+                    Some(dynamodb.endpoint),
+                );
+            }
+        };
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "datadir",
@@ -279,7 +373,18 @@ impl DeploymentConfig {
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "lc_messages_dir",
-            Some(format!("{}/shard", self.install_dir())),
+            Some(format!(
+                "{}/monographdb-release/install/share",
+                self.install_dir()
+            )),
+        );
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "plugin_dir",
+            Some(format!(
+                "{}/monographdb-release/install/lib/plugin",
+                self.install_dir()
+            )),
         );
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
@@ -343,6 +448,28 @@ impl DeploymentConfig {
             Ok(deployment_config)
         } else {
             Err(anyhow!(deployment_config_rs.err().unwrap().to_string()))
+        }
+    }
+
+    pub fn validate_storage_service(&self) -> bool {
+        let storage_service = &self.deployment.storage_service;
+        storage_service.dynamodb.is_some() || storage_service.cassandra.is_some()
+    }
+
+    pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
+        let storage = &self.deployment.storage_service;
+        if !self.validate_storage_service() {
+            let err_msg = format!(
+                "DynamoDB Option={}, Cassandra option={}",
+                storage.cassandra.is_some(),
+                storage.cassandra.is_some()
+            );
+            Err(anyhow!(ConfigErr::StorageConfigErr(err_msg)))
+        } else {
+            if storage.cassandra.is_some() {
+                return Ok(StorageProvider::Cassandra);
+            }
+            Ok(StorageProvider::DynamoDB)
         }
     }
 
@@ -426,7 +553,7 @@ mod tests {
         let config = deployment_config.unwrap();
         let path_buf_rs = gen_db_script!(
             MONOGRAPH_INSTALL_SCRIPT,
-            config.build_install_monograph_script("127.0.0.1".to_string())
+            config.build_install_monograph_script()
         );
         println!("start_script_path ={:?}", path_buf_rs);
         assert!(path_buf_rs.is_ok());

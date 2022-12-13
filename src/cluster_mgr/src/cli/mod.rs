@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use std::path::PathBuf;
+use strum_macros::AsRefStr;
 use tracing::error;
 
 pub mod cmd_base;
@@ -10,6 +11,7 @@ pub mod task;
 
 pub const MONOGRAPH_CONF: &str = "my.cnf";
 pub const MONOGRAPH_CONF_TEMPLATE: &str = "my_template.cnf";
+pub const MONOGRAPH_CONF_DYNAMO_TEMPLATE: &str = "my_template_dynamo.cnf";
 pub const START_MONOGRAPH_SCRIPT: &str = "start_monographdb.bash";
 pub const START_MONOGRAPH_TEMPLATE: &str = "start_monographdb.template";
 pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
@@ -25,45 +27,55 @@ pub struct ClusterMgrCommandArgs {
     pub command: Option<CommandArgs>,
 }
 
-#[derive(Subcommand, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Subcommand, Clone, Debug, Hash, PartialEq, Eq, AsRefStr)]
 pub enum CommandArgs {
+    #[strum(serialize = "deploy")]
     /// Deploy the MonographDB cluster by specifying the cluster_topology.yaml file.
     Deploy {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },
+    #[strum(serialize = "install")]
     Install {
         #[arg(short = 'c', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
+    #[strum(serialize = "web")]
     /// Start ClusterMgrCli's webservice on the specified port.
     Web {
         #[arg(short, long, value_name = "WEB SERVICE PORT")]
         port: i16,
     },
+    #[strum(serialize = "start")]
     /// Start the MonographDB cluster with the specified cluster name.
     Start {
         #[arg(short = 'l', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
+    #[strum(serialize = "stop")]
     /// Stop the MonographDB cluster with the specified cluster name.
     Stop {
         #[arg(short = 'k', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
+    #[strum(serialize = "restart")]
     /// Restart the MonographDB cluster with the specified cluster name.
     Restart {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
+    #[strum(serialize = "exec_cmd")]
     /// Execute custom shell commands.
     Exec {
-        #[arg(short, long, value_name = "SHELL COMMAND/SCRIPT")]
-        script: String,
+        #[arg(long, value_name = "SHELL COMMAND/SCRIPT")]
+        command: String,
+        #[arg(long, value_name = "CLUSTER NAME")]
+        cluster: String,
     },
+    #[strum(serialize = "status")]
     /// Display cluster status.
-    Display {
-        #[arg(short = 'i', long, value_name = "CLUSTER NAME")]
+    Status {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
 }

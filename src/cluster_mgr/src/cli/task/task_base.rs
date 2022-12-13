@@ -1,11 +1,8 @@
 use crate::cli::config::{load_remote_env, DeploymentConfig};
-use crate::cli::task::task_group::TASK_GROUP;
+use crate::cli::task::task_group::{TaskExecutionContextTuple, TASK_GROUP};
 use crate::cli::CommandArgs;
 use crate::enum_into_trait;
-use crate::state::state_base::StateOperation;
-use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
-use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
-use anyhow::anyhow;
+use crate::state::task_status_operation::TaskStatusEntity;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use futures::StreamExt;
@@ -15,6 +12,7 @@ use std::collections::HashMap;
 use std::string::ToString;
 use std::sync::{Arc, LazyLock};
 use thiserror::Error;
+use tokio::sync::RwLock;
 use tracing::{error, info};
 use ExecutionResult as LastResult;
 
@@ -22,6 +20,21 @@ pub type EnvProperties = HashMap<String, String>;
 
 pub(crate) static REMOTE_ENV_PROPS: LazyLock<anyhow::Result<EnvProperties>> =
     LazyLock::new(|| load_remote_env(None));
+
+#[macro_export]
+macro_rules! get_ctl_cmd_string {
+    ( $clt_cmd_type:ident, $($cmd_var:ident),* $(,)? ) => {
+        impl $clt_cmd_type {
+            pub fn cmd_value(&self) -> String {
+                 match self.clone() {
+                 $(
+                   $clt_cmd_type::$cmd_var(cmd) => cmd,
+                  )*
+                 }
+            }
+        }
+    };
+}
 
 enum_into_trait! {TaskValueInto, task_value_into, TaskValue}
 
@@ -43,7 +56,7 @@ macro_rules! task_execute_post {
             create_timestamp: Default::default(),
             update_timestamp: Default::default(),
         };
-        save_task_status(task_status_entity, status_tuple.1).await
+        $crate::cli::task::task_utils::save_task_status(task_status_entity, status_tuple.1).await
     }};
 }
 
@@ -69,10 +82,8 @@ task_value_impl! {
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]
 pub enum CmdErr {
-    #[error("Found cli execution failed, error cause {0}")]
-    TasksErr(String),
-    #[error("Task [{0}] execution failed, error cause {1}")]
-    RunErr(String, String),
+    #[error("Remote cmd [{0}] execution failed")]
+    ExecUserCmdErr(String),
     #[error("Download file failed, download URL {0} , error causes {1}")]
     DownloadErr(String, String),
     #[error("Upload file failed, local file {0}, error causes {1}")]
@@ -83,6 +94,12 @@ pub enum CmdErr {
     SSHRemoteCmdErr(String, String),
     #[error("Error executing apache-cassandra control command {0} failed, error causes {1}")]
     CassandraCtlErr(String, String),
+    #[error("MonographDB installation database error. command {0} , error causes {1}")]
+    MonographInstallErr(String, String),
+    #[error("Failed to execute the MonographDB control command. command {0} , error causes {1}")]
+    MonographCtlErr(String, String),
+    #[error("The cluster name   must be unique and the current cluster [{0}] already exists.")]
+    ClusterAlreadyExists(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -118,12 +135,13 @@ impl TaskHost {
 }
 
 pub type ExecutionResult = HashMap<String, TaskValue>;
+pub type TaskStatusRecord = Vec<HashMap<String, TaskValue>>;
 
 static FINISH_: LazyLock<LastResult> = LazyLock::new(|| {
     HashMap::from([("_FINISH_SIGNAL".to_string(), TaskValue::Str("".to_string()))])
 });
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TaskId {
     pub cmd: String,
     pub task: String,
@@ -133,6 +151,11 @@ impl TaskId {
     pub fn as_string(&self) -> String {
         let task_id_string = serde_json::to_string(self);
         task_id_string.unwrap()
+    }
+
+    pub fn from_string(task_id_string: String) -> Self {
+        let task_id: TaskId = serde_json::from_str(task_id_string.as_str()).unwrap();
+        task_id
     }
 }
 
@@ -157,21 +180,30 @@ pub struct TaskExecutionContext {
 }
 
 #[derive(Clone)]
-pub struct TaskExecutionContextTuple {
-    pub barrier: Option<Vec<usize>>,
-    pub executable: Vec<TaskExecutionContext>,
-}
-
-#[derive(Clone)]
 struct TaskController {
     rx: crossbeam_channel::Receiver<anyhow::Result<Option<ExecutionResult>>>,
     tx: crossbeam_channel::Sender<anyhow::Result<Option<ExecutionResult>>>,
+    task_execution_result: Arc<RwLock<HashMap<TaskId, ExecutionResult>>>,
 }
 
 impl TaskController {
     pub fn new() -> Self {
         let (tx, rx) = crossbeam_channel::bounded(2000);
-        Self { rx, tx }
+        Self {
+            rx,
+            tx,
+            task_execution_result: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    async fn get_task_execute_result(&self, task_id: TaskId) -> Option<ExecutionResult> {
+        let execution_rs_read_guard = self.task_execution_result.read().await;
+        execution_rs_read_guard.get(&task_id).cloned()
+    }
+
+    async fn put_task_execute_result(&self, task_id: TaskId, execution_rs: ExecutionResult) {
+        let mut execution_rs_write_guard = self.task_execution_result.write().await;
+        execution_rs_write_guard.insert(task_id, execution_rs);
     }
 
     fn task_split(
@@ -224,8 +256,9 @@ impl TaskController {
         &'static self,
         splits: &'static [TaskExecutionContext],
         config: DeploymentConfig,
-    ) {
+    ) -> anyhow::Result<()> {
         let mut joins = vec![];
+
         splits
             .iter()
             .enumerate()
@@ -234,12 +267,23 @@ impl TaskController {
                 let config_arc = Box::leak(Box::new(config.clone().deployment));
                 let join = tokio::task::spawn(async move {
                     info!("CurrentThread = {:?}", std::thread::current().id());
-                    let input = &execution_context.task_input;
                     let task = &execution_context.task;
+                    let task_input = execution_context.task_input.clone();
                     let task_host = &execution_context.task_host;
-                    let execution_rs = task.execute(task_host.clone(), input.clone()).await;
-
                     let task_id = task.identifier();
+                    let task_result_opt = self.get_task_execute_result(task_id.clone()).await;
+                    let final_task_input = if let Some(mut exec_rs) = task_result_opt {
+                        exec_rs.extend(task_input.into_iter());
+                        exec_rs
+                    } else {
+                        task_input
+                    };
+                    let execution_rs = task.execute(task_host.clone(), final_task_input).await;
+
+                    if let Ok(Some(ref inner_execution_rs)) = execution_rs {
+                        self.put_task_execute_result(task_id.clone(), inner_execution_rs.clone())
+                            .await;
+                    }
                     let cmd = task_id.clone().cmd;
                     let conn_tuple = task_host.ssh_conn_tuple();
                     let cluster_name = config_arc.cluster_name.clone();
@@ -263,19 +307,22 @@ impl TaskController {
             });
         let join_all = futures::future::join_all(joins).await;
         info!("TaskController task split run complete. {:?}", join_all);
+        Ok(())
     }
 
     pub async fn run_all_tasks(
         &'static self,
-        barrier: Option<Vec<usize>>,
-        tasks: Vec<TaskExecutionContext>,
+        task_execution: TaskExecutionContextTuple,
         config: DeploymentConfig,
-    ) {
+    ) -> anyhow::Result<()> {
+        let barrier = task_execution.clone().barrier;
+        let tasks = task_execution.clone().executable;
         let split = TaskController::task_split(barrier, tasks);
         for task_split in split.into_iter() {
-            self.run_task_split(task_split, config.clone()).await;
+            self.run_task_split(task_split, config.clone()).await?;
         }
-        self.tx.send(Ok(Some(FINISH_.clone()))).unwrap()
+        self.tx.send(Ok(Some(FINISH_.clone()))).unwrap();
+        Ok(())
     }
 }
 
@@ -306,45 +353,33 @@ impl TaskMgr {
         }
     }
 
-    async fn get_task_group_and_run(&'static self, group_key: &str, config: DeploymentConfig) {
+    async fn get_task_group_and_run(
+        &'static self,
+        cmd_arg: CommandArgs,
+        group_key: &str,
+        config: DeploymentConfig,
+        success_task: Option<Vec<TaskStatusEntity>>,
+    ) {
         let task_group = TASK_GROUP.get(group_key).unwrap();
-        let tasks_execution = task_group.tasks(config.clone()).unwrap();
-        self.task_controller
-            .run_all_tasks(tasks_execution.barrier, tasks_execution.executable, config)
+        let tasks_execution = task_group
+            .tasks(cmd_arg, config.clone(), success_task)
+            .unwrap();
+        let rs = self
+            .task_controller
+            .run_all_tasks(tasks_execution, config)
             .await;
+        assert!(rs.is_ok());
     }
 
     pub async fn build_and_run(
         &'static self,
-        cmd: CommandArgs,
+        cmd_args: CommandArgs,
         config: DeploymentConfig,
+        success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<()> {
-        match cmd.clone() {
-            CommandArgs::Deploy { topology_file: _ } => {
-                self.get_task_group_and_run("Deploy", config).await;
-            }
-            CommandArgs::Install { cluster: _ } => {
-                self.get_task_group_and_run("Install", config).await;
-            }
-            _ => {
-                unimplemented!()
-            }
-        }
+        let group_key = cmd_args.as_ref();
+        self.get_task_group_and_run(cmd_args.clone(), group_key, config, success_task)
+            .await;
         Ok(())
-    }
-}
-
-pub(crate) async fn save_task_status(
-    task_status_entity: TaskStatusEntity,
-    execution_result: Option<ExecutionResult>,
-) -> anyhow::Result<Option<ExecutionResult>> {
-    let state_operation = STATE_MGR.get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE);
-
-    let put_rs = state_operation.put(task_status_entity).await;
-    if let Err(put_err) = put_rs {
-        let err_string = put_err.to_string();
-        Err(anyhow!(err_string))
-    } else {
-        Ok(execution_result)
     }
 }

@@ -23,7 +23,10 @@ deployment:
         - localhost
       config_location: "./cassandra.yaml"
     dynamodb:
-      service_addr: ""
+      access_key_id: "",
+      secret_key: ""
+      region: "XXXX",
+      endpoint: "";
 #  monitor:
 #    host:
 #      - 10.10.10.10

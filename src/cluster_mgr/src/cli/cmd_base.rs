@@ -1,12 +1,14 @@
 use crate::cli::config::DeploymentConfig;
-use crate::cli::task::task_base::TaskMgr;
+use crate::cli::task::task_base::{CmdErr, TaskMgr};
 use crate::cli::CommandArgs;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
-use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
+use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR, TASK_STATUS_STATE};
+use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
 use crate::StateValue;
+use anyhow::anyhow;
 use itertools::Itertools;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct CommandExecutor {
@@ -23,8 +25,80 @@ impl Default for CommandExecutor {
 impl CommandExecutor {
     pub fn new() -> Self {
         Self {
-            task_mgr: TaskMgr::default(),
+            task_mgr: TaskMgr::new(),
             state_mgr: STATE_MGR.clone(),
+        }
+    }
+
+    fn get_task_by_predicate<F>(
+        &self,
+        tasks: Vec<TaskStatusEntity>,
+        predicate: F,
+    ) -> Vec<TaskStatusEntity>
+    where
+        F: Fn(&TaskStatusEntity) -> bool,
+    {
+        tasks
+            .into_iter()
+            .filter(|task_status| predicate(task_status))
+            .collect_vec()
+    }
+
+    async fn task_list_by_cluster(
+        &self,
+        cluster_name: String,
+        command: String,
+    ) -> anyhow::Result<Vec<TaskStatusEntity>> {
+        let task_state_operation = self
+            .state_mgr
+            .get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE);
+
+        let task_status_entity = task_state_operation
+            .load(|| -> Option<QueryCondition> {
+                Some(QueryCondition {
+                    cond_text: " cluster_name=$1 and task_status=$2 and command = $3".to_string(),
+                    bind_values: vec![
+                        StateValue::Varchar(cluster_name.clone()),
+                        StateValue::Integer(0),
+                        StateValue::Varchar(command.clone()),
+                    ],
+                })
+            })
+            .await?;
+        Ok(task_status_entity)
+    }
+
+    fn get_success_task_id_list(task_status_entity_vec: Vec<TaskStatusEntity>) -> Vec<String> {
+        task_status_entity_vec
+            .into_iter()
+            .map(|task_status_entity| task_status_entity.task)
+            .collect_vec()
+    }
+
+    pub async fn get_success_tasks(
+        &self,
+        cmd: CommandArgs,
+    ) -> anyhow::Result<Option<Vec<TaskStatusEntity>>> {
+        let cmd_str_ref = cmd.as_ref();
+        match cmd.clone() {
+            CommandArgs::Deploy { topology_file } => {
+                let config_rs = DeploymentConfig::load(Some(topology_file))?;
+                let cluster = config_rs.deployment.cluster_name;
+                let tasks_status = self
+                    .task_list_by_cluster(cluster, cmd_str_ref.to_string())
+                    .await?;
+                Ok(Some(tasks_status))
+            }
+            CommandArgs::Install { cluster }
+            | CommandArgs::Start { cluster }
+            | CommandArgs::Stop { cluster }
+            | CommandArgs::Restart { cluster } => {
+                let tasks_status = self
+                    .task_list_by_cluster(cluster, cmd_str_ref.to_string())
+                    .await?;
+                Ok(Some(tasks_status))
+            }
+            _ => Ok(None),
         }
     }
 
@@ -37,6 +111,21 @@ impl CommandExecutor {
                     .state_mgr
                     .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
 
+                let curr_cluster = &config.deployment.cluster_name;
+                let deployment_entity = deployment_operation
+                    .load(|| -> Option<QueryCondition> {
+                        Some(QueryCondition {
+                            cond_text: "cluster_name = $1".to_string(),
+                            bind_values: vec![StateValue::Varchar(curr_cluster.clone())],
+                        })
+                    })
+                    .await?;
+                if !deployment_entity.is_empty() {
+                    error!("current cluster {} already exists.", curr_cluster);
+                    return Err(anyhow!(CmdErr::ClusterAlreadyExists(
+                        curr_cluster.to_string()
+                    )));
+                }
                 let all_hosts = config
                     .get_host_as_map()
                     .iter()
@@ -62,7 +151,12 @@ impl CommandExecutor {
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(config)
             }
-            CommandArgs::Install { cluster } => {
+            CommandArgs::Install { cluster }
+            | CommandArgs::Stop { cluster }
+            | CommandArgs::Start { cluster }
+            | CommandArgs::Restart { cluster }
+            | CommandArgs::Status { cluster }
+            | CommandArgs::Exec { command:_, cluster } => {
                 let deployment_operation = self
                     .state_mgr
                     .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
@@ -81,6 +175,7 @@ impl CommandExecutor {
                 DeploymentConfig::load_from_string(config_content)
             }
             _ => {
+                error!("ClusterCliMgr un-support current cmd = {:?}", cmd);
                 unimplemented!()
             }
         }
@@ -88,6 +183,10 @@ impl CommandExecutor {
 
     pub async fn run(&'static self, cmd: CommandArgs) -> anyhow::Result<()> {
         let config = self.get_config(cmd.clone()).await?;
+        let success_task_ids = match cmd.as_ref() {
+            "exec_cmd" => None,
+            _ => self.get_success_tasks(cmd.clone()).await?,
+        };
         info!(
             "CmdExecutor load config from StateMgr successfully.{:#?}",
             config
@@ -95,7 +194,9 @@ impl CommandExecutor {
         let join = tokio::task::spawn(async move {
             self.task_mgr.receive_task_result().await;
         });
-        self.task_mgr.build_and_run(cmd.clone(), config).await?;
+        self.task_mgr
+            .build_and_run(cmd.clone(), config, success_task_ids)
+            .await?;
         join.await?;
         Ok(())
     }

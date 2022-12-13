@@ -107,19 +107,4 @@ impl TaskExecutor for UnpackFileTask {
         );
         Ok(None)
     }
-    //
-    // async fn post_execute(
-    //     &self,
-    //     execution_rs: anyhow::Result<Option<ExecutionResult>>,
-    // ) -> anyhow::Result<Option<ExecutionResult>> {
-    //     let conn_tuple = self.task_host.ssh_conn_tuple();
-    //
-    //     task_execute_post!(
-    //         execution_rs,
-    //         self.config.deployment.clone().cluster_name,
-    //         self.task_id.as_string(),
-    //         "deploy",
-    //         conn_tuple.2
-    //     )
-    // }
 }

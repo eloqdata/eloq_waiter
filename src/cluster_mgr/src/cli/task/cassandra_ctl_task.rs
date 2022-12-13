@@ -1,17 +1,16 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService};
-use crate::cli::task::ssh_conn::{SSHConn, SSH_EXEC_CMD_OUTPUT, SSH_EXEC_CMD_STATUS};
+use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::{
     CmdErr::CassandraCtlErr, ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId,
     TaskValue,
 };
+use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
 use crate::cli::CommandArgs;
-use crate::ssh_conn_info;
+use crate::{get_ctl_cmd_string, ssh_conn_info};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::thread;
-use std::time::Duration;
 use strum_macros::AsRefStr;
 use tracing::{error, info};
 
@@ -37,8 +36,8 @@ macro_rules! cassandra_cmd {
             },
             "CassandraCmd::ProcessInfo" => {
                 let cmd_user = $cmd_arg;
-                let echo_cmd=format!(" echo `ps -o pid,ruser={},command | grep cassandra | grep -v grep", cmd_user);
-                let print_pid = r#"| awk '{print $1}'`"#;
+                let echo_cmd=format!(" echo `ps uxwe -u {} | grep {} | grep -v grep", cmd_user, $cassandra_home);
+                let print_pid = r#"| awk '{print $2}'`"#;
                 let pid_cmd = format!("{} {}", echo_cmd, print_pid);
                 let pid_cwd = r#"{ read pid; cmd="readlink /proc/$pid/cwd"; output=`eval $cmd`; echo "$pid:$output"}"#;
                 let final_cmd = format!("{} | {}", pid_cmd, pid_cwd);
@@ -108,16 +107,9 @@ impl CassandraCmd {
             }
         }
     }
-
-    pub fn cmd_value(&self) -> String {
-        match self.clone() {
-            CassandraCmd::ProcessInfo(cmd)
-            | CassandraCmd::Start(cmd)
-            | CassandraCmd::Stop(cmd)
-            | CassandraCmd::Status(cmd) => cmd,
-        }
-    }
 }
+
+get_ctl_cmd_string!(CassandraCmd, ProcessInfo, Start, Status, Stop);
 
 #[derive(Clone, Debug)]
 pub struct CassandraCtlTask {
@@ -128,7 +120,9 @@ pub struct CassandraCtlTask {
 impl CassandraCtlTask {
     pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskExecutionContext> {
         let cassandra_task_ctrl_attr = match cmd {
-            CommandArgs::Start { cluster: _ } | CommandArgs::Install { cluster: _ } => (
+            CommandArgs::Start { cluster: _ }
+            | CommandArgs::Install { cluster: _ }
+            | CommandArgs::Restart { cluster: _ } => (
                 "start",
                 TaskId {
                     cmd: "start".to_string(),
@@ -188,134 +182,55 @@ impl CassandraCtlTask {
         let cassandra_home = self.cassandra_home();
         let cassandra_process =
             cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, conn_user);
+
         let process_info = cassandra_process.cmd_value();
-        let cmd_exec_rs = ssh_conn.run_cmd(process_info.clone(), true)?;
-        let cmd_status = cmd_exec_rs.get(SSH_EXEC_CMD_STATUS).unwrap();
 
-        if 0 != TaskValue::into_inner_value::<usize>(cmd_status.clone()) {
-            error!(
-                "CassandraCtlTask CassandraCmd::ProcessInfo fails status={:?}",
-                cmd_status
-            );
-            return Err(anyhow!("Cmd {} execution fails", process_info));
-        }
-        let cmd_output_value = cmd_exec_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
-
-        let output = TaskValue::into_inner_value::<String>(cmd_output_value.clone());
-        info!(
-            "CassandraCtlTask CassandraCmd::ProcessInfo cmd={},output={}",
-            process_info, output
-        );
-        let mut pid = None;
-        for line in output.lines() {
-            let splits = line.split(':').collect_vec();
-            if splits.is_empty() || splits.len() == 1 {
-                continue;
-            }
-            assert_eq!(splits.len(), 2);
-            let process_cmd = splits[1];
-            if cassandra_home.as_str() == process_cmd {
-                let pid_num = splits[0].parse::<i32>().unwrap();
-                pid = Some(pid_num);
-                info!(
-                    "CassandraCtlTask found cassandra process is already running PID={}",
-                    pid_num
-                );
-                break;
-            }
-        }
-        Ok(pid)
-    }
-
-    fn wait_cassandra_start_complete(
-        &self,
-        wait_timeout: Duration,
-        ssh_conn: &SSHConn,
-    ) -> anyhow::Result<bool> {
-        let cassandra_home = self.cassandra_home();
-        let check_status = cassandra_cmd!(CassandraCmd::Status, cassandra_home);
-        let check_status_cmd = check_status.cmd_value();
-        info!("CassandraCtlTask CheckStatus cmd={:?}", check_status_cmd);
-        let sleep_duration = Duration::from_secs(1);
-        let mut timeout_remaining = wait_timeout;
-        let mut process_ready = false;
-        loop {
-            if timeout_remaining.as_secs() == 0 {
-                info!("CassandraCtlTask CheckStatus timeout");
-                break;
-            }
-            let rs = ssh_conn.run_cmd(check_status_cmd.clone(), true);
-            if rs.as_ref().is_err() {
-                let check_status_cmd_err = rs.err().unwrap().to_string();
-                error!(
-                    "CassandraCtlTask CheckStatus return failed. {}",
-                    check_status_cmd_err
-                );
-                return Err(anyhow!(CassandraCtlErr(
-                    check_status_cmd,
-                    check_status_cmd_err
-                )));
-            }
-            let exec_rs = rs.as_ref().unwrap();
-            let output_value = exec_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
-            let output_string = TaskValue::into_inner_value::<String>(output_value.clone());
-            info!("CassandraCtlTask CheckStatus output={}", output_string);
-            for line in output_string.lines() {
-                if line.trim().is_empty() {
+        check_process_pid(process_info, &ssh_conn, |output| -> Option<i32> {
+            let mut pid = None;
+            for line in output.lines() {
+                let splits = line.split(':').collect_vec();
+                if splits.is_empty() || splits.len() == 1 {
                     continue;
                 }
-                if !line.contains(char::is_whitespace) {
-                    continue;
-                }
-                info!("CassandraCtlTask  status={}", line);
-                if line.starts_with("UN") {
-                    process_ready = true;
+                assert_eq!(splits.len(), 2);
+                let process_cmd = splits[1];
+                if cassandra_home.as_str() == process_cmd {
+                    let pid_num = splits[0].parse::<i32>().unwrap();
+                    pid = Some(pid_num);
+                    info!(
+                        "CassandraCtlTask found cassandra process is already running PID={}",
+                        pid_num
+                    );
+                    break;
                 }
             }
-            if process_ready {
-                info!("CassandraCtlTask CheckStatus found cassandra process ready.");
-                break;
-            }
-            thread::sleep(sleep_duration);
-            timeout_remaining -= sleep_duration;
-        }
-        info!(
-            "CassandraCtlTask found  Cassandra process {}",
-            process_ready
-        );
-        Ok(process_ready)
+            pid
+        })
     }
 
     fn cassandra_start(&self, start_cmd: String, ssh_conn: &SSHConn) -> anyhow::Result<bool> {
-        let start_status = ssh_conn.run_cmd(start_cmd.clone(), true)?;
-        let status_code = TaskValue::into_inner_value::<usize>(
-            start_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone(),
-        );
-        info!(
-            "CassandraCtlTask CassandraCmd::Start cmd={},status_code={}",
-            start_cmd, status_code
-        );
-        if status_code != 0 {
-            return Err(anyhow!(format!(
-                "Start cassandra fails cmd={}, cassandra_home={},cmd_code={}",
-                start_cmd,
-                self.cassandra_home(),
-                status_code
-            )));
-        }
-        self.wait_cassandra_start_complete(Duration::from_secs(60 * 5), ssh_conn)
-    }
-
-    fn cassandra_stop(&self, stop_cmd: String, ssh_conn: &SSHConn) -> anyhow::Result<bool> {
-        let stop_status = ssh_conn.run_cmd(stop_cmd.clone(), false)?;
-        info!(
-            "CassandraCtlTask CassandraCmd::Stop cmd={},status_code={:?}",
-            stop_cmd, stop_status,
-        );
-        let stop_cmd_success = TaskValue::into_inner_value::<usize>(
-            stop_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone(),
-        ) == 0;
-        Ok(stop_cmd_success)
+        let check_status = cassandra_cmd!(CassandraCmd::Status, self.cassandra_home());
+        start_service(
+            start_cmd,
+            check_status.cmd_value(),
+            ssh_conn,
+            |output| -> bool {
+                let mut process_ready = false;
+                for line in output.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    if !line.contains(char::is_whitespace) {
+                        continue;
+                    }
+                    info!("CassandraCtlTask  status={}", line);
+                    if line.starts_with("UN") {
+                        process_ready = true;
+                    }
+                }
+                process_ready
+            },
+        )
     }
 
     pub fn execute_cassandra_cmd(
@@ -324,7 +239,7 @@ impl CassandraCtlTask {
         cmd: CassandraCmd,
     ) -> anyhow::Result<bool> {
         let ctl_rsp = match cmd {
-            CassandraCmd::Stop(stop_cmd) => self.cassandra_stop(stop_cmd, &ssh_conn)?,
+            CassandraCmd::Stop(stop_cmd) => stop_service(stop_cmd, &ssh_conn)?,
             CassandraCmd::Start(start_cmd) => self.cassandra_start(start_cmd, &ssh_conn)?,
             _ => {
                 unreachable!()
@@ -370,7 +285,15 @@ impl TaskExecutor for CassandraCtlTask {
             unreachable!()
         };
         if let Err(err) = exec_rs {
-            Err(anyhow!(err.to_string()))
+            error!(
+                "CassandraCtl execute cmd {} failed. cause by {}",
+                cmd.as_ref(),
+                err.to_string()
+            );
+            Err(anyhow!(CassandraCtlErr(
+                cmd.as_ref().to_string(),
+                err.to_string()
+            )))
         } else {
             Ok(None)
         }

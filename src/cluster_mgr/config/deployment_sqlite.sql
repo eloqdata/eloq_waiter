@@ -11,7 +11,7 @@ create table if not exists t_task_status (
     cluster_name   varchar(200)  not null,
     task           text          not null,
     command        varchar(20)   not null,
-    task_host      varchar(200)  not null, -- local or remote_host
+    task_host      varchar(240)  not null, -- local or remote_host
     task_status    integer       not null, -- 0:success,1:failure
     create_timestamp timestamp   not null DEFAULT CURRENT_TIMESTAMP,
     update_timestamp timestamp   not null DEFAULT CURRENT_TIMESTAMP,

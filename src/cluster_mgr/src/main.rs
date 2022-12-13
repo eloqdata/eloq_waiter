@@ -8,7 +8,6 @@ use tracing::{error, info, Level};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
-    info!("tracing inti info.");
     let cluster_mgr_cmd = ClusterMgrCommandArgs::parse();
     let config_path = match cluster_mgr_cmd.config {
         Some(ref config) => config.to_str().unwrap().to_string(),

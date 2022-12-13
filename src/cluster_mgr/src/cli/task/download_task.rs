@@ -18,6 +18,10 @@ const DOWNLOAD_TASK_NAME: &str = "download";
 pub(crate) const DOWNLOAD_URL: &str = "download_url";
 pub(crate) const DOWNLOAD_PATH: &str = "download_path";
 
+pub(crate) const MONOGRAPH_DOWNLOAD_TASK: &str = "monogrphdb_download";
+pub(crate) const CASSANDRA_DOWNLOAD_TASK: &str = "cassandra_download";
+pub(crate) const ALL_DOWNLOAD_TASKS: [&str; 2] = [MONOGRAPH_DOWNLOAD_TASK, CASSANDRA_DOWNLOAD_TASK];
+
 #[derive(Clone)]
 pub struct DownloadTask {
     // download_path: PathBuf,
@@ -38,9 +42,9 @@ impl DownloadTask {
             .into_iter()
             .map(|download_url| {
                 let task_name = if download_url.to_lowercase().contains("monograph") {
-                    "monogrphdb_download"
+                    MONOGRAPH_DOWNLOAD_TASK
                 } else {
-                    "cassandra_download"
+                    CASSANDRA_DOWNLOAD_TASK
                 };
                 let task_id = TaskId {
                     cmd: "deploy".to_string(),
@@ -186,17 +190,4 @@ impl TaskExecutor for DownloadTask {
             TaskValue::Str(download_dir),
         )])))
     }
-
-    // async fn post_execute(
-    //     &self,
-    //     execution_rs: anyhow::Result<Option<ExecutionResult>>,
-    // ) -> anyhow::Result<Option<ExecutionResult>> {
-    //     task_execute_post!(
-    //         execution_rs,
-    //         self.config.deployment.clone().cluster_name,
-    //         self.task_id.as_string(),
-    //         "deploy",
-    //         "local"
-    //     )
-    // }
 }
