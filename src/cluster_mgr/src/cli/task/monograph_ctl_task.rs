@@ -2,7 +2,7 @@ use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::CmdErr::MonographCtlErr;
 use crate::cli::task::task_base::{
-    ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
+    ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
 use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
 use crate::cli::CommandArgs;
@@ -13,8 +13,6 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use strum_macros::AsRefStr;
 use tracing::{error, info};
-
-pub(crate) const MONOGRAPH_CMD_STR: &str = "monograph_cmd_string";
 
 const START_MONOGRAPH: &str = "start";
 const STOP_MONOGRAPH: &str = "stop";
@@ -55,14 +53,14 @@ macro_rules! monograph_cmd {
     }};
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MonographCtlTask {
     config: DeploymentConfig,
     task_id: TaskId,
 }
 
 impl MonographCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskExecutionContext> {
+    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskContext> {
         let task_id = match cmd {
             CommandArgs::Start { cluster: _ } => TaskId {
                 cmd: START_MONOGRAPH.to_string(),
@@ -96,7 +94,7 @@ impl MonographCtlTask {
                     hosts: host.clone(),
                 };
 
-                TaskExecutionContext {
+                TaskContext {
                     task_input: HashMap::default(),
                     task: Box::new(MonographCtlTask::new(config.clone(), task_id.clone())),
                     task_host: remote_host,
@@ -109,7 +107,7 @@ impl MonographCtlTask {
         Self { config, task_id }
     }
 
-    fn parse_check_status_output(output: String) -> Option<i32> {
+    fn parse_monograph_pid(output: String) -> Option<i32> {
         if output.is_empty() {
             None
         } else {
@@ -134,13 +132,13 @@ impl MonographCtlTask {
         }
     }
 
-    fn monograph_already_running(&self, ssh_conn: &SSHConn) -> anyhow::Result<Option<i32>> {
+    fn monograph_pid(&self, ssh_conn: &SSHConn) -> anyhow::Result<Option<i32>> {
         let remote_install_dir = self.config.install_dir();
         let check_status = monograph_cmd!(MonographCtlCmd::Status, remote_install_dir);
         check_process_pid(
             check_status.cmd_value(),
             ssh_conn,
-            MonographCtlTask::parse_check_status_output,
+            MonographCtlTask::parse_monograph_pid,
         )
     }
 }
@@ -154,8 +152,8 @@ impl TaskExecutor for MonographCtlTask {
     async fn execute(
         &self,
         task_host: TaskHost,
-        _task_arg: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        _task_arg: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         let cmd_str = self.task_id.cmd.as_str();
         let remote_install_dir = self.config.install_dir();
         ssh_conn_info! {
@@ -166,7 +164,7 @@ impl TaskExecutor for MonographCtlTask {
             conn_host
         }
         let ssh_conn = &ssh_conn_rs?;
-        let check_process_status = self.monograph_already_running(ssh_conn);
+        let check_process_status = self.monograph_pid(ssh_conn);
         let check_status = monograph_cmd!(MonographCtlCmd::Status, remote_install_dir);
         let start_cmd = monograph_cmd!(MonographCtlCmd::Start, remote_install_dir, conn_host);
         info!(
@@ -182,7 +180,7 @@ impl TaskExecutor for MonographCtlTask {
                             check_status.cmd_value(),
                             ssh_conn,
                             |output| -> bool {
-                                MonographCtlTask::parse_check_status_output(output).is_some()
+                                MonographCtlTask::parse_monograph_pid(output).is_some()
                             },
                         )
                     } else {
@@ -236,7 +234,7 @@ impl TaskExecutor for MonographCtlTask {
                             check_status.cmd_value(),
                             ssh_conn,
                             |output| -> bool {
-                                MonographCtlTask::parse_check_status_output(output).is_some()
+                                MonographCtlTask::parse_monograph_pid(output).is_some()
                             },
                         )
                     } else {
@@ -245,7 +243,7 @@ impl TaskExecutor for MonographCtlTask {
                             check_status.cmd_value(),
                             ssh_conn,
                             |output| -> bool {
-                                MonographCtlTask::parse_check_status_output(output).is_some()
+                                MonographCtlTask::parse_monograph_pid(output).is_some()
                             },
                         )
                     }
@@ -283,7 +281,7 @@ impl TaskExecutor for MonographCtlTask {
 
         if let Ok(status) = execute_rs {
             println!(
-                "MonographCtlTask execute  cmd = {} success status = {}",
+                "MonographCtlTask execute cmd={} success status={}",
                 cmd_str, status
             );
             Ok(None)

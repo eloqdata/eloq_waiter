@@ -1,5 +1,5 @@
 use crate::cli::config::Auth;
-use crate::cli::task::task_base::{CmdErr, ExecutionResult, TaskHost, TaskValue};
+use crate::cli::task::task_base::{CmdErr, ExecutionValue, TaskHost, TaskArgValue};
 use anyhow::anyhow;
 use ssh2::{Channel, Session};
 use std::borrow::BorrowMut;
@@ -163,7 +163,7 @@ impl SSHConn {
         cmd: String,
         cmd_output: RemoteCmdOutput,
         env: Option<HashMap<String, String>>,
-    ) -> anyhow::Result<ExecutionResult> {
+    ) -> anyhow::Result<ExecutionValue> {
         let session_channel_rs = self.session.channel_session();
         if session_channel_rs.is_err() {
             let new_channel_err = session_channel_rs.err().unwrap();
@@ -232,12 +232,12 @@ impl SSHConn {
             )));
         }
         let mut cmd_exec_rtn = HashMap::new();
-        cmd_exec_rtn.insert(SSH_EXEC_CMD.to_string(), TaskValue::Str(cmd));
+        cmd_exec_rtn.insert(SSH_EXEC_CMD.to_string(), TaskArgValue::Str(cmd));
         cmd_exec_rtn.insert(
             SSH_EXEC_CMD_STATUS.to_string(),
-            TaskValue::Number(exec_status_rs.unwrap() as usize),
+            TaskArgValue::Number(exec_status_rs.unwrap() as usize),
         );
-        cmd_exec_rtn.insert(SSH_EXEC_CMD_OUTPUT.to_string(), TaskValue::Str(cmd_output));
+        cmd_exec_rtn.insert(SSH_EXEC_CMD_OUTPUT.to_string(), TaskArgValue::Str(cmd_output));
         Ok(cmd_exec_rtn)
     }
 
@@ -266,7 +266,7 @@ impl SSHConn {
         cmd_output.clone()
     }
 
-    pub fn run_cmd(&self, cmd: String, collect_output: bool) -> anyhow::Result<ExecutionResult> {
+    pub fn run_cmd(&self, cmd: String, collect_output: bool) -> anyhow::Result<ExecutionValue> {
         let cmd_output = if collect_output {
             RemoteCmdOutput::Stream
         } else {
@@ -275,7 +275,7 @@ impl SSHConn {
         self.run_cmd_with_env(cmd, cmd_output, None)
     }
 
-    pub fn run_cmd_sync_output(&self, cmd: String) -> anyhow::Result<ExecutionResult> {
+    pub fn run_cmd_sync_output(&self, cmd: String) -> anyhow::Result<ExecutionValue> {
         self.run_cmd_with_env(cmd, RemoteCmdOutput::Sync, None)
     }
 }

@@ -1,7 +1,7 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
-    ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
+    ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
 use crate::cli::{download_dir, file_process_progress};
 use anyhow::anyhow;
@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use tracing::{error, info};
 
 pub const MONOGRAPH_DEFAULT_FILE_NAME: &str = "monographdb-release-bin.tar.gz";
-const DOWNLOAD_TASK_NAME: &str = "download";
 
 pub(crate) const DOWNLOAD_URL: &str = "download_url";
 pub(crate) const DOWNLOAD_PATH: &str = "download_path";
@@ -22,16 +21,13 @@ pub(crate) const MONOGRAPH_DOWNLOAD_TASK: &str = "monogrphdb_download";
 pub(crate) const CASSANDRA_DOWNLOAD_TASK: &str = "cassandra_download";
 pub(crate) const ALL_DOWNLOAD_TASKS: [&str; 2] = [MONOGRAPH_DOWNLOAD_TASK, CASSANDRA_DOWNLOAD_TASK];
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DownloadTask {
-    // download_path: PathBuf,
-    // download_url: String,
-    config: DeploymentConfig,
     task_id: TaskId,
 }
 
 impl DownloadTask {
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskExecutionContext>> {
+    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskContext>> {
         let deployment_cloned = &config.deployment;
         let mut download_url_vec = vec![deployment_cloned.install_image.clone()];
         if let Some(cassandra) = &config.deployment.storage_service.cassandra {
@@ -50,15 +46,15 @@ impl DownloadTask {
                     cmd: "deploy".to_string(),
                     task: task_name.to_string(),
                 };
-                TaskExecutionContext {
+                TaskContext {
                     task_input: HashMap::from([
-                        (DOWNLOAD_URL.to_string(), TaskValue::Str(download_url)),
+                        (DOWNLOAD_URL.to_string(), TaskArgValue::Str(download_url)),
                         (
                             DOWNLOAD_PATH.to_string(),
-                            TaskValue::Str(download_dir.to_str().unwrap().to_string()),
+                            TaskArgValue::Str(download_dir.to_str().unwrap().to_string()),
                         ),
                     ]),
-                    task: Box::new(DownloadTask::new(config.clone(), task_id)),
+                    task: Box::new(DownloadTask::new(task_id)),
                     task_host: TaskHost::Local,
                 }
             })
@@ -66,8 +62,8 @@ impl DownloadTask {
         Ok(download_tasks)
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
-        Self { config, task_id }
+    pub fn new(task_id: TaskId) -> Self {
+        Self { task_id }
     }
 }
 
@@ -80,12 +76,12 @@ impl TaskExecutor for DownloadTask {
     async fn execute(
         &self,
         _task_host: TaskHost,
-        task_input: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        task_input: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         let download_url =
-            TaskValue::into_inner_value::<String>(task_input.get(DOWNLOAD_URL).unwrap().clone());
+            TaskArgValue::into_inner_value::<String>(task_input.get(DOWNLOAD_URL).unwrap().clone());
         let download_dir =
-            TaskValue::into_inner_value::<String>(task_input.get(DOWNLOAD_PATH).unwrap().clone());
+            TaskArgValue::into_inner_value::<String>(task_input.get(DOWNLOAD_PATH).unwrap().clone());
         let download_path = PathBuf::from(download_dir.as_str());
         info!("DownloadTask will be start url={}", download_url);
         let client = reqwest::Client::new();
@@ -187,7 +183,7 @@ impl TaskExecutor for DownloadTask {
         pb.finish_with_message(format!("{} download compete", file_name));
         Ok(Some(HashMap::from([(
             DOWNLOAD_PATH.to_string(),
-            TaskValue::Str(download_dir),
+            TaskArgValue::Str(download_url),
         )])))
     }
 }

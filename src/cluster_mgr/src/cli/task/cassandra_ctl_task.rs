@@ -1,8 +1,8 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::{
-    CmdErr::CassandraCtlErr, ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId,
-    TaskValue,
+    CmdErr::CassandraCtlErr, ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId,
+    TaskArgValue,
 };
 use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
 use crate::cli::CommandArgs;
@@ -55,7 +55,7 @@ macro_rules! cassandra_ctl {
     ($task_host:expr,$cmd:expr, $cmd_var:ident, $ssh_conn:expr, $self:ident, $check_fn:ident) => {{
         let cmd_rs = match $cmd.clone() {
             CassandraCmd::$cmd_var(_cmd) => {
-                let running_rs = $self.already_running($ssh_conn.clone(), $task_host);
+                let running_rs = $self.cassandra_pid($ssh_conn.clone(), $task_host);
                 if let Ok(pid_opt) = running_rs {
                     if pid_opt.$check_fn() {
                         $self.execute_cassandra_cmd($ssh_conn, $cmd.clone())
@@ -118,7 +118,7 @@ pub struct CassandraCtlTask {
 }
 
 impl CassandraCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskExecutionContext> {
+    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskContext> {
         let cassandra_task_ctrl_attr = match cmd {
             CommandArgs::Start { cluster: _ }
             | CommandArgs::Install { cluster: _ }
@@ -147,15 +147,12 @@ impl CassandraCtlTask {
         let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
         cassandra_hosts
             .iter()
-            .map(|host| TaskExecutionContext {
+            .map(|host| TaskContext {
                 task_input: HashMap::from([(
                     CASSANDRA_CMD_STR.to_string(),
-                    TaskValue::Str(cmd_str.to_string()),
+                    TaskArgValue::Str(cmd_str.to_string()),
                 )]),
-                task: Box::new(CassandraCtlTask {
-                    config: config.clone(),
-                    task_id: task_id.clone(),
-                }),
+                task: Box::new(CassandraCtlTask::new(config.clone(), task_id.clone())),
                 task_host: TaskHost::Remote {
                     user: conn_user.clone(),
                     port: ssh_port as usize,
@@ -173,11 +170,7 @@ impl CassandraCtlTask {
         format!("{}/apache-cassandra", self.config.install_dir())
     }
 
-    fn already_running(
-        &self,
-        ssh_conn: SSHConn,
-        task_host: TaskHost,
-    ) -> anyhow::Result<Option<i32>> {
+    fn cassandra_pid(&self, ssh_conn: SSHConn, task_host: TaskHost) -> anyhow::Result<Option<i32>> {
         let conn_user = task_host.ssh_conn_tuple().0;
         let cassandra_home = self.cassandra_home();
         let cassandra_process =
@@ -235,12 +228,12 @@ impl CassandraCtlTask {
 
     pub fn execute_cassandra_cmd(
         &self,
-        ssh_conn: SSHConn,
+        ssh_conn: &SSHConn,
         cmd: CassandraCmd,
     ) -> anyhow::Result<bool> {
         let ctl_rsp = match cmd {
-            CassandraCmd::Stop(stop_cmd) => stop_service(stop_cmd, &ssh_conn)?,
-            CassandraCmd::Start(start_cmd) => self.cassandra_start(start_cmd, &ssh_conn)?,
+            CassandraCmd::Stop(stop_cmd) => stop_service(stop_cmd, ssh_conn)?,
+            CassandraCmd::Start(start_cmd) => self.cassandra_start(start_cmd, ssh_conn)?,
             _ => {
                 unreachable!()
             }
@@ -258,8 +251,8 @@ impl TaskExecutor for CassandraCtlTask {
     async fn execute(
         &self,
         task_host: TaskHost,
-        task_arg: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        task_arg: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         ssh_conn_info! {
             self.config.connection.clone(),
             task_host.clone(),
@@ -268,7 +261,7 @@ impl TaskExecutor for CassandraCtlTask {
             _conn_host
         }
         let cmd_str =
-            TaskValue::into_inner_value::<String>(task_arg.get(CASSANDRA_CMD_STR).unwrap().clone());
+            TaskArgValue::into_inner_value::<String>(task_arg.get(CASSANDRA_CMD_STR).unwrap().clone());
         let cassandra_home = self.cassandra_home();
 
         info!(
@@ -278,9 +271,9 @@ impl TaskExecutor for CassandraCtlTask {
         let cmd = CassandraCmd::from_string(cmd_str, cassandra_home, None);
         let ssh_conn = ssh_conn_rs?;
         let exec_rs = if cmd.as_ref() == "Start" {
-            cassandra_ctl!(task_host, cmd, Start, ssh_conn, self, is_none)
+            cassandra_ctl!(task_host.clone(), cmd, Start, &ssh_conn, self, is_none)
         } else if cmd.as_ref() == "Stop" {
-            cassandra_ctl!(task_host, cmd, Stop, ssh_conn, self, is_some)
+            cassandra_ctl!(task_host.clone(), cmd, Stop, &ssh_conn, self, is_some)
         } else {
             unreachable!()
         };
@@ -295,7 +288,13 @@ impl TaskExecutor for CassandraCtlTask {
                 err.to_string()
             )))
         } else {
-            Ok(None)
+            let pid_opt = self.cassandra_pid(ssh_conn, task_host)?;
+            let pid = if let Some(pid_val) = pid_opt {
+                TaskArgValue::Str(pid_val.to_string())
+            } else {
+                TaskArgValue::Str("".to_string())
+            };
+            Ok(Some(HashMap::from([("CASSANDRA_PID".to_string(), pid)])))
         }
     }
 }

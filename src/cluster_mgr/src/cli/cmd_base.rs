@@ -1,5 +1,5 @@
 use crate::cli::config::DeploymentConfig;
-use crate::cli::task::task_base::{CmdErr, TaskMgr};
+use crate::cli::task::task_base::{CmdErr, TaskMgr, TaskResultPair};
 use crate::cli::CommandArgs;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
@@ -30,20 +30,6 @@ impl CommandExecutor {
         }
     }
 
-    fn get_task_by_predicate<F>(
-        &self,
-        tasks: Vec<TaskStatusEntity>,
-        predicate: F,
-    ) -> Vec<TaskStatusEntity>
-    where
-        F: Fn(&TaskStatusEntity) -> bool,
-    {
-        tasks
-            .into_iter()
-            .filter(|task_status| predicate(task_status))
-            .collect_vec()
-    }
-
     async fn task_list_by_cluster(
         &self,
         cluster_name: String,
@@ -66,13 +52,6 @@ impl CommandExecutor {
             })
             .await?;
         Ok(task_status_entity)
-    }
-
-    fn get_success_task_id_list(task_status_entity_vec: Vec<TaskStatusEntity>) -> Vec<String> {
-        task_status_entity_vec
-            .into_iter()
-            .map(|task_status_entity| task_status_entity.task)
-            .collect_vec()
     }
 
     pub async fn get_success_tasks(
@@ -156,7 +135,10 @@ impl CommandExecutor {
             | CommandArgs::Start { cluster }
             | CommandArgs::Restart { cluster }
             | CommandArgs::Status { cluster }
-            | CommandArgs::Exec { command:_, cluster } => {
+            | CommandArgs::Exec {
+                command: _,
+                cluster,
+            } => {
                 let deployment_operation = self
                     .state_mgr
                     .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
@@ -194,10 +176,13 @@ impl CommandExecutor {
         let join = tokio::task::spawn(async move {
             self.task_mgr.receive_task_result().await;
         });
-        self.task_mgr
-            .build_and_run(cmd.clone(), config, success_task_ids)
+        let rs = self
+            .task_mgr
+            .run_tasks(cmd.clone(), config, success_task_ids)
             .await?;
         join.await?;
+        let result_json = serde_json::to_string_pretty::<Vec<TaskResultPair>>(&rs).unwrap();
+        println!(r#"{}"#, result_json);
         Ok(())
     }
 }

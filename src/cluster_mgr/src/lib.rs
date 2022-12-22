@@ -11,11 +11,8 @@ use chrono::Utc;
 use std::fmt::Debug;
 use strum_macros::AsRefStr;
 
-#[allow(dead_code)]
 pub mod cli;
-#[allow(dead_code)]
 pub mod state;
-pub mod web;
 
 #[macro_export]
 macro_rules! enum_into_trait {

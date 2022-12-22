@@ -1,28 +1,22 @@
 use crate::cli::config::DeploymentConfig;
-use crate::cli::task::ssh_conn::{SSH_EXEC_CMD_OUTPUT, SSH_EXEC_CMD_STATUS};
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
+    CmdErr, ExecutionValue, TaskArgValue, TaskContext, TaskExecutor, TaskHost, TaskId,
 };
-use crate::cli::task::upload_task::SOURCE_PATH;
 use crate::cli::MONOGRAPH_INSTALL_SCRIPT;
-use crate::ssh_conn_info;
-use anyhow::anyhow;
+use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::info;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MonographInstall {
     config: DeploymentConfig,
     task_id: TaskId,
 }
 
 impl MonographInstall {
-    pub fn from_config(
-        config: &DeploymentConfig,
-        task_host: TaskHost,
-    ) -> Vec<TaskExecutionContext> {
-        vec![TaskExecutionContext {
+    pub fn from_config(config: &DeploymentConfig, task_host: TaskHost) -> Vec<TaskContext> {
+        vec![TaskContext {
             task_input: HashMap::default(),
             task: Box::new(MonographInstall::new(
                 config.clone(),
@@ -49,8 +43,8 @@ impl TaskExecutor for MonographInstall {
     async fn execute(
         &self,
         task_host: TaskHost,
-        _task_arg: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        _task_arg: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         ssh_conn_info! {
             self.config.connection.clone(),
             task_host,
@@ -67,31 +61,17 @@ impl TaskExecutor for MonographInstall {
             MONOGRAPH_INSTALL_SCRIPT
         );
         let install_rs = ssh_conn?.run_cmd(install_db_script.clone(), true)?;
-        let status_code_value = install_rs.get(SSH_EXEC_CMD_STATUS).unwrap();
-        info!(
-            "MonographInstall install database cmd={},status_code = {:?}",
-            install_db_script, status_code_value
+
+        task_return_value!(
+            install_rs,
+            |status_code: usize| -> CmdErr {
+                CmdErr::MonographInstallErr(install_db_script, status_code.to_string())
+            },
+            "MonographInstall",
+            HashMap::from([(
+                "MONOGRAPH_DATA_DIR".to_string(),
+                TaskArgValue::Str(format!("{}/datafarm", remote_install_dir))
+            )])
         );
-        let status_code = TaskValue::into_inner_value::<usize>(status_code_value.clone());
-        let install_db_output = install_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
-        info!(
-            "MonographInstall install database  output = {:?}",
-            TaskValue::into_inner_value::<String>(install_db_output.clone())
-        );
-        if 0 != status_code {
-            error!(
-                "MonographInstall install_db={} execution failed status_code={}",
-                install_db_script, status_code
-            );
-            Err(anyhow!(CmdErr::MonographInstallErr(
-                install_db_script,
-                status_code.to_string()
-            )))
-        } else {
-            Ok(Some(HashMap::from([(
-                SOURCE_PATH.to_string(),
-                TaskValue::Str(format!("{}/datafarm", remote_install_dir)),
-            )])))
-        }
     }
 }

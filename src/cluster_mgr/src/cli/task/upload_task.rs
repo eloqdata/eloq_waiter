@@ -1,9 +1,9 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::download_dir;
 use crate::cli::task::task_base::{
-    ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
+    CmdErr, ExecutionValue, TaskArgValue, TaskContext, TaskExecutor, TaskHost, TaskId,
 };
-use crate::ssh_conn_info;
+use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ pub(crate) const ALL_UPLOAD_TASKS: [&str; 4] = [
     MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK,
 ];
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct UploadTask {
     config: DeploymentConfig,
     task_host: TaskHost,
@@ -34,18 +34,18 @@ macro_rules! monograph_config_task_execution {
     ( $({$execution_vec:expr, $task_name:expr, $config:expr, $source_task_host:expr,$task_host:expr, $source_path:expr}),*) => {
         $(
         $execution_vec.push(
-           TaskExecutionContext {
-           task_input: HashMap::from([(SOURCE_PATH.to_string(),TaskValue::Str($source_path))]),
-           task: Box::new(UploadTask::new(
-               $config.clone(),
-               $source_task_host.clone(),
-               TaskId {
-                   cmd: "deploy".to_string(),
-                   task: $task_name,
-               },)
-           ),
-           task_host: $task_host.clone(),
-        }
+           TaskContext {
+               task_input: HashMap::from([(SOURCE_PATH.to_string(),TaskArgValue::Str($source_path))]),
+               task: Box::new(UploadTask::new(
+                   $config.clone(),
+                   $source_task_host.clone(),
+                   TaskId {
+                       cmd: "deploy".to_string(),
+                       task: $task_name,
+                   },)
+               ),
+               task_host: $task_host.clone(),
+           }
         );
         )*
     };
@@ -56,14 +56,14 @@ impl UploadTask {
         config: &DeploymentConfig,
         source_host: TaskHost,
         dest_hosts: Vec<TaskHost>,
-    ) -> Vec<TaskExecutionContext> {
+    ) -> Vec<TaskContext> {
         let datafarm = format!("{}/datafarm", config.install_dir());
         dest_hosts
             .iter()
-            .map(|dest_host| TaskExecutionContext {
+            .map(|dest_host| TaskContext {
                 task_input: HashMap::from([(
                     SOURCE_PATH.to_string(),
-                    TaskValue::Str(datafarm.clone()),
+                    TaskArgValue::Str(datafarm.clone()),
                 )]),
                 task: Box::new(UploadTask::new(
                     config.clone(),
@@ -82,7 +82,7 @@ impl UploadTask {
         service: DeploymentService,
         host_vec: Vec<String>,
         config: &DeploymentConfig,
-    ) -> anyhow::Result<Vec<TaskExecutionContext>> {
+    ) -> anyhow::Result<Vec<TaskContext>> {
         let download_files = config.download_file_as_map()?;
 
         let install_db_script_opt = if service == DeploymentService::Monograph {
@@ -133,10 +133,10 @@ impl UploadTask {
                                     task: format!("{}_upload", "cassandra"),
                                 },
                             );
-                            upload_storage_task_execution.push(TaskExecutionContext {
+                            upload_storage_task_execution.push(TaskContext {
                                 task_input: HashMap::from([(
                                     SOURCE_PATH.to_string(),
-                                    TaskValue::Str(cassandra_download_path),
+                                    TaskArgValue::Str(cassandra_download_path),
                                 )]),
                                 task: Box::new(upload_cassandra),
                                 task_host,
@@ -176,7 +176,7 @@ impl UploadTask {
         Ok(execution_context_vec)
     }
 
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskExecutionContext>> {
+    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskContext>> {
         let all_hosts = config.get_host_as_map();
         let execution_context_vec = all_hosts
             .into_iter()
@@ -192,11 +192,7 @@ impl UploadTask {
         Ok(execution_context_vec)
     }
 
-    pub fn new(
-        config: DeploymentConfig,
-        task_host: TaskHost,
-        task_id: TaskId,
-    ) -> Self {
+    pub fn new(config: DeploymentConfig, task_host: TaskHost, task_id: TaskId) -> Self {
         Self {
             config,
             task_host,
@@ -214,8 +210,8 @@ impl TaskExecutor for UploadTask {
     async fn execute(
         &self,
         task_host: TaskHost,
-        task_input: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        task_input: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         ssh_conn_info! {
             self.config.connection.clone(),
             self.task_host.clone(),
@@ -225,7 +221,7 @@ impl TaskExecutor for UploadTask {
         }
         let (remote_user, port, remote_host) = task_host.ssh_conn_tuple();
         let source_path_str =
-            TaskValue::into_inner_value::<String>(task_input.get(SOURCE_PATH).unwrap().clone());
+            TaskArgValue::into_inner_value::<String>(task_input.get(SOURCE_PATH).unwrap().clone());
 
         let source_path_buf = PathBuf::from(source_path_str.as_str());
         // scp /xxx/local_file user@remote_host:remote_dir/file
@@ -247,11 +243,13 @@ impl TaskExecutor for UploadTask {
             remote_install_dir,
             source_file_name
         );
-        let task_rs = ssh_conn?.run_cmd(scp_cmd.clone(), false);
-        info!(
-            "UploadFileTask complete cmd={}, result={:?}",
-            scp_cmd, task_rs
+        let task_rs = ssh_conn?.run_cmd(scp_cmd, false)?;
+        task_return_value!(
+            task_rs,
+            |status_code: usize| -> CmdErr {
+                CmdErr::UploadErr(source_path_str, status_code.to_string())
+            },
+            "UploadTask"
         );
-        Ok(None)
     }
 }

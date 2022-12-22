@@ -1,14 +1,13 @@
 use crate::cli::config::DeploymentConfig;
-use crate::cli::task::ssh_conn::{SSH_EXEC_CMD_OUTPUT, SSH_EXEC_CMD_STATUS};
+use crate::cli::task::ssh_conn::SSH_EXEC_CMD_OUTPUT;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionResult, TaskExecutionContext, TaskExecutor, TaskHost, TaskId, TaskValue,
+    CmdErr, ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
-use crate::ssh_conn_info;
-use anyhow::anyhow;
+use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
 use itertools::Itertools;
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct ExecCustomCommand {
@@ -18,7 +17,7 @@ pub struct ExecCustomCommand {
 }
 
 impl ExecCustomCommand {
-    pub fn from_config(cmd_string: String, config: &DeploymentConfig) -> Vec<TaskExecutionContext> {
+    pub fn from_config(cmd_string: String, config: &DeploymentConfig) -> Vec<TaskContext> {
         let all_hosts = config.get_host_as_map();
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
@@ -33,7 +32,7 @@ impl ExecCustomCommand {
                             port: ssh_port as usize,
                             hosts: host_val.clone(),
                         };
-                        TaskExecutionContext {
+                        TaskContext {
                             task_input: HashMap::default(),
                             task: Box::new(ExecCustomCommand::new(
                                 cmd_string.clone(),
@@ -69,8 +68,8 @@ impl TaskExecutor for ExecCustomCommand {
     async fn execute(
         &self,
         task_host: TaskHost,
-        _task_arg: HashMap<String, TaskValue>,
-    ) -> anyhow::Result<Option<ExecutionResult>> {
+        _task_arg: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
         ssh_conn_info! {
             self.config.connection.clone(),
             task_host,
@@ -81,28 +80,22 @@ impl TaskExecutor for ExecCustomCommand {
 
         let ssh_conn = ssh_conn_rs?;
         let exec_cmd_rs = ssh_conn.run_cmd_sync_output(self.cmd.clone())?;
-        let status_code_value = exec_cmd_rs.get(SSH_EXEC_CMD_STATUS).unwrap();
-        let status_code = TaskValue::into_inner_value::<usize>(status_code_value.clone());
-        if status_code != 0 {
-            error!(
-                "ExecCustomCommand execute remote cmd={} error, status_code={}, host={}",
-                self.cmd, status_code, conn_host
-            );
-            Err(anyhow!(CmdErr::ExecUserCmdErr(self.cmd.clone())))
-        } else {
-            let cmd_output = exec_cmd_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
-            let output_string = TaskValue::into_inner_value::<String>(cmd_output.clone());
-            info!(
-                "ExecCustomCommand remote command={} on remote host={} execute success",
-                self.cmd, conn_host
-            );
+
+        if let Some(output) = exec_cmd_rs.get(SSH_EXEC_CMD_OUTPUT) {
             println!(
-                r#"Host {}, Command output :
-                    {}
-             "#,
-                conn_host, output_string
+                r#"Host {} Cmd {} output
+              {}"#,
+                conn_host,
+                self.cmd,
+                TaskArgValue::into_inner_value::<String>(output.clone())
             );
-            Ok(None)
         }
+        task_return_value!(
+            exec_cmd_rs,
+            |status_code: usize| -> CmdErr {
+                CmdErr::ExecUserCmdErr(self.cmd.clone(), status_code.to_string())
+            },
+            "UserCustomCommand"
+        )
     }
 }

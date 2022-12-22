@@ -4,7 +4,7 @@ use crate::cli::task::download_task::{DownloadTask, ALL_DOWNLOAD_TASKS};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
-use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId};
+use crate::cli::task::task_base::{TaskContext, TaskHost, TaskId};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
 use crate::cli::CommandArgs;
@@ -15,41 +15,15 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use tracing::info;
 
-#[derive(Clone, Debug)]
-pub struct TaskDependency {
-    pub task_id: TaskId,
-    pub dependency: TaskId,
-}
-
 #[derive(Clone)]
 pub struct TaskExecutionContextTuple {
     pub cmd_args: CommandArgs,
     pub barrier: Option<Vec<usize>>,
-    pub executable: Vec<TaskExecutionContext>,
+    pub executable: Vec<TaskContext>,
 }
 
-impl TaskExecutionContextTuple {
-    pub fn task_dependency(&self) -> Option<TaskDependency> {
-        match self.cmd_args {
-            CommandArgs::Install { cluster: _ } => {
-                let task_sequence = self
-                    .executable
-                    .iter()
-                    .enumerate()
-                    .filter(|pair| pair.0 != 0)
-                    .map(|(idx, context)| (idx, context.task.identifier()))
-                    .collect::<HashMap<usize, TaskId>>();
-                assert_eq!(2, task_sequence.len());
-                Some(TaskDependency {
-                    task_id: task_sequence.get(&2_usize).unwrap().clone(),
-                    dependency: task_sequence.get(&1_usize).unwrap().clone(),
-                })
-            }
-            _ => None,
-        }
-    }
-}
-
+/// `TaskGroup` According to different business logic, multiple tasks are organized into task groups,
+/// and barriers are inserted between task lists according to dependencies.
 pub trait TaskGroup: Send + Sync + DynClone {
     fn tasks(
         &self,
@@ -118,7 +92,7 @@ impl DeploymentTaskGroup {
             .iter()
             .filter(|task_status_entity| {
                 let task_id_string = task_status_entity.task.clone();
-                let task_name = TaskId::from_string(task_id_string).task;
+                let task_name = TaskId::from_json_string(task_id_string).task;
                 task_name_vec.contains(&task_name)
             })
             .cloned()
@@ -127,9 +101,9 @@ impl DeploymentTaskGroup {
 
     fn skip_success_task_execution(
         task_name_vec: Vec<String>,
-        task_list: Vec<TaskExecutionContext>,
+        task_list: Vec<TaskContext>,
         all_task_entity: Vec<TaskStatusEntity>,
-    ) -> Vec<TaskExecutionContext> {
+    ) -> Vec<TaskContext> {
         let success_tasks =
             DeploymentTaskGroup::get_task_entity_by_name(task_name_vec, all_task_entity);
 

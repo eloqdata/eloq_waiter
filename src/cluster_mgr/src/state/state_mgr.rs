@@ -18,7 +18,6 @@ pub static DEPLOYMENT_STATE: &str = "Deployment";
 pub static TASK_STATUS_STATE: &str = "TaskStatus";
 
 pub(crate) static CLUSTER_MGR_CLI_DB: &str = "cluster_mgr_state.db";
-pub(crate) static SQLITE_DATABASE_URL: &str = "DATABASE_URL";
 pub(crate) static MONO_CLUSTER_MGR_SCHEMA_PATH: &str = "MONO_CLUSTER_MGR_SCHEMA_PATH";
 
 pub static STATE_MGR: LazyLock<StateMgr> = LazyLock::new(|| {
@@ -50,10 +49,7 @@ pub struct TableName {
 }
 
 impl StateMgr {
-    fn inner_db_pool(&self) -> Pool<Sqlite> {
-        self.db_pool.clone()
-    }
-
+    #[allow(dead_code)]
     async fn list_tables(&self) -> Vec<String> {
         let table_result = QueryBuilder::new(
             r#"SELECT

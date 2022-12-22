@@ -25,7 +25,6 @@ pub enum ConfigErr {
 
 pub const CONFIG_PATH_DIR: &str = "CLUSTER_MGR_CLI_CONFIG";
 pub const CONFIG_MARIADB_SECTION: &str = "mariadb";
-pub(crate) const REMOTE_DIR_ENV: &str = "MONOGRAPH_REMOTE_DIR_ENV";
 
 #[macro_export]
 macro_rules! gen_db_script {

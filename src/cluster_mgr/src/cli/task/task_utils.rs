@@ -1,5 +1,5 @@
 use crate::cli::task::ssh_conn::{SSHConn, SSH_EXEC_CMD_OUTPUT, SSH_EXEC_CMD_STATUS};
-use crate::cli::task::task_base::{ExecutionResult, TaskValue};
+use crate::cli::task::task_base::{ExecutionValue, TaskArgValue};
 use crate::state::state_base::StateOperation;
 use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
@@ -11,7 +11,7 @@ pub(crate) fn stop_service(stop_cmd: String, ssh_conn: &SSHConn) -> anyhow::Resu
     let stop_status = ssh_conn.run_cmd(stop_cmd.clone(), false)?;
     info!("Stop cmd={},status_code={:?}", stop_cmd, stop_status,);
     let stop_cmd_success =
-        TaskValue::into_inner_value::<usize>(stop_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone())
+        TaskArgValue::into_inner_value::<usize>(stop_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone())
             == 0;
     Ok(stop_cmd_success)
 }
@@ -27,13 +27,13 @@ where
     let cmd_exec_rs = ssh_conn.run_cmd(check_cmd.clone(), true)?;
     let cmd_status = cmd_exec_rs.get(SSH_EXEC_CMD_STATUS).unwrap();
 
-    if 0 != TaskValue::into_inner_value::<usize>(cmd_status.clone()) {
+    if 0 != TaskArgValue::into_inner_value::<usize>(cmd_status.clone()) {
         error!("check_process_pid fails status={:?}", cmd_status);
         return Err(anyhow!("Cmd {} execution fails", check_cmd));
     }
     let cmd_output_value = cmd_exec_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
 
-    let output = TaskValue::into_inner_value::<String>(cmd_output_value.clone());
+    let output = TaskArgValue::into_inner_value::<String>(cmd_output_value.clone());
     info!("check_process_pid cmd={},output={}", check_cmd, output);
     Ok(parser_output(output))
 }
@@ -49,7 +49,7 @@ where
 {
     let start_rs = ssh_conn.run_cmd(start_cmd.clone(), true)?;
     let status_code =
-        TaskValue::into_inner_value::<usize>(start_rs.get(SSH_EXEC_CMD_STATUS).unwrap().clone());
+        TaskArgValue::into_inner_value::<usize>(start_rs.get(SSH_EXEC_CMD_STATUS).unwrap().clone());
     info!(
         "Start command execution completed.cmd={},status_code={}",
         start_cmd, status_code
@@ -93,7 +93,7 @@ where
         }
         let exec_rs = rs.as_ref().unwrap();
         let output_value = exec_rs.get(SSH_EXEC_CMD_OUTPUT).unwrap();
-        let output_string = TaskValue::into_inner_value::<String>(output_value.clone());
+        let output_string = TaskArgValue::into_inner_value::<String>(output_value.clone());
         info!("CheckStatus output={}", output_string.as_str());
         process_ready = parser_output(output_string);
         if process_ready {
@@ -108,8 +108,8 @@ where
 
 pub(crate) async fn save_task_status(
     task_status_entity: TaskStatusEntity,
-    execution_result: Option<ExecutionResult>,
-) -> anyhow::Result<Option<ExecutionResult>> {
+    execution_result: Option<ExecutionValue>,
+) -> anyhow::Result<Option<ExecutionValue>> {
     let state_operation = STATE_MGR.get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE);
 
     let put_rs = state_operation.put(task_status_entity).await;
