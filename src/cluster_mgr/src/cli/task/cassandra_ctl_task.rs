@@ -1,7 +1,7 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::{
-    CmdErr::CassandraCtlErr, ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId,
+    CmdErr::CassandraCtlErr, ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
     TaskArgValue,
 };
 use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
@@ -118,7 +118,7 @@ pub struct CassandraCtlTask {
 }
 
 impl CassandraCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskContext> {
+    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskInstance> {
         let cassandra_task_ctrl_attr = match cmd {
             CommandArgs::Start { cluster: _ }
             | CommandArgs::Install { cluster: _ }
@@ -147,7 +147,7 @@ impl CassandraCtlTask {
         let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
         cassandra_hosts
             .iter()
-            .map(|host| TaskContext {
+            .map(|host| TaskInstance {
                 task_input: HashMap::from([(
                     CASSANDRA_CMD_STR.to_string(),
                     TaskArgValue::Str(cmd_str.to_string()),

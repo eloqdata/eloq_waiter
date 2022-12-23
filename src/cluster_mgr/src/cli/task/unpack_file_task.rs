@@ -1,6 +1,6 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskContext, TaskExecutor, TaskHost, TaskId,
+    CmdErr, ExecutionValue, TaskArgValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
@@ -17,7 +17,7 @@ pub struct UnpackFileTask {
 }
 
 impl UnpackFileTask {
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskContext>> {
+    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
         let remote_install_dir = config.install_dir();
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
@@ -38,7 +38,7 @@ impl UnpackFileTask {
                             port: ssh_port as usize,
                             hosts: remote_host,
                         };
-                        TaskContext {
+                        TaskInstance {
                             task_input: HashMap::from([(
                                 REMOTE_TAR.to_string(),
                                 TaskArgValue::Str(remote_tarball),

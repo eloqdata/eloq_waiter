@@ -1,7 +1,7 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::download_dir;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskContext, TaskExecutor, TaskHost, TaskId,
+    CmdErr, ExecutionValue, TaskArgValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
@@ -34,7 +34,7 @@ macro_rules! monograph_config_task_execution {
     ( $({$execution_vec:expr, $task_name:expr, $config:expr, $source_task_host:expr,$task_host:expr, $source_path:expr}),*) => {
         $(
         $execution_vec.push(
-           TaskContext {
+           TaskInstance {
                task_input: HashMap::from([(SOURCE_PATH.to_string(),TaskArgValue::Str($source_path))]),
                task: Box::new(UploadTask::new(
                    $config.clone(),
@@ -56,11 +56,11 @@ impl UploadTask {
         config: &DeploymentConfig,
         source_host: TaskHost,
         dest_hosts: Vec<TaskHost>,
-    ) -> Vec<TaskContext> {
+    ) -> Vec<TaskInstance> {
         let datafarm = format!("{}/datafarm", config.install_dir());
         dest_hosts
             .iter()
-            .map(|dest_host| TaskContext {
+            .map(|dest_host| TaskInstance {
                 task_input: HashMap::from([(
                     SOURCE_PATH.to_string(),
                     TaskArgValue::Str(datafarm.clone()),
@@ -82,7 +82,7 @@ impl UploadTask {
         service: DeploymentService,
         host_vec: Vec<String>,
         config: &DeploymentConfig,
-    ) -> anyhow::Result<Vec<TaskContext>> {
+    ) -> anyhow::Result<Vec<TaskInstance>> {
         let download_files = config.download_file_as_map()?;
 
         let install_db_script_opt = if service == DeploymentService::Monograph {
@@ -133,7 +133,7 @@ impl UploadTask {
                                     task: format!("{}_upload", "cassandra"),
                                 },
                             );
-                            upload_storage_task_execution.push(TaskContext {
+                            upload_storage_task_execution.push(TaskInstance {
                                 task_input: HashMap::from([(
                                     SOURCE_PATH.to_string(),
                                     TaskArgValue::Str(cassandra_download_path),
@@ -176,7 +176,7 @@ impl UploadTask {
         Ok(execution_context_vec)
     }
 
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskContext>> {
+    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
         let all_hosts = config.get_host_as_map();
         let execution_context_vec = all_hosts
             .into_iter()

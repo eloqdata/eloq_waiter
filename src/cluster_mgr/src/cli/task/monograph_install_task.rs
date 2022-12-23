@@ -1,6 +1,6 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskContext, TaskExecutor, TaskHost, TaskId,
+    CmdErr, ExecutionValue, TaskArgValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
 };
 use crate::cli::MONOGRAPH_INSTALL_SCRIPT;
 use crate::{ssh_conn_info, task_return_value};
@@ -15,8 +15,8 @@ pub struct MonographInstall {
 }
 
 impl MonographInstall {
-    pub fn from_config(config: &DeploymentConfig, task_host: TaskHost) -> Vec<TaskContext> {
-        vec![TaskContext {
+    pub fn from_config(config: &DeploymentConfig, task_host: TaskHost) -> Vec<TaskInstance> {
+        vec![TaskInstance {
             task_input: HashMap::default(),
             task: Box::new(MonographInstall::new(
                 config.clone(),

@@ -1,5 +1,5 @@
 use crate::cli::config::{load_remote_env, DeploymentConfig};
-use crate::cli::task::task_group::{TaskExecutionContextTuple, TASK_GROUP};
+use crate::cli::task::task_group::{TaskExecutionContext, TASK_GROUP};
 use crate::cli::CommandArgs;
 use crate::enum_into_trait;
 use crate::state::task_status_operation::TaskStatusEntity;
@@ -219,7 +219,7 @@ pub trait TaskExecutor: 'static + Send + Sync + DynClone + Debug {
 dyn_clone::clone_trait_object!(TaskExecutor);
 
 #[derive(Debug, Clone)]
-pub struct TaskContext {
+pub struct TaskInstance {
     pub(crate) task_input: HashMap<String, TaskArgValue>,
     pub(crate) task: Box<dyn TaskExecutor>,
     pub(crate) task_host: TaskHost,
@@ -272,8 +272,8 @@ impl TaskController {
 
     fn split_task(
         barrier: Option<Vec<usize>>,
-        tasks: Vec<TaskContext>,
-    ) -> Vec<&'static [TaskContext]> {
+        tasks: Vec<TaskInstance>,
+    ) -> Vec<&'static [TaskInstance]> {
         let tasks = Box::leak(Box::new(tasks));
         if barrier.is_none() {
             vec![tasks.as_slice()]
@@ -322,7 +322,7 @@ impl TaskController {
     #[instrument]
     async fn run_task_split(
         &'static self,
-        splits: &'static [TaskContext],
+        splits: &'static [TaskInstance],
         config: DeploymentConfig,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let mut joins = vec![];
@@ -385,9 +385,17 @@ impl TaskController {
         Ok(task_result)
     }
 
+    /// Executes all task instances in parallel based on the `TaskExecutionContext` and returns the result.
+    ///
+    /// + --------parallel-------- + Pause  +  ------parallel----- +
+    ///
+    /// +-----+------+------+------+--------+------+-------+-------+-------+
+    /// |     |      |      |      |        |      |       |       |       |
+    /// |task1| task2| task3| task4| Barrier|task5 | task6 | task7 | ...   |
+    /// +-----+------+------+------+--------+------+-------+-------+-------+
     pub async fn run_all_tasks(
         &'static self,
-        task_execution: TaskExecutionContextTuple,
+        task_execution: TaskExecutionContext,
         config: DeploymentConfig,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let barrier = task_execution.clone().barrier;

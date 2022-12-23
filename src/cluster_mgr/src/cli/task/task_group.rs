@@ -4,7 +4,7 @@ use crate::cli::task::download_task::{DownloadTask, ALL_DOWNLOAD_TASKS};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
-use crate::cli::task::task_base::{TaskContext, TaskHost, TaskId};
+use crate::cli::task::task_base::{TaskInstance, TaskHost, TaskId};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
 use crate::cli::CommandArgs;
@@ -16,13 +16,13 @@ use std::sync::LazyLock;
 use tracing::info;
 
 #[derive(Clone)]
-pub struct TaskExecutionContextTuple {
+pub struct TaskExecutionContext {
     pub cmd_args: CommandArgs,
     pub barrier: Option<Vec<usize>>,
-    pub executable: Vec<TaskContext>,
+    pub executable: Vec<TaskInstance>,
 }
 
-/// `TaskGroup` According to different business logic, multiple tasks are organized into task groups,
+/// `TaskGroup` base on different business logic, multiple tasks are organized into task groups,
 /// and barriers are inserted between task lists according to dependencies.
 pub trait TaskGroup: Send + Sync + DynClone {
     fn tasks(
@@ -30,7 +30,7 @@ pub trait TaskGroup: Send + Sync + DynClone {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
         successful_tasks: Option<Vec<TaskStatusEntity>>,
-    ) -> anyhow::Result<TaskExecutionContextTuple>;
+    ) -> anyhow::Result<TaskExecutionContext>;
 }
 
 dyn_clone::clone_trait_object!(TaskGroup);
@@ -101,9 +101,9 @@ impl DeploymentTaskGroup {
 
     fn skip_success_task_execution(
         task_name_vec: Vec<String>,
-        task_list: Vec<TaskContext>,
+        task_list: Vec<TaskInstance>,
         all_task_entity: Vec<TaskStatusEntity>,
-    ) -> Vec<TaskContext> {
+    ) -> Vec<TaskInstance> {
         let success_tasks =
             DeploymentTaskGroup::get_task_entity_by_name(task_name_vec, all_task_entity);
 
@@ -129,7 +129,7 @@ impl TaskGroup for DeploymentTaskGroup {
         cmd_args: CommandArgs,
         config: DeploymentConfig,
         successful_tasks: Option<Vec<TaskStatusEntity>>,
-    ) -> anyhow::Result<TaskExecutionContextTuple> {
+    ) -> anyhow::Result<TaskExecutionContext> {
         let all_success_tasks = if let Some(task_status_entity) = successful_tasks {
             task_status_entity
         } else {
@@ -175,7 +175,7 @@ impl TaskGroup for DeploymentTaskGroup {
         ];
         let executable = [download_execution, upload_execution, unpack_execution].concat();
 
-        Ok(TaskExecutionContextTuple {
+        Ok(TaskExecutionContext {
             cmd_args,
             barrier: Some(barrier),
             executable,
@@ -189,7 +189,7 @@ impl TaskGroup for InstallDBTaskGroup {
         cmd_args: CommandArgs,
         config: DeploymentConfig,
         _successful_tasks: Option<Vec<TaskStatusEntity>>,
-    ) -> anyhow::Result<TaskExecutionContextTuple> {
+    ) -> anyhow::Result<TaskExecutionContext> {
         let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
         let monograph_hosts_len = monograph_hosts.len();
         assert!(monograph_hosts_len >= 1);
@@ -215,7 +215,7 @@ impl TaskGroup for InstallDBTaskGroup {
                 let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
                 let monograph_install =
                     MonographInstall::from_config(&config, install_db_host.clone());
-                TaskExecutionContextTuple {
+                TaskExecutionContext {
                     cmd_args,
                     barrier: Some(vec![cassandra_start.len(), monograph_install.len()]),
                     executable: [cassandra_start, monograph_install].concat(),
@@ -225,7 +225,7 @@ impl TaskGroup for InstallDBTaskGroup {
                 let monograph_is_multi_node = monograph_hosts.len() > 1;
                 let monograph_install =
                     MonographInstall::from_config(&config, install_db_host.clone());
-                TaskExecutionContextTuple {
+                TaskExecutionContext {
                     cmd_args,
                     barrier: if monograph_is_multi_node {
                         Some(vec![monograph_install.len()])
@@ -268,7 +268,7 @@ impl TaskGroup for CtrlDBTaskGroup {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
         _successful_tasks: Option<Vec<TaskStatusEntity>>,
-    ) -> anyhow::Result<TaskExecutionContextTuple> {
+    ) -> anyhow::Result<TaskExecutionContext> {
         let task_execution_context_tuple = match cmd_arg.as_ref() {
             "start" | "restart" => {
                 let storage_provider = config.get_monograph_storage()?;
@@ -279,7 +279,7 @@ impl TaskGroup for CtrlDBTaskGroup {
                         let mono_ctl_task_execution =
                             MonographCtlTask::from_config(cmd_arg.clone(), &config);
 
-                        TaskExecutionContextTuple {
+                        TaskExecutionContext {
                             cmd_args: cmd_arg.clone(),
                             barrier: Some(vec![
                                 cassandra_execution_context.len(),
@@ -289,14 +289,14 @@ impl TaskGroup for CtrlDBTaskGroup {
                                 .concat(),
                         }
                     }
-                    StorageProvider::DynamoDB => TaskExecutionContextTuple {
+                    StorageProvider::DynamoDB => TaskExecutionContext {
                         cmd_args: cmd_arg.clone(),
                         barrier: None,
                         executable: MonographCtlTask::from_config(cmd_arg.clone(), &config),
                     },
                 }
             }
-            _ => TaskExecutionContextTuple {
+            _ => TaskExecutionContext {
                 cmd_args: cmd_arg.clone(),
                 barrier: None,
                 executable: MonographCtlTask::from_config(cmd_arg.clone(), &config),
@@ -313,7 +313,7 @@ impl TaskGroup for CustomCmdTaskGroup {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
         _successful_tasks: Option<Vec<TaskStatusEntity>>,
-    ) -> anyhow::Result<TaskExecutionContextTuple> {
+    ) -> anyhow::Result<TaskExecutionContext> {
         let user_command = match cmd_arg.clone() {
             CommandArgs::Exec {
                 command,
@@ -325,7 +325,7 @@ impl TaskGroup for CustomCmdTaskGroup {
         };
         let exec_cmd_task_execution = ExecCustomCommand::from_config(user_command, &config);
 
-        Ok(TaskExecutionContextTuple {
+        Ok(TaskExecutionContext {
             cmd_args: cmd_arg,
             barrier: None,
             executable: exec_cmd_task_execution,

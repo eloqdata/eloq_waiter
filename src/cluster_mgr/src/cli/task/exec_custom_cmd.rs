@@ -1,7 +1,7 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::ssh_conn::SSH_EXEC_CMD_OUTPUT;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
+    CmdErr, ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
@@ -17,7 +17,7 @@ pub struct ExecCustomCommand {
 }
 
 impl ExecCustomCommand {
-    pub fn from_config(cmd_string: String, config: &DeploymentConfig) -> Vec<TaskContext> {
+    pub fn from_config(cmd_string: String, config: &DeploymentConfig) -> Vec<TaskInstance> {
         let all_hosts = config.get_host_as_map();
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
@@ -32,7 +32,7 @@ impl ExecCustomCommand {
                             port: ssh_port as usize,
                             hosts: host_val.clone(),
                         };
-                        TaskContext {
+                        TaskInstance {
                             task_input: HashMap::default(),
                             task: Box::new(ExecCustomCommand::new(
                                 cmd_string.clone(),

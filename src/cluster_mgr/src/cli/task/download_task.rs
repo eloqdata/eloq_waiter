@@ -1,7 +1,7 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
-    ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
+    ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
 use crate::cli::{download_dir, file_process_progress};
 use anyhow::anyhow;
@@ -27,7 +27,7 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskContext>> {
+    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
         let deployment_cloned = &config.deployment;
         let mut download_url_vec = vec![deployment_cloned.install_image.clone()];
         if let Some(cassandra) = &config.deployment.storage_service.cassandra {
@@ -46,7 +46,7 @@ impl DownloadTask {
                     cmd: "deploy".to_string(),
                     task: task_name.to_string(),
                 };
-                TaskContext {
+                TaskInstance {
                     task_input: HashMap::from([
                         (DOWNLOAD_URL.to_string(), TaskArgValue::Str(download_url)),
                         (

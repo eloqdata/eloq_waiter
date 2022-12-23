@@ -2,7 +2,7 @@ use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::CmdErr::MonographCtlErr;
 use crate::cli::task::task_base::{
-    ExecutionValue, TaskContext, TaskExecutor, TaskHost, TaskId, TaskArgValue,
+    ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId, TaskArgValue,
 };
 use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
 use crate::cli::CommandArgs;
@@ -60,7 +60,7 @@ pub struct MonographCtlTask {
 }
 
 impl MonographCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskContext> {
+    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskInstance> {
         let task_id = match cmd {
             CommandArgs::Start { cluster: _ } => TaskId {
                 cmd: START_MONOGRAPH.to_string(),
@@ -94,7 +94,7 @@ impl MonographCtlTask {
                     hosts: host.clone(),
                 };
 
-                TaskContext {
+                TaskInstance {
                     task_input: HashMap::default(),
                     task: Box::new(MonographCtlTask::new(config.clone(), task_id.clone())),
                     task_host: remote_host,
