@@ -10,9 +10,9 @@ use tracing::{error, info};
 pub(crate) fn stop_service(stop_cmd: String, ssh_conn: &SSHConn) -> anyhow::Result<bool> {
     let stop_status = ssh_conn.run_cmd(stop_cmd.clone(), false)?;
     info!("Stop cmd={},status_code={:?}", stop_cmd, stop_status,);
-    let stop_cmd_success =
-        TaskArgValue::into_inner_value::<usize>(stop_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone())
-            == 0;
+    let stop_cmd_success = TaskArgValue::into_inner_value::<usize>(
+        stop_status.get(SSH_EXEC_CMD_STATUS).unwrap().clone(),
+    ) == 0;
     Ok(stop_cmd_success)
 }
 

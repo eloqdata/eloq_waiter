@@ -1,8 +1,8 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::ssh_conn::SSHConn;
 use crate::cli::task::task_base::{
-    CmdErr::CassandraCtlErr, ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
-    TaskArgValue,
+    CmdErr::CassandraCtlErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
+    TaskInstance,
 };
 use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
 use crate::cli::CommandArgs;
@@ -260,8 +260,9 @@ impl TaskExecutor for CassandraCtlTask {
             _conn_user,
             _conn_host
         }
-        let cmd_str =
-            TaskArgValue::into_inner_value::<String>(task_arg.get(CASSANDRA_CMD_STR).unwrap().clone());
+        let cmd_str = TaskArgValue::into_inner_value::<String>(
+            task_arg.get(CASSANDRA_CMD_STR).unwrap().clone(),
+        );
         let cassandra_home = self.cassandra_home();
 
         info!(

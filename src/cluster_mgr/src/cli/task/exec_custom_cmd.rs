@@ -1,7 +1,7 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::ssh_conn::SSH_EXEC_CMD_OUTPUT;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId, TaskArgValue,
+    CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;

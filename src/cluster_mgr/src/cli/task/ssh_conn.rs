@@ -1,5 +1,5 @@
 use crate::cli::config::Auth;
-use crate::cli::task::task_base::{CmdErr, ExecutionValue, TaskHost, TaskArgValue};
+use crate::cli::task::task_base::{CmdErr, ExecutionValue, TaskArgValue, TaskHost};
 use anyhow::anyhow;
 use ssh2::{Channel, Session};
 use std::borrow::BorrowMut;
@@ -237,7 +237,10 @@ impl SSHConn {
             SSH_EXEC_CMD_STATUS.to_string(),
             TaskArgValue::Number(exec_status_rs.unwrap() as usize),
         );
-        cmd_exec_rtn.insert(SSH_EXEC_CMD_OUTPUT.to_string(), TaskArgValue::Str(cmd_output));
+        cmd_exec_rtn.insert(
+            SSH_EXEC_CMD_OUTPUT.to_string(),
+            TaskArgValue::Str(cmd_output),
+        );
         Ok(cmd_exec_rtn)
     }
 

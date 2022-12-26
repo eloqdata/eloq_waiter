@@ -4,7 +4,7 @@ use crate::cli::task::download_task::{DownloadTask, ALL_DOWNLOAD_TASKS};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
-use crate::cli::task::task_base::{TaskInstance, TaskHost, TaskId};
+use crate::cli::task::task_base::{TaskHost, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
 use crate::cli::CommandArgs;

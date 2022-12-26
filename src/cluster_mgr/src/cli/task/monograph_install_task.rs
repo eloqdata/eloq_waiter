@@ -1,6 +1,6 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
+    CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::MONOGRAPH_INSTALL_SCRIPT;
 use crate::{ssh_conn_info, task_return_value};

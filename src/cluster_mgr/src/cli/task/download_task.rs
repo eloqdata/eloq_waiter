@@ -1,7 +1,7 @@
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
-    ExecutionValue, TaskInstance, TaskExecutor, TaskHost, TaskId, TaskArgValue,
+    ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{download_dir, file_process_progress};
 use anyhow::anyhow;
@@ -80,8 +80,9 @@ impl TaskExecutor for DownloadTask {
     ) -> anyhow::Result<Option<ExecutionValue>> {
         let download_url =
             TaskArgValue::into_inner_value::<String>(task_input.get(DOWNLOAD_URL).unwrap().clone());
-        let download_dir =
-            TaskArgValue::into_inner_value::<String>(task_input.get(DOWNLOAD_PATH).unwrap().clone());
+        let download_dir = TaskArgValue::into_inner_value::<String>(
+            task_input.get(DOWNLOAD_PATH).unwrap().clone(),
+        );
         let download_path = PathBuf::from(download_dir.as_str());
         info!("DownloadTask will be start url={}", download_url);
         let client = reqwest::Client::new();

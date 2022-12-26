@@ -30,42 +30,43 @@ pub struct ClusterMgrCommandArgs {
 #[derive(Subcommand, Clone, Debug, Hash, PartialEq, Eq, AsRefStr)]
 pub enum CommandArgs {
     #[strum(serialize = "deploy")]
-    /// Deploy the MonographDB cluster by specifying the cluster_topology.yaml file.
+    /// Deploy the MonographDB cluster by specifying the cluster_topology.yaml file. For example: ./cluster_mgr deploy --topology-file  $DEPLOYMENT.YML
     Deploy {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },
+    /// Install MonographDB to generate catalog. You need to specify the cluster name. For example: `./cluster_mgr install --cluster $CLUSTER_NAME`
     #[strum(serialize = "install")]
     Install {
         #[arg(short = 'c', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
-    #[strum(serialize = "web")]
-    /// Start ClusterMgrCli's webservice on the specified port.
-    Web {
-        #[arg(short, long, value_name = "WEB SERVICE PORT")]
-        port: i16,
-    },
+    // #[strum(serialize = "web")]
+    // /// Start ClusterMgrCli's webservice on the specified port.
+    // Web {
+    //     #[arg(short, long, value_name = "WEB SERVICE PORT")]
+    //     port: i16,
+    // },
     #[strum(serialize = "start")]
-    /// Start the MonographDB cluster with the specified cluster name.
+    /// Start the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr start  --cluster $CLUSTER_NAME
     Start {
         #[arg(short = 'l', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
     #[strum(serialize = "stop")]
-    /// Stop the MonographDB cluster with the specified cluster name.
+    /// Stop the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr stop --cluster $CLUSTER_NAME
     Stop {
         #[arg(short = 'k', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
     #[strum(serialize = "restart")]
-    /// Restart the MonographDB cluster with the specified cluster name.
+    /// Restart the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr restart --cluster $CLUSTER_NAME
     Restart {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
     #[strum(serialize = "exec_cmd")]
-    /// Execute custom shell commands.
+    /// Execute custom shell commands. For example: ./cluster_mgr exec --command "ls -la /data1/" --cluster $$CLUSTER_NAME
     Exec {
         #[arg(long, value_name = "SHELL COMMAND/SCRIPT")]
         command: String,
@@ -73,7 +74,7 @@ pub enum CommandArgs {
         cluster: String,
     },
     #[strum(serialize = "status")]
-    /// Display cluster status.
+    /// Check MonographDB cluster status. For example: ./cluster_mgr status -cluster $CLUSTER_NAME
     Status {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,

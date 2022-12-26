@@ -1,7 +1,7 @@
 use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::download_dir;
 use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskInstance, TaskExecutor, TaskHost, TaskId,
+    CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
