@@ -85,6 +85,11 @@ sync_cmd_impl!(MkdirWorkspace, CmdDef, CmdExec, || {
     }
 });
 
+sync_cmd_impl!(ExtractProtobufFile, CmdDef, CmdExec, || {
+    use cmd::cmd_const::PROTOBUF_TAR_FILE_NAME;
+    extract_tar_cmd(PROTOBUF_TAR_FILE_NAME.to_string())
+});
+
 sync_cmd_impl!(ExtractTarFile, PipeDef, PipeExec, || {
     use cmd::cmd_const::{CASSANDRA_TAR_FILE_NAME, PROTOBUF_TAR_FILE_NAME};
     let extract_protobuf = extract_tar_cmd(PROTOBUF_TAR_FILE_NAME.to_string());

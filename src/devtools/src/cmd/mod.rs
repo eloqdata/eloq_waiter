@@ -15,3 +15,4 @@ pub mod install_deps;
 pub mod mysql_ctl_util;
 pub mod playground;
 pub mod setup_workspace;
+mod install_dev_deps;

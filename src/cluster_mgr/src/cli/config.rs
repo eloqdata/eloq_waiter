@@ -193,7 +193,8 @@ impl DeploymentConfig {
 
     pub fn gen_monograph_config(&self, db_host: Option<String>) -> anyhow::Result<PathBuf> {
         let port = self.deployment.clone().port.monograph_port.start + 1;
-        let my_ini_rs = self.build_monograph_config();
+        let set_ip_list = db_host.is_some();
+        let my_ini_rs = self.build_monograph_config(set_ip_list);
 
         let host_and_file_tuple = if let Some(host) = db_host {
             (host.clone(), host)
@@ -320,7 +321,7 @@ impl DeploymentConfig {
         ))
     }
 
-    pub fn build_monograph_config(&self) -> anyhow::Result<Ini> {
+    pub fn build_monograph_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let storage_provider = self.get_monograph_storage()?;
         let deployment = self.deployment.clone();
         let mut mysql_ini = Ini::new();
@@ -402,12 +403,20 @@ impl DeploymentConfig {
         );
 
         let use_port = deployment.port.monograph_port.start + 1;
-        let ip_list = self
-            .get_host_list(DeploymentService::Monograph)
-            .iter()
-            .map(|host| format!("{}:{}", host.clone(), use_port))
-            .join(",");
-        mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
+        if set_ip_list {
+            let ip_list = self
+                .get_host_list(DeploymentService::Monograph)
+                .iter()
+                .map(|host| format!("{}:{}", host.clone(), use_port))
+                .join(",");
+            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
+        } else {
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_ip_list",
+                Some(format!("{}:{}", "127.0.0.1", use_port)),
+            );
+        }
         Ok(mysql_ini.clone())
     }
 
