@@ -5,6 +5,7 @@ use crate::cmd::ctl_mysql_process::{CtlMySQLProcess, MySQLOpCode};
 use crate::cmd::gen_mysql_cnf::GenMySQLConf;
 use crate::cmd::init_db::InitDB;
 use crate::cmd::install_deps::InstallDeps;
+use crate::cmd::install_dev_deps::InstallDevDeps;
 use crate::cmd::playground::Playground;
 use crate::cmd::setup_workspace::SetupWorkspace;
 use std::collections::HashMap;
@@ -40,6 +41,7 @@ impl<'s> CmdRunner<'s> {
                 log,
                 "check_deps",
                 "install_deps",
+                "install_dev_deps",
                 "setup_workspace",
                 "ln_source",
                 "gen_mysql_cnf",
@@ -61,6 +63,10 @@ impl<'s> CmdRunner<'s> {
             }
             "install_deps" => {
                 cmd_exec!(self, cmd_str, InstallDeps)
+            }
+            "install_dev_deps" => {
+                let context = self.cmd_context_mapping.get(cmd_str);
+                InstallDevDeps {}.exec(&mut context.unwrap().clone()).await
             }
             "setup_workspace" => {
                 let context = self.cmd_context_mapping.get(cmd_str);

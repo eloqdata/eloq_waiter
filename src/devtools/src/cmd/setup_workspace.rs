@@ -22,8 +22,8 @@ impl SetupWorkspace {
             )];
         }
         let mkdir_workspace = MkdirWorkspace {};
-        let download_third_party = DownloadThirdParty {};
-        let git_clone_source = GitCloneSource {};
+        let download_third_party = DownloadThirdParty::default();
+        let git_clone_source = GitCloneSource::default();
         let extract_tar = ExtractTarFile {};
         let mk_workspace = mkdir_workspace.exec(context);
         if !cmd_status_ok(&mk_workspace) {

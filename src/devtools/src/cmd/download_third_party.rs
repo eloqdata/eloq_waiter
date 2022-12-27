@@ -32,9 +32,30 @@ macro_rules! download_task {
     }};
 }
 
-pub struct DownloadThirdParty;
+pub enum DownloadTarget {
+    All,
+    Protobuf,
+    Cassandra,
+}
+
+#[allow(dead_code)]
+pub struct DownloadThirdParty {
+    download_target: DownloadTarget,
+}
+
+impl Default for DownloadThirdParty {
+    fn default() -> Self {
+        DownloadThirdParty::new(DownloadTarget::All)
+    }
+}
 
 impl DownloadThirdParty {
+    pub fn new(target: DownloadTarget) -> Self {
+        Self {
+            download_target: target,
+        }
+    }
+
     async fn download_async(
         multi_progress: MultiProgress,
         resource_url: String,
@@ -92,26 +113,52 @@ impl DownloadThirdParty {
         let workspace = std::env::var(MONOGRAPH_WORKSPACE_DIR)
             .unwrap_or_else(|_| panic!("MONOGRAPH_WORKSPACE_DIR not set"));
 
-        let protobuf_download_cl = || {
-            let common = extract_config_value!("common", Common, "".to_string());
-            (
-                common.clone().compile.download.protobuf.url,
-                PROTOBUF_TAR_FILE_NAME,
-                workspace.clone(),
-            )
+        let join_all_vec = match self.download_target {
+            DownloadTarget::All => {
+                let protobuf_download_join = download_task!(multi_progress, || {
+                    let common = extract_config_value!("common", Common, "".to_string());
+                    (
+                        common.clone().compile.download.protobuf.url,
+                        PROTOBUF_TAR_FILE_NAME,
+                        workspace.clone(),
+                    )
+                });
+                let cassandra_download_join = download_task!(multi_progress, || {
+                    let cassandra = extract_config_value!("cassandra", Storage, "".to_string());
+                    (
+                        cassandra.clone().download.url,
+                        CASSANDRA_TAR_FILE_NAME,
+                        workspace.clone(),
+                    )
+                });
+                vec![protobuf_download_join, cassandra_download_join]
+            }
+            DownloadTarget::Cassandra => {
+                let cassandra_join = download_task!(multi_progress, || {
+                    let cassandra = extract_config_value!("cassandra", Storage, "".to_string());
+                    (
+                        cassandra.clone().download.url,
+                        CASSANDRA_TAR_FILE_NAME,
+                        workspace.clone(),
+                    )
+                });
+                vec![cassandra_join]
+            }
+            DownloadTarget::Protobuf => {
+                let protobuf_download_fn = || {
+                    let common = extract_config_value!("common", Common, "".to_string());
+                    (
+                        common.clone().compile.download.protobuf.url,
+                        PROTOBUF_TAR_FILE_NAME,
+                        workspace.clone(),
+                    )
+                };
+                let protobuf_download_join = download_task!(multi_progress, protobuf_download_fn);
+                vec![protobuf_download_join]
+            }
         };
 
-        let cassandra_download_cl = || {
-            let cassandra = extract_config_value!("cassandra", Storage, "".to_string());
-            (
-                cassandra.clone().download.url,
-                CASSANDRA_TAR_FILE_NAME,
-                workspace.clone(),
-            )
-        };
-        let join_protobuf = download_task!(multi_progress, protobuf_download_cl);
-        let join_cassandra = download_task!(multi_progress, cassandra_download_cl);
-        let download_join_all = join_all(vec![join_protobuf, join_cassandra]).await;
+        let download_join_all = join_all(join_all_vec).await;
         multi_progress.clear().unwrap();
         let status = if download_join_all.is_empty() {
             println!("WARN: Join download cli is empty.");
