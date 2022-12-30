@@ -10,3 +10,4 @@ mod task_utils;
 mod unpack_file_task;
 mod upload_task;
 mod task_controller;
+mod cassandra_op_task;

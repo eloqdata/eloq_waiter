@@ -4,7 +4,7 @@ use crate::cli::task::task_base::CmdErr::MonographCtlErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::task::task_utils::{check_process_pid, start_service, stop_service};
+use crate::cli::task::task_utils::{check_process_pid, start_service_wait_complete, stop_service};
 use crate::cli::CommandArgs;
 use crate::{get_ctl_cmd_string, ssh_conn_info};
 use anyhow::anyhow;
@@ -194,7 +194,7 @@ impl TaskExecutor for MonographCtlTask {
                         pid_opt.get(SSH_CHECK_PROCESS_PID).unwrap().clone(),
                     );
                     if pid == "NONE" {
-                        start_service(
+                        start_service_wait_complete(
                             start_cmd.cmd_value(),
                             check_status.cmd_value(),
                             ssh_conn,
@@ -256,7 +256,7 @@ impl TaskExecutor for MonographCtlTask {
                             monograph_cmd!(MonographCtlCmd::Stop, remote_install_dir, pid);
                         stop_service(stop_cmd.cmd_value(), ssh_conn)?;
 
-                        start_service(
+                        start_service_wait_complete(
                             start_cmd.cmd_value(),
                             check_status.cmd_value(),
                             ssh_conn,
@@ -265,7 +265,7 @@ impl TaskExecutor for MonographCtlTask {
                             },
                         )
                     } else {
-                        start_service(
+                        start_service_wait_complete(
                             start_cmd.cmd_value(),
                             check_status.cmd_value(),
                             ssh_conn,

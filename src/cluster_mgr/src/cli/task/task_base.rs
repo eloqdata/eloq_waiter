@@ -127,6 +127,8 @@ pub enum CmdErr {
     ClusterAlreadyExists(String),
     #[error("Unpacking file errors. command {0}, error causes {1}")]
     UnpackErr(String, String),
+    #[error("Error interacting with cassandra. error causes {0}")]
+    CassandraOpErr(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

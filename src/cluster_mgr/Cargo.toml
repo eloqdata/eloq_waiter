@@ -8,6 +8,7 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
+cdrs-tokio = "7.0.4"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 configparser = { version = "3.0.2", features = ["indexmap"] }

@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use ssh2::{Channel, Session};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::env;
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::Path;
@@ -210,11 +211,16 @@ impl SSHConn {
             );
             return Err(anyhow!(CmdErr::SSHRemoteCmdErr(cmd, run_cmd_err)));
         }
+
         let cmd_output = match cmd_output {
             RemoteCmdOutput::Stream | RemoteCmdOutput::None => {
                 self.read_output_to_buf(channel.borrow_mut(), cmd_output)
             }
             _ => {
+                if env::var("MONO_CLUSTER_PRINT_STDERR").is_ok() {
+                    let _ok = self.print_stderr(channel.borrow_mut());
+                }
+
                 let mut output = Vec::new();
                 channel.read_to_end(&mut output)?;
                 String::from_utf8(output)?
@@ -248,6 +254,17 @@ impl SSHConn {
             TaskArgValue::Str(cmd_output),
         );
         Ok(cmd_exec_rtn)
+    }
+
+    fn print_stderr(&self, channel: &mut Channel) -> anyhow::Result<()> {
+        let mut stderr_msg_vec = Vec::new();
+        let mut stderr = channel.stderr();
+        stderr.read_to_end(&mut stderr_msg_vec)?;
+        let std_msg = String::from_utf8(stderr_msg_vec)?;
+        for err_line in std_msg.lines() {
+            println!(r#"{}"#, err_line);
+        }
+        Ok(())
     }
 
     pub fn read_output_to_buf(

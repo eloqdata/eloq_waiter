@@ -49,16 +49,11 @@ where
     Ok(cmd_exec_rs)
 }
 
-pub(crate) fn start_service<F>(
+pub(crate) fn start_service(
     start_cmd: String,
-    check_cmd: String,
     ssh_conn: &SSHConn,
-    check_fn: F,
-) -> anyhow::Result<ExecutionValue>
-where
-    F: Fn(String) -> bool,
-{
-    let mut start_rs = ssh_conn.run_cmd(start_cmd.clone(), true)?;
+) -> anyhow::Result<ExecutionValue> {
+    let start_rs = ssh_conn.run_cmd(start_cmd.clone(), true)?;
     let status_code =
         TaskArgValue::into_inner_value::<usize>(start_rs.get(SSH_EXEC_CMD_STATUS).unwrap().clone());
     info!(
@@ -75,26 +70,39 @@ where
             start_cmd, status_code
         )))
     } else {
-        let process_ready =
-            wait_process_complete(check_cmd, ssh_conn, Duration::from_secs(5 * 60), check_fn)?;
-        if let Some(output) = start_rs.get(SSH_EXEC_CMD_OUTPUT) {
-            let final_output = format!(
-                r#"output={}, process_running={}"#,
-                TaskArgValue::into_inner_value::<String>(output.clone()),
-                process_ready
-            );
-            start_rs.insert(
-                SSH_EXEC_CMD_OUTPUT.to_string(),
-                TaskArgValue::Str(final_output),
-            );
-        } else {
-            start_rs.insert(
-                SSH_EXEC_CMD_OUTPUT.to_string(),
-                TaskArgValue::Str(format!("process_running={}", process_ready)),
-            );
-        }
         Ok(start_rs)
     }
+}
+
+pub(crate) fn start_service_wait_complete<F>(
+    start_cmd: String,
+    check_cmd: String,
+    ssh_conn: &SSHConn,
+    check_fn: F,
+) -> anyhow::Result<ExecutionValue>
+where
+    F: Fn(String) -> bool,
+{
+    let mut start_rs = start_service(start_cmd, ssh_conn)?;
+    let process_ready =
+        wait_process_complete(check_cmd, ssh_conn, Duration::from_secs(5 * 60), check_fn)?;
+    if let Some(output) = start_rs.get(SSH_EXEC_CMD_OUTPUT) {
+        let final_output = format!(
+            r#"output={}, process_running={}"#,
+            TaskArgValue::into_inner_value::<String>(output.clone()),
+            process_ready
+        );
+        start_rs.insert(
+            SSH_EXEC_CMD_OUTPUT.to_string(),
+            TaskArgValue::Str(final_output),
+        );
+    } else {
+        start_rs.insert(
+            SSH_EXEC_CMD_OUTPUT.to_string(),
+            TaskArgValue::Str(format!("process_running={}", process_ready)),
+        );
+    }
+    Ok(start_rs)
 }
 
 pub(crate) fn wait_process_complete<F>(
@@ -114,7 +122,7 @@ where
             info!("CheckStatus timeout");
             break;
         }
-        let rs = ssh_conn.run_cmd(check_status_cmd.clone(), true);
+        let rs = ssh_conn.run_cmd_sync_output(check_status_cmd.clone());
         if rs.as_ref().is_err() {
             let err_msg = rs.err().unwrap().to_string();
             error!("CheckStatus return failed. {}", err_msg);

@@ -494,6 +494,15 @@ impl DeploymentConfig {
         serde_yaml::to_string(self).unwrap()
     }
 
+    pub fn load_cassandra_config_template(&self) -> anyhow::Result<HashMap<String, Value>> {
+        let cass_template_path_buf = DeploymentConfig::config_template(CASSANDRA_CONF_TEMPLATE)?;
+        let cass_opened_file = File::open(cass_template_path_buf.as_path())?;
+        // cassandra.yaml config object
+        let cass_conf_map =
+            serde_yaml::from_reader::<File, HashMap<String, Value>>(cass_opened_file)?;
+        Ok(cass_conf_map)
+    }
+
     // key is cassandra host, value is cassandra.yaml config
     pub fn gen_cassandra_config(&self) -> anyhow::Result<HashMap<String, PathBuf>> {
         if self.deployment.storage_service.cassandra.is_none() {
@@ -503,17 +512,9 @@ impl DeploymentConfig {
             )));
         }
         let cass = self.deployment.clone().storage_service.cassandra.unwrap();
-        let cass_template_path_buf = DeploymentConfig::config_template(CASSANDRA_CONF_TEMPLATE)?;
-        let cass_opened_file = File::open(cass_template_path_buf.as_path())?;
-
         // cassandra.yaml config object
-        let mut cass_conf_map =
-            serde_yaml::from_reader::<File, HashMap<String, Value>>(cass_opened_file)?;
+        let mut cass_conf_map = self.load_cassandra_config_template()?;
 
-        let storage_port_opt = cass_conf_map.get("storage_port");
-        assert!(storage_port_opt.is_some());
-
-        let storage_port = storage_port_opt.unwrap().as_i64().unwrap();
         let cassandra_hosts = self.get_host_list(DeploymentService::Storage);
 
         let storage_cluster = if cass.storage_cluster.is_none() {
@@ -524,11 +525,7 @@ impl DeploymentConfig {
 
         cass_conf_map.insert("cluster_name".to_string(), Value::String(storage_cluster));
 
-        let seeds = cassandra_hosts
-            .iter()
-            .map(|host| format!("{}:{}", host, storage_port))
-            .collect_vec()
-            .join(",");
+        let seeds = cassandra_hosts.join(",");
 
         let seed_values = format!(
             r#"
@@ -545,7 +542,12 @@ impl DeploymentConfig {
             .map(|host| {
                 let host_value = Value::String(host.to_string());
                 cass_conf_map.insert(String::from("listen_address"), host_value.clone());
-                cass_conf_map.insert(String::from("rpc_address"), host_value);
+                cass_conf_map.insert(
+                    String::from("rpc_address"),
+                    Value::String("0.0.0.0".to_string()),
+                );
+                cass_conf_map.insert(String::from("broadcast_rpc_address"), host_value.clone());
+                cass_conf_map.insert(String::from("broadcast_address"), host_value);
                 let config_path = download_dir().join(format!("cassandra_{}.yaml", host));
                 let new_config_file = File::create(config_path.as_path()).unwrap();
                 let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
