@@ -156,6 +156,9 @@ impl CommandExecutor {
                 let config_content = deployment_entity.clone().deployment_config;
                 DeploymentConfig::load_from_string(config_content)
             }
+            CommandArgs::RunDeps { topology_file } => {
+                Ok(DeploymentConfig::load(Some(topology_file))?)
+            }
         }
     }
 

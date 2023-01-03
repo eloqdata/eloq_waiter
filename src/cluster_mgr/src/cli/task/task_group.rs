@@ -4,6 +4,7 @@ use crate::cli::task::download_task::{DownloadTask, ALL_DOWNLOAD_TASKS};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
+use crate::cli::task::runtime_deps_install::RuntimeDepsInstallation;
 use crate::cli::task::task_base::{TaskHost, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
@@ -62,7 +63,8 @@ task_group_boxed! {
     {DeploymentTaskGroup},
     {InstallDBTaskGroup},
     {CtrlDBTaskGroup},
-    {CustomCmdTaskGroup}
+    {CustomCmdTaskGroup},
+    {InstallRuntimeDepsTaskGroup}
 }
 
 pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock::new(|| {
@@ -74,6 +76,7 @@ pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock:
         ("restart".to_string(), CtrlDBTaskGroup::boxed()),
         ("status".to_string(), CtrlDBTaskGroup::boxed()),
         ("exec_cmd".to_string(), CustomCmdTaskGroup::boxed()),
+        ("run_deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
     ])
 });
 
@@ -366,6 +369,22 @@ impl TaskGroup for CustomCmdTaskGroup {
             cmd_args: cmd_arg,
             barrier: None,
             executable: exec_cmd_task_execution,
+        })
+    }
+}
+
+impl TaskGroup for InstallRuntimeDepsTaskGroup {
+    fn tasks(
+        &self,
+        cmd_arg: CommandArgs,
+        config: DeploymentConfig,
+        _already_successful: Option<Vec<TaskStatusEntity>>,
+    ) -> anyhow::Result<TaskExecutionContext> {
+        let install_runtime_deps = RuntimeDepsInstallation::from_config(&config)?;
+        Ok(TaskExecutionContext {
+            cmd_args: cmd_arg,
+            barrier: None,
+            executable: install_runtime_deps,
         })
     }
 }
