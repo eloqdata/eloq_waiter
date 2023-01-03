@@ -4,7 +4,7 @@ use crate::cli::task::task_base::{
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
-use itertools::Itertools;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use tracing::info;
 
@@ -17,13 +17,15 @@ pub struct UnpackFileTask {
 }
 
 impl UnpackFileTask {
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
+    pub fn from_config(
+        config: &DeploymentConfig,
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let remote_install_dir = config.install_dir();
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
         // key is file name , value is host list
         let all_hosts = config.unpack_files_map();
-        let unpack_execution_vec = all_hosts
+        let unpack_task_instance = all_hosts
             .into_iter()
             .map(|entry| {
                 let unpack_file = entry.0;
@@ -38,28 +40,32 @@ impl UnpackFileTask {
                             port: ssh_port as usize,
                             hosts: remote_host.clone(),
                         };
-                        TaskInstance {
-                            task_input: HashMap::from([(
-                                REMOTE_TAR.to_string(),
-                                TaskArgValue::Str(remote_tarball),
-                            )]),
-                            task: Box::new(UnpackFileTask {
-                                config: config.clone(),
-                                task_id: TaskId {
-                                    cmd: "deploy".to_string(),
-                                    task: format!("{}_unpack", unpack_file),
-                                    host: remote_host,
-                                },
-                            }),
-                            task_host,
-                        }
+                        let task_id = TaskId {
+                            cmd: "deploy".to_string(),
+                            task: format!("{}_unpack", unpack_file),
+                            host: remote_host,
+                        };
+                        (
+                            task_id.clone(),
+                            TaskInstance {
+                                task_input: HashMap::from([(
+                                    REMOTE_TAR.to_string(),
+                                    TaskArgValue::Str(remote_tarball),
+                                )]),
+                                task: Box::new(UnpackFileTask {
+                                    config: config.clone(),
+                                    task_id,
+                                }),
+                                task_host,
+                            },
+                        )
                     })
-                    .collect_vec()
+                    .collect::<IndexMap<TaskId, TaskInstance>>()
             })
             .into_iter()
             .flatten()
-            .collect_vec();
-        Ok(unpack_execution_vec)
+            .collect::<IndexMap<TaskId, TaskInstance>>();
+        Ok(unpack_task_instance)
     }
 }
 

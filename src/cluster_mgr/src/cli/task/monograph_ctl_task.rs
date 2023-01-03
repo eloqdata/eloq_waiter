@@ -9,7 +9,7 @@ use crate::cli::CommandArgs;
 use crate::{get_ctl_cmd_string, ssh_conn_info};
 use anyhow::anyhow;
 use async_trait::async_trait;
-use itertools::Itertools;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use strum_macros::AsRefStr;
 use tracing::{error, info};
@@ -61,7 +61,10 @@ pub struct MonographCtlTask {
 }
 
 impl MonographCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskInstance> {
+    pub fn from_config(
+        cmd: CommandArgs,
+        config: &DeploymentConfig,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let mut is_force_stop = false;
         let task_id = match cmd {
             CommandArgs::Start { cluster: _ } => TaskId {
@@ -109,13 +112,16 @@ impl MonographCtlTask {
                 } else {
                     HashMap::default()
                 };
-                TaskInstance {
-                    task_input,
-                    task: Box::new(MonographCtlTask::new(config.clone(), special_task_id)),
-                    task_host: remote_host,
-                }
+                (
+                    special_task_id.clone(),
+                    TaskInstance {
+                        task_input,
+                        task: Box::new(MonographCtlTask::new(config.clone(), special_task_id)),
+                        task_host: remote_host,
+                    },
+                )
             })
-            .collect_vec()
+            .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
     pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
@@ -128,13 +134,11 @@ impl MonographCtlTask {
         } else {
             let mut pid = None;
             let output_normal = output.trim();
-            println!("MonographCtlTask parse output_normal={}", output_normal);
             for line in output_normal.lines() {
                 let line_normal = line.trim();
                 if line_normal.is_empty() {
                     continue;
                 }
-                info!("MonographCtlTask parse_check_status_output line = {}", line);
                 if !line_normal.chars().all(char::is_numeric) {
                     continue;
                 }
@@ -189,7 +193,7 @@ impl TaskExecutor for MonographCtlTask {
         );
         let execute_rs = match cmd_str {
             "start" => {
-                if let Ok(pid_opt) = check_process_status {
+                if let Ok(ref pid_opt) = check_process_status {
                     let pid = TaskArgValue::into_inner_value::<String>(
                         pid_opt.get(SSH_CHECK_PROCESS_PID).unwrap().clone(),
                     );
@@ -203,7 +207,7 @@ impl TaskExecutor for MonographCtlTask {
                             },
                         )
                     } else {
-                        Ok(HashMap::new())
+                        Ok(check_process_status?)
                     }
                 } else {
                     error!(
@@ -217,7 +221,7 @@ impl TaskExecutor for MonographCtlTask {
                 }
             }
             "stop" => {
-                if let Ok(pid_opt) = check_process_status {
+                if let Ok(ref pid_opt) = check_process_status {
                     let pid = TaskArgValue::into_inner_value::<String>(
                         pid_opt.get(SSH_CHECK_PROCESS_PID).unwrap().clone(),
                     );
@@ -233,7 +237,7 @@ impl TaskExecutor for MonographCtlTask {
                         info!("MonographCtlTask stop cmd = {:?}", stop_cmd);
                         stop_service(stop_cmd.cmd_value(), ssh_conn)
                     } else {
-                        Ok(HashMap::new())
+                        Ok(check_process_status?)
                     }
                 } else {
                     error!(
@@ -317,8 +321,8 @@ impl TaskExecutor for MonographCtlTask {
             _ => unreachable!(),
         };
 
-        if let Ok(_status) = execute_rs {
-            Ok(None)
+        if let Ok(status) = execute_rs {
+            Ok(Some(status))
         } else {
             let err_msg = execute_rs.err().unwrap().to_string();
             error!(
@@ -327,21 +331,5 @@ impl TaskExecutor for MonographCtlTask {
             );
             Err(anyhow!(MonographCtlErr(cmd_str.to_string(), err_msg)))
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use crate::cli::task::monograph_ctl_task::MonographCtlCmd;
-
-    #[test]
-    pub fn test_monograph_cmd_macro() {
-        let start_cmd = monograph_cmd!(
-            MonographCtlCmd::Start,
-            "/data/opt/mono-moc".to_string(),
-            "localhost"
-        );
-        println!("monograph start cmd = {:?}", start_cmd);
     }
 }

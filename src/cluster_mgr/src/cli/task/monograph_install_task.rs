@@ -5,6 +5,7 @@ use crate::cli::task::task_base::{
 use crate::cli::MONOGRAPH_INSTALL_SCRIPT;
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -14,20 +15,24 @@ pub struct MonographInstall {
 }
 
 impl MonographInstall {
-    pub fn from_config(config: &DeploymentConfig, task_host: TaskHost) -> Vec<TaskInstance> {
+    pub fn from_config(
+        config: &DeploymentConfig,
+        task_host: TaskHost,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let (_, _, host) = task_host.ssh_conn_tuple();
-        vec![TaskInstance {
-            task_input: HashMap::default(),
-            task: Box::new(MonographInstall::new(
-                config.clone(),
-                TaskId {
-                    cmd: "install".to_string(),
-                    task: "monograph-install".to_string(),
-                    host,
-                },
-            )),
-            task_host,
-        }]
+        let task_id = TaskId {
+            cmd: "install".to_string(),
+            task: "monograph-install".to_string(),
+            host,
+        };
+        IndexMap::from([(
+            task_id.clone(),
+            TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(MonographInstall::new(config.clone(), task_id)),
+                task_host,
+            },
+        )])
     }
 
     pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {

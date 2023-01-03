@@ -10,6 +10,7 @@ use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
 use crate::cli::CommandArgs;
 use crate::state::task_status_operation::TaskStatusEntity;
 use dyn_clone::DynClone;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -19,7 +20,13 @@ use tracing::info;
 pub struct TaskExecutionContext {
     pub cmd_args: CommandArgs,
     pub barrier: Option<Vec<usize>>,
-    pub executable: Vec<TaskInstance>,
+    pub executable: IndexMap<TaskId, TaskInstance>,
+}
+
+impl TaskExecutionContext {
+    pub fn list_task_ids(&self) -> Vec<TaskId> {
+        self.executable.keys().cloned().collect_vec()
+    }
 }
 
 /// `TaskGroup` base on different business logic, multiple tasks are organized into task groups,
@@ -29,7 +36,7 @@ pub trait TaskGroup: Send + Sync + DynClone {
         &self,
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
-        successful_tasks: Option<Vec<TaskStatusEntity>>,
+        already_successful: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext>;
 }
 
@@ -101,22 +108,23 @@ impl DeploymentTaskGroup {
 
     fn skip_success_task_execution(
         task_name_vec: Vec<String>,
-        task_list: Vec<TaskInstance>,
+        task_list: IndexMap<TaskId, TaskInstance>,
         all_task_entity: Vec<TaskStatusEntity>,
-    ) -> Vec<TaskInstance> {
+    ) -> IndexMap<TaskId, TaskInstance> {
         let success_tasks =
             DeploymentTaskGroup::get_task_entity_by_name(task_name_vec, all_task_entity);
 
-        let mut result = vec![];
-        for task_execution in task_list.iter() {
-            let (_, _, host) = task_execution.task_host.ssh_conn_tuple();
+        let mut result = IndexMap::new();
+        for task_entry in task_list.iter() {
+            let task_instance = task_entry.1;
+            let (_, _, host) = task_instance.task_host.ssh_conn_tuple();
             let include_host = success_tasks
                 .iter()
                 .filter(|task| task.task_host == host)
                 .count()
                 > 0;
             if !include_host {
-                result.push(task_execution.clone());
+                result.insert(task_entry.0.clone(), task_instance.clone());
             }
         }
         result
@@ -173,7 +181,10 @@ impl TaskGroup for DeploymentTaskGroup {
             upload_execution.len(),
             unpack_execution.len(),
         ];
-        let executable = [download_execution, upload_execution, unpack_execution].concat();
+        let mut executable = IndexMap::new();
+        executable.extend(download_execution.into_iter());
+        executable.extend(upload_execution.into_iter());
+        executable.extend(unpack_execution.into_iter());
 
         Ok(TaskExecutionContext {
             cmd_args,
@@ -215,15 +226,19 @@ impl TaskGroup for InstallDBTaskGroup {
                 let upload_cass_config_task = UploadTask::build_upload_cass_conf_task(&config)?;
                 let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
                 let monograph_install = MonographInstall::from_config(&config, install_db_host);
+                let barrier = vec![
+                    upload_cass_config_task.len(),
+                    cassandra_start.len(),
+                    monograph_install.len(),
+                ];
+                let mut executable = IndexMap::new();
+                executable.extend(upload_cass_config_task.into_iter());
+                executable.extend(cassandra_start.into_iter());
+                executable.extend(monograph_install.into_iter());
                 TaskExecutionContext {
                     cmd_args,
-                    barrier: Some(vec![
-                        upload_cass_config_task.len(),
-                        cassandra_start.len(),
-                        monograph_install.len(),
-                    ]),
-                    executable: [upload_cass_config_task, cassandra_start, monograph_install]
-                        .concat(),
+                    barrier: Some(barrier),
+                    executable,
                 }
             }
             StorageProvider::DynamoDB => {
@@ -240,6 +255,8 @@ impl TaskGroup for InstallDBTaskGroup {
                 }
             }
         };
+        let mut barrier = execution_context_tuple.clone().barrier.unwrap();
+        let mut executable = execution_context_tuple.executable;
         if monograph_hosts.len() > 1 {
             let dest_hosts = monograph_hosts[1..=monograph_hosts_len - 1]
                 .iter()
@@ -254,14 +271,26 @@ impl TaskGroup for InstallDBTaskGroup {
                 dest_hosts
             );
             let upload_task = UploadTask::build_upload_data_dir_tasks(&config, dest_hosts);
-            let mut barrier = execution_context_tuple.barrier.unwrap();
-            let mut executable = execution_context_tuple.executable;
+
             barrier.push(upload_task.len());
             executable.extend(upload_task.into_iter());
 
-            execution_context_tuple.barrier = Some(barrier);
-            execution_context_tuple.executable = executable;
+            execution_context_tuple.barrier = Some(barrier.clone());
+            execution_context_tuple.executable = executable.clone();
         }
+
+        // rm -rf cc_ng/ tx_log/
+        let remote_install_dir = config.install_dir();
+        let rm_log_data_cmd = format!(
+            "rm -rf {}/datafarm/cc_ng {}/datafarm/tx_log",
+            remote_install_dir, remote_install_dir
+        );
+
+        let rm_log_data_task_instance = ExecCustomCommand::from_config(rm_log_data_cmd, &config);
+        barrier.push(rm_log_data_task_instance.len());
+        executable.extend(rm_log_data_task_instance.into_iter());
+        execution_context_tuple.barrier = Some(barrier);
+        execution_context_tuple.executable = executable;
 
         Ok(execution_context_tuple)
     }
@@ -279,19 +308,22 @@ impl TaskGroup for CtrlDBTaskGroup {
                 let storage_provider = config.get_monograph_storage()?;
                 match storage_provider {
                     StorageProvider::Cassandra => {
-                        let cassandra_execution_context =
+                        let cassandra_ctl_task_instance =
                             CassandraCtlTask::from_config(cmd_arg.clone(), &config);
-                        let mono_ctl_task_execution =
+                        let mono_ctl_task_instance =
                             MonographCtlTask::from_config(cmd_arg.clone(), &config);
 
+                        let barrier = vec![
+                            cassandra_ctl_task_instance.len(),
+                            mono_ctl_task_instance.len(),
+                        ];
+                        let mut executable = IndexMap::new();
+                        executable.extend(cassandra_ctl_task_instance.into_iter());
+                        executable.extend(mono_ctl_task_instance.into_iter());
                         TaskExecutionContext {
                             cmd_args: cmd_arg.clone(),
-                            barrier: Some(vec![
-                                cassandra_execution_context.len(),
-                                mono_ctl_task_execution.len(),
-                            ]),
-                            executable: [cassandra_execution_context, mono_ctl_task_execution]
-                                .concat(),
+                            barrier: Some(barrier),
+                            executable,
                         }
                     }
                     StorageProvider::DynamoDB => TaskExecutionContext {

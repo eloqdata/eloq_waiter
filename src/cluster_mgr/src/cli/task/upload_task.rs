@@ -5,7 +5,7 @@ use crate::cli::task::task_base::{
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
-use itertools::Itertools;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::info;
@@ -35,16 +35,17 @@ macro_rules! monograph_config_task_execution {
     ( $({$execution_vec:expr, $task_name:expr, $config:expr, $task_host:expr, $source_path:expr}),*) => {
         $(
         let (_,_,remote_host) =  $task_host.clone().ssh_conn_tuple();
-        $execution_vec.push(
+        let task_id = TaskId {
+           cmd: "deploy".to_string(),
+           task: $task_name,
+           host: remote_host,
+        };
+        $execution_vec.insert(
+           task_id.clone(),
            TaskInstance {
                task_input: HashMap::from([(SOURCE_PATH.to_string(),TaskArgValue::Str($source_path))]),
                task: Box::new(UploadTask::new(
-                   $config.clone(),
-                   TaskId {
-                       cmd: "deploy".to_string(),
-                       task: $task_name,
-                       host: remote_host,
-                   },)
+                   $config.clone(),task_id)
                ),
                task_host: $task_host.clone(),
            }
@@ -57,7 +58,7 @@ impl UploadTask {
     /// Upload the cassandra.yaml file to the remote host (remote host list from deployment.yaml).
     pub fn build_upload_cass_conf_task(
         config: &DeploymentConfig,
-    ) -> anyhow::Result<Vec<TaskInstance>> {
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let cass_config = config.gen_cassandra_config()?;
         let ssh_port = config.connection.ssh_port();
         let conn_user = config.clone().connection.username;
@@ -65,33 +66,36 @@ impl UploadTask {
             .into_iter()
             .map(|(host, cass_config)| {
                 let cass_config_path_str = cass_config.to_str().unwrap().to_string();
-                TaskInstance {
-                    task_input: HashMap::from([
-                        (
-                            SOURCE_PATH.to_string(),
-                            TaskArgValue::Str(cass_config_path_str),
-                        ),
-                        (
-                            DEST_PATH.to_string(),
-                            TaskArgValue::Str("apache-cassandra/conf/cassandra.yaml".to_string()),
-                        ),
-                    ]),
-                    task: Box::new(UploadTask::new(
-                        config.clone(),
-                        TaskId {
-                            cmd: "install".to_string(),
-                            task: "cassandra_config_upload".to_string(),
-                            host: host.clone(),
+                let task_id = TaskId {
+                    cmd: "install".to_string(),
+                    task: "cassandra_config_upload".to_string(),
+                    host: host.clone(),
+                };
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([
+                            (
+                                SOURCE_PATH.to_string(),
+                                TaskArgValue::Str(cass_config_path_str),
+                            ),
+                            (
+                                DEST_PATH.to_string(),
+                                TaskArgValue::Str(
+                                    "apache-cassandra/conf/cassandra.yaml".to_string(),
+                                ),
+                            ),
+                        ]),
+                        task: Box::new(UploadTask::new(config.clone(), task_id)),
+                        task_host: TaskHost::Remote {
+                            user: conn_user.clone(),
+                            port: ssh_port as usize,
+                            hosts: host,
                         },
-                    )),
-                    task_host: TaskHost::Remote {
-                        user: conn_user.clone(),
-                        port: ssh_port as usize,
-                        hosts: host,
                     },
-                }
+                )
             })
-            .collect_vec();
+            .collect::<IndexMap<TaskId, TaskInstance>>();
         Ok(upload_cass_config_task)
     }
 
@@ -99,36 +103,37 @@ impl UploadTask {
     pub fn build_upload_data_dir_tasks(
         config: &DeploymentConfig,
         dest_hosts: Vec<TaskHost>,
-    ) -> Vec<TaskInstance> {
+    ) -> IndexMap<TaskId, TaskInstance> {
         let datafarm = format!("{}/datafarm", config.install_dir());
         dest_hosts
             .iter()
             .map(|dest_host| {
                 let (_, _, host) = dest_host.ssh_conn_tuple();
-                TaskInstance {
-                    task_input: HashMap::from([
-                        (SOURCE_PATH.to_string(), TaskArgValue::Str(datafarm.clone())),
-                        (COPY_DIR.to_string(), TaskArgValue::Str("-r".to_string())),
-                    ]),
-                    task: Box::new(UploadTask::new(
-                        config.clone(),
-                        TaskId {
-                            cmd: "install".to_string(),
-                            task: "upload_datafarm".to_string(),
-                            host,
-                        },
-                    )),
-                    task_host: dest_host.clone(),
-                }
+                let task_id = TaskId {
+                    cmd: "install".to_string(),
+                    task: "upload_datafarm".to_string(),
+                    host,
+                };
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([
+                            (SOURCE_PATH.to_string(), TaskArgValue::Str(datafarm.clone())),
+                            (COPY_DIR.to_string(), TaskArgValue::Str("-r".to_string())),
+                        ]),
+                        task: Box::new(UploadTask::new(config.clone(), task_id)),
+                        task_host: dest_host.clone(),
+                    },
+                )
             })
-            .collect_vec()
+            .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
     fn task_install_from_hosts(
         service: DeploymentService,
         host_vec: Vec<String>,
         config: &DeploymentConfig,
-    ) -> anyhow::Result<Vec<TaskInstance>> {
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let download_files = config.download_file_as_map()?;
 
         let install_db_script_opt = if service == DeploymentService::Monograph {
@@ -154,7 +159,7 @@ impl UploadTask {
                 };
                 match service {
                     DeploymentService::Storage => {
-                        let mut upload_storage_task_execution= vec![];
+                        let mut task_instance = HashMap::new();
                         if storage_provider == StorageProvider::Cassandra {
                             let cassandra_download_file =
                                 download_files.get(&DeploymentService::Storage).unwrap();
@@ -165,15 +170,16 @@ impl UploadTask {
                                 .unwrap()
                                 .to_string();
 
+                            let task_id = TaskId {
+                                cmd: "deploy".to_string(),
+                                task: format!("{}_upload", "cassandra"),
+                                host: remote_host,
+                            };
                             let upload_cassandra = UploadTask::new(
                                 config.clone(),
-                                TaskId {
-                                    cmd: "deploy".to_string(),
-                                    task: format!("{}_upload", "cassandra"),
-                                    host: remote_host,
-                                },
+                                task_id.clone()
                             );
-                            upload_storage_task_execution.push(TaskInstance {
+                            task_instance.insert(task_id, TaskInstance {
                                 task_input: HashMap::from([(
                                     SOURCE_PATH.to_string(),
                                     TaskArgValue::Str(cassandra_download_path),
@@ -182,11 +188,11 @@ impl UploadTask {
                                 task_host,
                             });
                         }
-                        upload_storage_task_execution
+                        task_instance
                     }
                     DeploymentService::Monograph => {
                         info!("UploadTask upload file to remote={:?}", task_host);
-                        let mut task_execution_vec = vec![];
+                        let mut task_execution_vec:HashMap<TaskId, TaskInstance> = HashMap::new();
                         let db_config_path =
                             config.clone().gen_monograph_config(Some(remote_host)).unwrap();
 
@@ -213,15 +219,17 @@ impl UploadTask {
             })
             .into_iter()
             .flatten()
-            .collect_vec();
+            .collect::<IndexMap<TaskId, TaskInstance>>();
         Ok(execution_context_vec)
     }
 
     /// Upload installation package, MonographDB configuration file (my.cnf),
     /// MonographDB install script, install config to remote host.
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
+    pub fn from_config(
+        config: &DeploymentConfig,
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let all_hosts = config.get_host_as_map();
-        let execution_context_vec = all_hosts
+        let upload_task_instance = all_hosts
             .into_iter()
             .map(|entry| {
                 let service = entry.0;
@@ -230,9 +238,9 @@ impl UploadTask {
             })
             .into_iter()
             .flatten()
-            .collect_vec();
+            .collect::<IndexMap<TaskId, TaskInstance>>();
 
-        Ok(execution_context_vec)
+        Ok(upload_task_instance)
     }
 
     pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
@@ -273,7 +281,6 @@ impl TaskExecutor for UploadTask {
             TaskArgValue::into_inner_value::<String>(task_input.get(SOURCE_PATH).unwrap().clone());
 
         let source_path_buf = PathBuf::from(source_path_str.as_str());
-        // scp /xxx/local_file user@remote_host:remote_dir/file
         let remote_install_dir = self.config.install_dir();
 
         let dest_file_name = if let Some(dest_file_str) = task_input.get(DEST_PATH) {
@@ -294,6 +301,7 @@ impl TaskExecutor for UploadTask {
         };
 
         let scp_auth_key = format!("-i {}", self.config.connection.ssh_auth_key().unwrap());
+        // scp /xxx/local_file user@remote_host:remote_dir/file
         let scp_cmd = format!(
             // dir port, usr host remote_dir file_name
             r#"mkdir -p {} && scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null {} {} -P {} {} {}@{}:{}/{}"#,

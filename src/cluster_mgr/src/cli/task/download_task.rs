@@ -1,4 +1,5 @@
 use crate::cli::config::DeploymentConfig;
+use crate::cli::task::ssh_conn::{SSH_EXEC_CMD, SSH_EXEC_CMD_OUTPUT, SSH_EXEC_CMD_STATUS};
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
@@ -6,7 +7,7 @@ use crate::cli::task::task_base::{
 use crate::cli::{download_dir, file_process_progress};
 use anyhow::anyhow;
 use futures::stream::StreamExt;
-use itertools::Itertools;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -27,7 +28,9 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
-    pub fn from_config(config: &DeploymentConfig) -> anyhow::Result<Vec<TaskInstance>> {
+    pub fn from_config(
+        config: &DeploymentConfig,
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_cloned = &config.deployment;
         let mut download_url_vec = vec![deployment_cloned.install_image.clone()];
         if let Some(cassandra) = &config.deployment.storage_service.cassandra {
@@ -48,19 +51,22 @@ impl DownloadTask {
                     task: task_name.to_string(),
                     host: local_ip.to_string(),
                 };
-                TaskInstance {
-                    task_input: HashMap::from([
-                        (DOWNLOAD_URL.to_string(), TaskArgValue::Str(download_url)),
-                        (
-                            DOWNLOAD_PATH.to_string(),
-                            TaskArgValue::Str(download_dir.to_str().unwrap().to_string()),
-                        ),
-                    ]),
-                    task: Box::new(DownloadTask::new(task_id)),
-                    task_host: TaskHost::Local,
-                }
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([
+                            (DOWNLOAD_URL.to_string(), TaskArgValue::Str(download_url)),
+                            (
+                                DOWNLOAD_PATH.to_string(),
+                                TaskArgValue::Str(download_dir.to_str().unwrap().to_string()),
+                            ),
+                        ]),
+                        task: Box::new(DownloadTask::new(task_id)),
+                        task_host: TaskHost::Local,
+                    },
+                )
             })
-            .collect_vec();
+            .collect::<IndexMap<TaskId, TaskInstance>>();
         Ok(download_tasks)
     }
 
@@ -185,9 +191,20 @@ impl TaskExecutor for DownloadTask {
             }
         }
         pb.finish_with_message(format!("{} download compete", file_name));
-        Ok(Some(HashMap::from([(
-            DOWNLOAD_PATH.to_string(),
-            TaskArgValue::Str(download_url),
-        )])))
+
+        let mut download_result = HashMap::new();
+
+        download_result.insert(
+            SSH_EXEC_CMD.to_string(),
+            TaskArgValue::Str(self.task_id.format_string()),
+        );
+        download_result.insert(
+            SSH_EXEC_CMD_OUTPUT.to_string(),
+            TaskArgValue::Str(local_file_path.to_str().unwrap().to_string()),
+        );
+
+        download_result.insert(SSH_EXEC_CMD_STATUS.to_string(), TaskArgValue::Number(0));
+
+        Ok(Some(download_result))
     }
 }

@@ -17,9 +17,10 @@ dirs = "4"
 dyn-clone = "1"
 futures = { version = "0.3", default-features = false, features = ["alloc", "thread-pool"] }
 futures-async-stream = "0.2"
+indexmap = "1.9.2"
 indicatif = "0.17"
 itertools = "0.10.5"
-local-ip-address = "0.4"
+local-ip-address = "0.5"
 owo-colors = "3"
 reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
