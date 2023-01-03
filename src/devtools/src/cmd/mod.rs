@@ -12,7 +12,7 @@ pub mod gen_mysql_cnf;
 pub mod git_clone_source;
 pub mod init_db;
 pub mod install_deps;
+mod install_dev_deps;
 pub mod mysql_ctl_util;
 pub mod playground;
 pub mod setup_workspace;
-mod install_dev_deps;

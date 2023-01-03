@@ -12,6 +12,7 @@ use cdrs_tokio::load_balancing::RoundRobinLoadBalancingStrategy;
 use cdrs_tokio::retry::{ConstantReconnectionPolicy, DefaultRetryPolicy};
 use cdrs_tokio::transport::TransportTcp;
 use cdrs_tokio::types::IntoRustByName;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,18 +28,25 @@ pub struct CassandraOpTask {
 
 impl CassandraOpTask {
     #[allow(dead_code)]
-    pub fn from_config(cmd: String, cql: String, config: &DeploymentConfig) -> Vec<TaskInstance> {
+    pub fn from_config(
+        cmd: String,
+        cql: String,
+        config: &DeploymentConfig,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let task_id = TaskId {
             cmd,
             task: "cassandra-op".to_string(),
             host: "_local".to_string(),
         };
 
-        vec![TaskInstance {
-            task_input: HashMap::from([(CASS_CQL_STMT.to_string(), TaskArgValue::Str(cql))]),
-            task: Box::new(CassandraOpTask::new(config.clone(), task_id)),
-            task_host: TaskHost::Local,
-        }]
+        IndexMap::from([(
+            task_id.clone(),
+            TaskInstance {
+                task_input: HashMap::from([(CASS_CQL_STMT.to_string(), TaskArgValue::Str(cql))]),
+                task: Box::new(CassandraOpTask::new(config.clone(), task_id)),
+                task_host: TaskHost::Local,
+            },
+        )])
     }
 
     pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {

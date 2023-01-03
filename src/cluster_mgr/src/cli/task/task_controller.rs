@@ -176,7 +176,8 @@ impl TaskController {
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let barrier = task_execution.clone().barrier;
         let tasks = task_execution.clone().executable;
-        let split = TaskController::split_task(barrier, tasks);
+        let task_vec = tasks.values().cloned().collect_vec();
+        let split = TaskController::split_task(barrier, task_vec);
         let mut task_result_vec = vec![];
         for task_split in split.into_iter() {
             let rs = self.run_task_split(task_split, config.clone()).await?;

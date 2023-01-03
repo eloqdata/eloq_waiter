@@ -5,6 +5,7 @@ use crate::cli::task::task_base::{
 };
 use crate::{ssh_conn_info, task_return_value};
 use async_trait::async_trait;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 
@@ -16,7 +17,10 @@ pub struct ExecCustomCommand {
 }
 
 impl ExecCustomCommand {
-    pub fn from_config(cmd_string: String, config: &DeploymentConfig) -> Vec<TaskInstance> {
+    pub fn from_config(
+        cmd_string: String,
+        config: &DeploymentConfig,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let all_hosts = config.get_host_as_map();
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
@@ -32,23 +36,27 @@ impl ExecCustomCommand {
                             port: ssh_port as usize,
                             hosts: host_val.clone(),
                         };
-                        TaskInstance {
-                            task_input: HashMap::default(),
-                            task: Box::new(ExecCustomCommand::new(
-                                cmd_string.clone(),
-                                TaskId {
-                                    cmd: "exec_cmd".to_string(),
-                                    task: "custom-task".to_string(),
-                                    host: host_val.clone(),
-                                },
-                                config.clone(),
-                            )),
-                            task_host,
-                        }
+                        let task_id = TaskId {
+                            cmd: "exec_cmd".to_string(),
+                            task: "custom-task".to_string(),
+                            host: host_val.clone(),
+                        };
+                        (
+                            task_id.clone(),
+                            TaskInstance {
+                                task_input: HashMap::default(),
+                                task: Box::new(ExecCustomCommand::new(
+                                    cmd_string.clone(),
+                                    task_id,
+                                    config.clone(),
+                                )),
+                                task_host,
+                            },
+                        )
                     })
-                    .collect_vec()
+                    .collect::<IndexMap<TaskId, TaskInstance>>()
             })
-            .collect_vec()
+            .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
     pub fn new(cmd: String, task_id: TaskId, config: DeploymentConfig) -> Self {
