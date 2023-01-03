@@ -248,11 +248,11 @@ pub struct PrintableTaskResult {
 }
 
 #[derive(Debug)]
-struct TablePrinter {
+struct TaskResultPrinter {
     data: RefCell<Vec<PrintableTaskResult>>,
 }
 
-impl TablePrinter {
+impl TaskResultPrinter {
     pub(crate) fn new() -> Self {
         Self {
             data: RefCell::new(vec![]),
@@ -270,9 +270,9 @@ impl TablePrinter {
                 execution_value.get(SSH_EXEC_CMD_STATUS).unwrap().clone(),
             ) == 0
             {
-                "Success".to_string()
+                "Success".green().to_string()
             } else {
-                "Failure".to_string()
+                "Failure".red().to_string()
             },
             cmd_output: TaskArgValue::into_inner_value::<String>(
                 execution_value.get(SSH_EXEC_CMD_OUTPUT).unwrap().clone(),
@@ -327,14 +327,15 @@ impl TaskMgr {
 
             match result {
                 TaskResultEnum::Success(opt_rs) => {
-                    let table_printer = TablePrinter::new();
+                    let table_printer = TaskResultPrinter::new();
                     if let Some(execution_value) = opt_rs {
                         table_printer.add_row(task_id, execution_value);
                         table_printer.table_print();
                     }
                 }
                 TaskResultEnum::Error(err_msg) => {
-                    println!(r#"❌ task {} failed. cause by {}"#, task_id, err_msg);
+                    let err_msg = format!(r#"task {} failed. cause by {}"#, task_id, err_msg);
+                    println!("{}", err_msg.red());
                 }
             }
         }
@@ -361,8 +362,9 @@ impl TaskMgr {
 
 #[cfg(test)]
 mod tests {
-
     use crate::cli::task::task_base::TaskId;
+    // use indexmap::IndexMap;
+    // use itertools::Itertools;
 
     #[test]
     fn test_table_flat() {

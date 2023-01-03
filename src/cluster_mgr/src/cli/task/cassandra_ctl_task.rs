@@ -10,6 +10,7 @@ use crate::cli::CommandArgs;
 use crate::{get_ctl_cmd_string, ssh_conn_info};
 use anyhow::anyhow;
 use async_trait::async_trait;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -127,7 +128,10 @@ pub struct CassandraCtlTask {
 }
 
 impl CassandraCtlTask {
-    pub fn from_config(cmd: CommandArgs, config: &DeploymentConfig) -> Vec<TaskInstance> {
+    pub fn from_config(
+        cmd: CommandArgs,
+        config: &DeploymentConfig,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let cassandra_task_ctrl_attr = match cmd {
             CommandArgs::Start { cluster: _ }
             | CommandArgs::Install { cluster: _ }
@@ -164,20 +168,23 @@ impl CassandraCtlTask {
             .map(|host| {
                 let mut task_id_final = task_id.clone();
                 task_id_final.host = host.clone();
-                TaskInstance {
-                    task_input: HashMap::from([(
-                        CASSANDRA_CMD_STR.to_string(),
-                        TaskArgValue::Str(cmd_str.to_string()),
-                    )]),
-                    task: Box::new(CassandraCtlTask::new(config.clone(), task_id_final)),
-                    task_host: TaskHost::Remote {
-                        user: conn_user.clone(),
-                        port: ssh_port as usize,
-                        hosts: host.clone(),
+                (
+                    task_id_final.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([(
+                            CASSANDRA_CMD_STR.to_string(),
+                            TaskArgValue::Str(cmd_str.to_string()),
+                        )]),
+                        task: Box::new(CassandraCtlTask::new(config.clone(), task_id_final)),
+                        task_host: TaskHost::Remote {
+                            user: conn_user.clone(),
+                            port: ssh_port as usize,
+                            hosts: host.clone(),
+                        },
                     },
-                }
+                )
             })
-            .collect_vec()
+            .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
     pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
