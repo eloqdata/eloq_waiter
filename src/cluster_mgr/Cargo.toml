@@ -29,6 +29,7 @@ serde_yaml = "0.9"
 sqlx = { version = "0.6", features = ["sqlite", "runtime-tokio-native-tls", "macros", "chrono"] }
 ssh2 = "0.9"
 strum_macros = "0.24"
+sysinfo = "0.27"
 tabled = { version = "0.10.0", features = ["color", "derive"] }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }

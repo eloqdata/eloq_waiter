@@ -1,0 +1,12 @@
+libgoogle-glog-dev
+openjdk-11-jre-headless
+less
+python3
+libsnappy-dev
+libuv1-dev
+libgflags-dev
+libprotobuf-dev
+libleveldb-dev
+wget
+curl
+unzip

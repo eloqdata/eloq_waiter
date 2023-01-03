@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use strum_macros::AsRefStr;
+use sysinfo::SystemExt;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -557,6 +558,37 @@ impl DeploymentConfig {
             .collect::<HashMap<String, PathBuf>>();
 
         Ok(cass_config_vec)
+    }
+
+    /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
+    /// for example: ubuntu_runtime_deps, centos_runtime_deps
+    pub fn load_runtime_deps_by_os(os_name: Option<String>) -> anyhow::Result<(String, String)> {
+        let config_path_var_rs = std::env::var(CONFIG_PATH_DIR);
+        assert!(config_path_var_rs.is_ok());
+        let curr_os_name = if let Some(short_os_name) = os_name {
+            short_os_name.to_lowercase()
+        } else {
+            let system = sysinfo::System::new();
+            let curr_os_name = system.name();
+            assert!(curr_os_name.is_some());
+            curr_os_name.unwrap().to_lowercase()
+        };
+        let runtime_deps_file = format!("{}_runtime_deps", curr_os_name);
+        let config_path = config_path_var_rs.unwrap();
+        let deps_path = PathBuf::from(config_path.as_str()).join(runtime_deps_file);
+        let deps_file_opened = File::open(deps_path.as_path())?;
+        let lines = BufReader::new(deps_file_opened).lines();
+
+        let deps_string = lines
+            .filter_map(|line_rs| {
+                if let Ok(line) = line_rs {
+                    Some(line)
+                } else {
+                    None
+                }
+            })
+            .join(" ");
+        Ok((curr_os_name, deps_string))
     }
 
     pub fn load(path: Option<String>) -> anyhow::Result<Self> {
