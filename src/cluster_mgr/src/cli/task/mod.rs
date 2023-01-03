@@ -4,6 +4,7 @@ mod download_task;
 mod exec_custom_cmd;
 mod monograph_ctl_task;
 mod monograph_install_task;
+mod runtime_deps_install;
 mod ssh_conn;
 pub mod task_base;
 mod task_controller;
