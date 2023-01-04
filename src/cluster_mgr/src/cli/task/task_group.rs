@@ -76,7 +76,7 @@ pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock:
         ("restart".to_string(), CtrlDBTaskGroup::boxed()),
         ("status".to_string(), CtrlDBTaskGroup::boxed()),
         ("exec_cmd".to_string(), CustomCmdTaskGroup::boxed()),
-        ("run_deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
+        ("run-deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
     ])
 });
 
@@ -146,7 +146,6 @@ impl TaskGroup for DeploymentTaskGroup {
         } else {
             vec![]
         };
-        println!("DeploymentTaskGroup includes the following tasks [download_task, upload_task, unpack_task]");
         let download_tasks = ALL_DOWNLOAD_TASKS
             .iter()
             .copied()

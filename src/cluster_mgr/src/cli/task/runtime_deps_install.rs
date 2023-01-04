@@ -28,7 +28,7 @@ impl RuntimeDepsInstallation {
                "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
             }
             "centos" => {
-                "sudo yum update -y && sudo yum install -y"
+                "sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y"
             }
             _=> {
                 panic!("For now MonographDB only run on Ubuntu or Centos");
