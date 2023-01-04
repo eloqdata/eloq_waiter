@@ -146,7 +146,6 @@ impl TaskGroup for DeploymentTaskGroup {
         } else {
             vec![]
         };
-        println!("DeploymentTaskGroup includes the following tasks [download_task, upload_task, unpack_task]");
         let download_tasks = ALL_DOWNLOAD_TASKS
             .iter()
             .copied()

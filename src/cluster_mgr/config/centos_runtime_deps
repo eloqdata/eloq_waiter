@@ -1,0 +1,5 @@
+leveldb
+gflags
+glog
+java-11-openjdk-devel
+wget
