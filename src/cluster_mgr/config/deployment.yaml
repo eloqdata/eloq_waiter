@@ -1,10 +1,10 @@
 connection:
-  # username: "mono"
+  username: "mono"
   auth_type: "keypair"
   auth:
     keypair: "/home/$USER/.ssh/id_rsa"
 deployment:
-  install_image: "http://download_url/monographdb-release.tar.gz"
+  install_image: "file:///home/ubuntu/monographdb-release.tar.gz"
   cluster_name: "mono-poc"
   install_dir: "/data1/opt"
   port:

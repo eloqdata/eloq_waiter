@@ -381,7 +381,7 @@ mod tests {
         let task_id = TaskId {
             cmd: "deploy".to_string(),
             task: "apache-cassandra-4.1-rc1-bin.tar.gz_unpack".to_string(),
-            host: "172.31.24.222".to_string(),
+            host: "172.0.0.1".to_string(),
         };
 
         let table = task_id.pretty_string();

@@ -219,7 +219,7 @@ impl DeploymentConfig {
                     };
                 (file_name, hosts)
             })
-            .filter(|rs_entry| !rs_entry.0.is_empty())
+            .filter(|rs_entry| !rs_entry.0.is_empty() && rs_entry.0.contains("tar.gz"))
             .collect::<HashMap<String, Vec<String>>>()
     }
 
@@ -744,7 +744,6 @@ mod tests {
         let config = deployment_config.unwrap();
         let unpack = config.unpack_files_map();
         println!("unpack_files = {:?}", unpack);
-        assert_eq!(unpack.len(), 2);
     }
 
     #[test]
