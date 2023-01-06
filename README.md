@@ -35,13 +35,6 @@ cargo build --release
 cargo make --no-workspace  --makefile Makefile.toml  cluster_mgr_pkg/devtools_pkg
 ```
 
-- Run
-
-```shell
-cd mono_waiter_dist
-./monograph_waiter --config $PWD/config
-```
-
 ## Features
 
 ### Devtools

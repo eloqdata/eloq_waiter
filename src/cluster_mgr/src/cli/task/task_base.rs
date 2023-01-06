@@ -129,6 +129,8 @@ pub enum CmdErr {
     UnpackErr(String, String),
     #[error("Error interacting with cassandra. error causes {0}")]
     CassandraOpErr(String),
+    #[error("Error executing LocalCopyTask; please check if the source path exists path {0}")]
+    CopyTaskErr(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
