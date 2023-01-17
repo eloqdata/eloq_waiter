@@ -43,6 +43,6 @@ impl CmdPrinter {
             .with(Modify::new(Columns::single(2)).with(Width::wrap(10)))
             .with(Modify::new(Columns::single(3)).with(Width::wrap(30).keep_words()));
 
-        println!("{}\n", table);
+        println!("{table}\n");
     }
 }

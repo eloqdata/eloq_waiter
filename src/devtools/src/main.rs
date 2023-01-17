@@ -24,7 +24,7 @@ struct CmdCliOptions {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("{}", BANNER);
+    println!("{BANNER}");
     println!();
     println!("!!! Welcome Monograph Waiter!!!");
     println!("!!!「Monograph Waiter」 is the productivity tool for developers.");

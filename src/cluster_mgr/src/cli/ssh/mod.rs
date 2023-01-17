@@ -72,7 +72,7 @@ impl SSHSession {
             ..Default::default()
         });
         let ssh_client = SSHClient {};
-        let ssh_addr = SocketAddr::from_str(format!("{}:{}", host, port).as_str())?;
+        let ssh_addr = SocketAddr::from_str(format!("{host}:{port}").as_str())?;
         let mut session = client::connect(ssh_config, ssh_addr, ssh_client).await?;
         let key_pair = load_secret_key(key_path, None)?;
         let auth_rs = session

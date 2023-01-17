@@ -17,7 +17,7 @@ deployment:
       - localhost
   storage_service:
     cassandra:
-      download_url: "https://archive.apache.org/dist/cassandra/4.1-rc1/apache-cassandra-4.1-rc1-bin.tar.gz"
+      download_url: "https://archive.apache.org/dist/cassandra/4.1.0/apache-cassandra-4.1.0-bin.tar.gz"
       storage_cluster: "mono-cass-cluster"
       host:
         - localhost

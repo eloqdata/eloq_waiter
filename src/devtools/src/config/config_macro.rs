@@ -121,7 +121,7 @@ mod tests {
         env::set_var(MONOGRAPH_WATER_CONFIG_DIR, common.clone().workspace);
         println!("git_string {}", git_string.to_string().to_lowercase());
         let git_cmd = git_clone!(git, brpc, braft);
-        println!("Cmd {:?}", git_cmd);
+        println!("Cmd {git_cmd:?}");
         assert_eq!(2, git_cmd.len())
     }
 }

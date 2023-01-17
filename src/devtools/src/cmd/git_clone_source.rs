@@ -59,11 +59,11 @@ impl GitCloneSource {
         let mut join_all_task_vec = Vec::new();
         let semaphore = Arc::new(Semaphore::new(GIT_CLONE_SEMAPHORE));
         for git_clone_cmd in git_clone_cmd_vec.clone() {
-            println!("{}", git_clone_cmd);
+            println!("{git_clone_cmd}");
             let permit = semaphore.clone().acquire_owned().await.unwrap();
             let task_handler = tokio::task::spawn(async move {
                 let cmd_status = cmd_process(git_clone_cmd.clone(), |stdout| {
-                    println!("{}", stdout);
+                    println!("{stdout}");
                 });
                 drop(permit);
                 (git_clone_cmd, cmd_status)
@@ -71,7 +71,7 @@ impl GitCloneSource {
             join_all_task_vec.push(task_handler);
         }
         let git_clone_all_rs = join_all(join_all_task_vec).await;
-        println!("{:?}", git_clone_all_rs);
+        println!("{git_clone_all_rs:?}");
         for rs in git_clone_all_rs {
             git_clone_status.push(rs.unwrap());
         }

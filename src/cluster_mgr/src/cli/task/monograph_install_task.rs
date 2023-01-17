@@ -46,8 +46,7 @@ impl MonographInstall {
     pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
         let keyspace = self.config.get_monograph_keyspace()?;
         let keyspace_cql = format!(
-            r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{}'"#,
-            keyspace
+            r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
         );
         let cassandra_op_task = CassandraOpTask::new(
             self.config.clone(),

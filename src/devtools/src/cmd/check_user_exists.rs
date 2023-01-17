@@ -45,7 +45,7 @@ impl CmdV2 for CheckDBUser {
         let check_user_status =
             context.cmd_run(cmd.clone(), |record: &str, _: Option<ProgressBar>| {
                 user_table.push(record.to_string());
-                println!("{}", record);
+                println!("{record}");
             });
         if !check_user_status.success {
             return vec![(cmd, check_user_status)];

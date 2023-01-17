@@ -37,7 +37,7 @@ impl RuntimeDepsInstallation {
             }
         };
         let dep_pkg = os_and_deps_pair.1;
-        let install_dep_cmd = format!("{} {}", dep_cmd_partial, dep_pkg);
+        let install_dep_cmd = format!("{dep_cmd_partial} {dep_pkg}");
 
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
@@ -52,7 +52,7 @@ impl RuntimeDepsInstallation {
             .map(|host_name| {
                 let task_id = TaskId {
                     cmd: "run_deps".to_string(),
-                    task: format!("{}_install_deps", os_name),
+                    task: format!("{os_name}_install_deps"),
                     host: host_name.clone(),
                 };
                 (

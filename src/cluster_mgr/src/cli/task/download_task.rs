@@ -174,7 +174,7 @@ impl TaskExecutor for DownloadFromRemoteTask {
 
         let mut download_file = create_local_file_rs.unwrap();
         let mut downloaded = 0_u64;
-        let pb = file_process_progress(file_len, format!("DOWNLOAD [{}]", file_name), "#>-");
+        let pb = file_process_progress(file_len, format!("DOWNLOAD [{file_name}]"), "#>-");
 
         let mut stream_reader = http_response.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
@@ -200,7 +200,7 @@ impl TaskExecutor for DownloadFromRemoteTask {
                 return Err(anyhow!(DownloadErr(download_url_cloned, stream_chunk_err)));
             }
         }
-        pb.finish_with_message(format!("{} download compete", file_name));
+        pb.finish_with_message(format!("{file_name} download compete"));
 
         let mut download_result = HashMap::new();
 

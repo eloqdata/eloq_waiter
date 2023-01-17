@@ -38,7 +38,7 @@ WORKING_DIR=${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}
 echo "build mono_devtools package working_dir="${WORKING_DIR}
 TARGET="$WORKING_DIR"/target/release/devtools
 function build_package() {
-  mkdir -p "MONO_DIST_DIR" && mkdir -p "MONO_DIST_DIR"/config
+  mkdir -p "$MONO_DIST_DIR" && mkdir -p "$MONO_DIST_DIR"/config
   cp -r $WORKING_DIR/src/devtools/config/* "$MONO_DIST_DIR/config"
   cp "$TARGET" "$MONO_DIST_DIR"
 }
