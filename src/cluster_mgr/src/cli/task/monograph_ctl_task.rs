@@ -111,7 +111,7 @@ impl MonographCtlTask {
             .map(|host| {
                 let task_id = TaskId {
                     cmd: cmd_str_ref.to_string(),
-                    task: format!("monographdb-{}", cmd_str_ref),
+                    task: format!("monographdb-{cmd_str_ref}"),
                     host: host.to_string(),
                 };
 
@@ -176,7 +176,7 @@ impl MonographCtlTask {
                 pid = Some(parse_rs);
                 break;
             }
-            println!("MonographCtlTask found MonographDB PID={:?}", pid);
+            println!("MonographCtlTask found MonographDB PID={pid:?}");
             pid
         }
     }

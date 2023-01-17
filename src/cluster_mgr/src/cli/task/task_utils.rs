@@ -60,8 +60,7 @@ pub(crate) async fn ctl_cmd(cmd: String, ssh_conn: SSHSession) -> anyhow::Result
             status_code, cmd
         );
         Err(anyhow!(format!(
-            "Start failed cmd={}, cmd_code={}",
-            cmd, status_code
+            "Start failed cmd={cmd}, cmd_code={status_code}",
         )))
     } else {
         Ok(start_rs)
@@ -93,7 +92,7 @@ where
     } else {
         ctl_action_rs.insert(
             CMD_OUTPUT.to_string(),
-            TaskArgValue::Str(format!("check control func return={}", process_ready)),
+            TaskArgValue::Str(format!("check control func return={process_ready}")),
         );
     }
     Ok(ctl_action_rs)

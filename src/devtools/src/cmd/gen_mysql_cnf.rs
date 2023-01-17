@@ -32,7 +32,7 @@ impl CmdV2 for GenMySQLConf {
             return self.error_status(err_msg);
         }
 
-        println!("monograph_local_ip = {:?}", local_ip);
+        println!("monograph_local_ip = {local_ip:?}");
         let local_ip_rs = local_ip
             .unwrap()
             .split(':')
@@ -51,7 +51,7 @@ impl CmdV2 for GenMySQLConf {
             .iter()
             .map(|i| {
                 let my_port = local_ip_port + (i * 10);
-                format!("127.0.0.1:{}", my_port)
+                format!("127.0.0.1:{my_port}")
             })
             .collect::<Vec<_>>()
             .join(",");
@@ -100,7 +100,7 @@ impl CmdV2 for GenMySQLConf {
             );
             let cnf_location =
                 format!("{}/{}-{}.cnf", etc_dir, "my-conf", mysql_port + idx,).clone();
-            println!("GenMySQLCnf at {}", cnf_location);
+            println!("GenMySQLCnf at {cnf_location}");
 
             let write_rs = mysql_cnf.write(Path::new(cnf_location.as_str()));
             if write_rs.is_err() {

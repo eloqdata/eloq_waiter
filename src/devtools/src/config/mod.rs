@@ -99,14 +99,14 @@ mod tests {
     pub fn test_load_common_config() {
         let common_path = config_file("/config/common.toml");
         let common = load_toml_config!(common_path.as_str(), Common);
-        println!("Common {:?}", common);
+        println!("Common {common:?}")
     }
 
     #[test]
     pub fn test_extract_config_value() {
         let common_path = config_file("/config");
         let common_config = extract_config_value!("common", Common, common_path.clone());
-        println!("{:?} -> {:?}", common_path, common_config);
+        println!("{common_path:?} -> {common_config:?}");
     }
 
     #[test]
@@ -114,8 +114,8 @@ mod tests {
         let config_path = config_file("/config");
         let protobuf_build_cmd = build_script!(download, config_path.clone(), protobuf);
         let thirty_party_git_build = build_script!(git, config_path, brpc, braft, catch2, aws);
-        println!("{:?}", protobuf_build_cmd);
-        println!("{:?}", thirty_party_git_build);
+        println!("{protobuf_build_cmd:?}");
+        println!("{thirty_party_git_build:?}");
         assert_eq!(protobuf_build_cmd.cmd_vec.len(), 1);
         assert_eq!(thirty_party_git_build.cmd_vec.len(), 4);
     }

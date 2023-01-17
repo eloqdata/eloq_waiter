@@ -102,8 +102,7 @@ impl DownloadUrl {
                 "http" | "https" => Ok(DownloadUrl::Remote(url_str.to_string())),
                 _ => {
                     panic!(
-                        "The url schema is incorrect. For now only support file or http. {}",
-                        url_str
+                        "The url schema is incorrect. For now only support file or http. {url_str}",
                     );
                 }
             }
@@ -387,7 +386,7 @@ impl DeploymentConfig {
             )
             .replace(
                 "_MY_CONF",
-                format!("{}/my_local.cnf", remote_install_dir).as_str(),
+                format!("{remote_install_dir}/my_local.cnf").as_str(),
             )
             .replace("_MY_CLUSTER_HOME", remote_install_dir.as_str());
         Ok(final_script)
@@ -607,8 +606,7 @@ impl DeploymentConfig {
             r#"
            - class_name: org.apache.cassandra.locator.SimpleSeedProvider
              parameters:
-             - seeds: {}"#,
-            seeds
+             - seeds: {seeds}"#,
         );
         let seed_yaml_value: Value = serde_yaml::from_str(seed_values.as_str())?;
         cass_conf_map.insert(String::from("seed_provider"), seed_yaml_value);
@@ -624,7 +622,7 @@ impl DeploymentConfig {
                 );
                 cass_conf_map.insert(String::from("broadcast_rpc_address"), host_value.clone());
                 cass_conf_map.insert(String::from("broadcast_address"), host_value);
-                let config_path = download_dir().join(format!("cassandra_{}.yaml", host));
+                let config_path = download_dir().join(format!("cassandra_{host}.yaml"));
                 let new_config_file = File::create(config_path.as_path()).unwrap();
                 let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
                 assert!(gen_config_write.is_ok());
@@ -655,7 +653,7 @@ impl DeploymentConfig {
                 unreachable!()
             }
         };
-        let runtime_deps_file = format!("{}_runtime_deps", curr_os_name);
+        let runtime_deps_file = format!("{curr_os_name}_runtime_deps");
         let config_path = config_path_var_rs.unwrap();
         let deps_path = PathBuf::from(config_path.as_str()).join(runtime_deps_file);
         let deps_file_opened = File::open(deps_path.as_path())?;
@@ -741,7 +739,7 @@ mod tests {
         let path_string = deployment_file_path();
         let deployment_config = DeploymentConfig::load(Some(path_string));
         assert!(deployment_config.is_ok());
-        println!("{:#?}", deployment_config);
+        println!("{deployment_config:#?}");
     }
 
     #[test]
@@ -755,7 +753,7 @@ mod tests {
             MONOGRAPH_INSTALL_SCRIPT,
             config.build_install_monograph_script()
         );
-        println!("start_script_path ={:?}", path_buf_rs);
+        println!("start_script_path ={path_buf_rs:?}");
         assert!(path_buf_rs.is_ok());
         let start_script_path_buf = path_buf_rs.unwrap();
         assert!(start_script_path_buf.exists());
@@ -780,7 +778,7 @@ mod tests {
         assert!(deployment_config.is_ok());
         let config = deployment_config.unwrap();
         let unpack = config.unpack_files_map();
-        println!("unpack_files = {:?}", unpack);
+        println!("unpack_files = {unpack:?}");
     }
 
     #[test]
@@ -788,7 +786,7 @@ mod tests {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config");
         set_var(CONFIG_PATH_DIR, manifest_dir.to_str().unwrap());
         let rs = load_remote_env(None);
-        println!("rs {:?}", rs);
+        println!("rs {rs:?}");
         assert!(rs.is_ok());
         println!("remote env props = {:?}", rs.unwrap());
     }
@@ -820,7 +818,7 @@ mod tests {
         );
 
         let seed_provider_value: Value = serde_yaml::from_str(seed_provider_str.as_str()).unwrap();
-        println!("seed_provider = {:#?}", seed_provider_value);
+        println!("seed_provider = {seed_provider_value:#?}");
         cass_map.insert("seed_provider".to_string(), seed_provider_value);
 
         let config_path = manifest_dir.join("cassandra_127.0.0.1.yaml");
@@ -837,7 +835,7 @@ mod tests {
 
         let listen_address_value = final_cass_map.get("listen_address").unwrap();
 
-        println!("get listen_address_value={:?}", listen_address_value);
+        println!("get listen_address_value={listen_address_value:?}");
         assert_eq!(
             "127.0.0.1".to_string(),
             listen_address_value.as_str().unwrap().to_string()
@@ -855,6 +853,6 @@ mod tests {
         assert!(mono_local_url.is_local());
         println!("{}", mono_local_url.get_url());
         let mono_file_name = mono_local_url.file_name();
-        println!("mono_file_name {:?}", mono_file_name);
+        println!("mono_file_name {mono_file_name:?}");
     }
 }

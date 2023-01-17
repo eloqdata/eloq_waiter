@@ -17,7 +17,7 @@ impl CmdV2 for ExecSqlScript {
             panic!("ENV MONOGRAPH_WATER_CONFIG_DIR not exists.");
         }
         let config_path = config_path_rs.unwrap();
-        let script_path = format!("{}/mysql/init.sql", config_path);
+        let script_path = format!("{config_path}/mysql/init.sql");
         let script_rs = std::fs::read_to_string(Path::new(script_path.as_str()));
         if script_rs.is_err() {
             println!("{}", script_rs.err().unwrap());
@@ -54,7 +54,7 @@ impl CmdV2 for ExecSqlScript {
                 vec!["-e".to_string(), sql.to_string()],
             );
             let status: CmdStatus<()> = context.cmd_run(exec_sql_cmd.clone(), |stdout, _| {
-                println!("{}", stdout);
+                println!("{stdout}");
             });
             if !status.success {
                 return vec![(self.definition(), status)];
