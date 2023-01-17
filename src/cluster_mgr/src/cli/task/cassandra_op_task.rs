@@ -70,7 +70,7 @@ impl CassandraOpTask {
 
         let contact_points = cass_hosts
             .iter()
-            .map(|host| NodeAddress::from(format!("{}:{}", host, client_transport_port)))
+            .map(|host| NodeAddress::from(format!("{host}:{client_transport_port}")))
             .collect_vec();
 
         let cluster_config = NodeTcpConfigBuilder::new()
@@ -144,13 +144,13 @@ impl TaskExecutor for CassandraOpTask {
                             })
                             .join("\t"),
                         None => {
-                            format!("{} {:#?}", idx, row)
+                            format!("{idx} {row:#?}")
                         }
                     };
                     row_str
                 })
                 .join("\n");
-            println!("{}", row_as_string);
+            println!("{row_as_string}");
             task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(row_as_string));
         } else {
             println!("CassandraOpTask No data was queried.");

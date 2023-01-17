@@ -59,7 +59,7 @@ pub fn pipe_progress_bar(cmd_str: String) -> ProgressBar {
     let cmd_pb = ProgressBar::new_spinner();
     cmd_pb.set_style(
         ProgressStyle::default_bar()
-            .template(&format!("{{spinner:.dim.bold}} {}: {{wide_msg}}", cmd_str))
+            .template(&format!("{{spinner:.dim.bold}} {cmd_str}: {{wide_msg}}"))
             .unwrap()
             .progress_chars("##-"),
     );
@@ -71,7 +71,7 @@ pub fn elapsed_progress_bar(len: Option<u64>, customer_msg: Option<String>) -> P
     let cmd_pb = ProgressBar::new(total_size);
     let sty = if let Some(msg) = customer_msg {
         format!(
-            "{{spinner:.green}} {:15}: [{{elapsed_precise}}] [{{wide_bar:.green/white}}] {{bytes}}/{{total_bytes}} ({{eta}})", msg)
+            "{{spinner:.green}} {msg:15}: [{{elapsed_precise}}] [{{wide_bar:.green/white}}] {{bytes}}/{{total_bytes}} ({{eta}})")
     } else {
         "{spinner:.green} [{elapsed_precise}] [{wide_bar:.green/white}] {bytes}/{total_bytes} ({eta})"
             .to_string()
@@ -140,7 +140,7 @@ where
 pub fn all_support_cmd_string() -> String {
     SUPPORT_CMD_LIST
         .iter()
-        .map(|cmd_str| format!("\t{}", cmd_str))
+        .map(|cmd_str| format!("\t{cmd_str}"))
         .collect::<Vec<String>>()
         .join("\n")
 }
@@ -154,7 +154,7 @@ pub fn create_log_path_and_get() -> String {
     let path_buf = Path::new(&curr_path);
     let rs = std::fs::create_dir_all(path_buf.as_os_str().to_str().unwrap());
     if let Err(err) = rs {
-        println!("Create Log root error path={} err={:?}", curr_path, err);
+        println!("Create Log root error path={curr_path} err={err:?}");
     }
     curr_path + "/mono_devtools.log"
 }
@@ -176,7 +176,7 @@ pub fn extract_tar_cmd(file_name: String) -> CmdDef {
         name: "tar".to_string(),
         args: Some(vec![
             "-zxvf".to_string(),
-            format!("{}/{}", third_party, file_name),
+            format!("{third_party}/{file_name}"),
             "-C".to_string(),
             third_party,
         ]),
@@ -192,7 +192,7 @@ pub fn mk_data_dir_cmd(count: usize) -> PipeDef {
     for i in 1..=count {
         mkdir_cmd_vec.push(CmdDef {
             name: "mkdir".to_string(),
-            args: Some(vec!["-p".to_string(), format!("{}/data_{}", data_dir, i)]),
+            args: Some(vec!["-p".to_string(), format!("{data_dir}/data_{i}")]),
             show_progress_type: None,
             payload: None,
         });
@@ -207,11 +207,11 @@ pub fn copy_data_dir_cmd(source_dir: String, dest_dir: Vec<String>) -> PipeDef {
     let data_dir = sub_dir.get("data").unwrap();
     let mut cp_cmd = vec![];
     for dest in dest_dir {
-        let absolute_dest_dir = format!("{}/{}", data_dir, dest);
+        let absolute_dest_dir = format!("{data_dir}/{dest}");
         let cp_cmd_vec = vec!["mysql", "sys", "test", "performance_schema"]
             .iter()
             .map(|schema| {
-                let source = format!("{}/{}/{}", data_dir, source_dir, schema);
+                let source = format!("{data_dir}/{source_dir}/{schema}");
                 CmdDef {
                     name: "cp".to_string(),
                     args: Some(vec!["-r".to_string(), source, absolute_dest_dir.clone()]),
@@ -227,7 +227,7 @@ pub fn copy_data_dir_cmd(source_dir: String, dest_dir: Vec<String>) -> PipeDef {
 
 pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
     let sys_dep_path = if let Some(path) = deps_path {
-        format!("{}/deps", path)
+        format!("{path}/deps")
     } else {
         format!(
             "{}/deps",
@@ -236,10 +236,7 @@ pub fn load_deps(deps_path: Option<String>) -> HashMap<String, Vec<String>> {
     };
     let read_dir_rs = std::fs::read_dir(Path::new(sys_dep_path.as_str()));
     if read_dir_rs.is_err() {
-        panic!(
-            "Load system deps failure. Please check if the path = {}",
-            sys_dep_path
-        );
+        panic!("Load system deps failure. Please check if the path = {sys_dep_path}",);
     }
     let read_dir = read_dir_rs.unwrap();
     read_dir
@@ -286,7 +283,7 @@ pub fn storage_service_running() -> bool {
         })
         .count()
         > 0;
-    println!("list java process {}", has_process);
+    println!("list java process {has_process}");
     if !has_process {
         false
     } else {
@@ -304,13 +301,13 @@ pub fn storage_service_running() -> bool {
                 show_progress_type: None,
                 payload: None,
             };
-            println!("Check cassandra status {}", node_tools);
+            println!("Check cassandra status {node_tools}");
             let mut has_un_status = false;
             let mut node_status_outpout = String::new();
             let status: CmdStatus<()> = cmd_process(node_tools, |stdout| {
-                node_status_outpout.push_str(format!("{}\n", stdout).as_str());
+                node_status_outpout.push_str(format!("{stdout}\n").as_str());
                 has_un_status = stdout.starts_with("UN");
-                println!("{}", stdout);
+                println!("{stdout}");
             });
             let mut has_host_name = false;
             if has_un_status {
@@ -324,7 +321,7 @@ pub fn storage_service_running() -> bool {
                     if line.starts_with("UN") {
                         let split_rs = line.split_whitespace().collect::<Vec<_>>();
                         has_host_name = split_rs.len() == 8;
-                        println!("{:?}", split_rs);
+                        println!("{split_rs:?}");
                     }
                 }
             }
@@ -371,14 +368,14 @@ pub fn start_storage_service_cmd(third_party_dir: Option<String>) -> CmdDef {
         format!(
             "{}/cassandra -f -R > {}/cassandra_start_{}.log 2>&1 &",
             bin_dir,
-            format_args!("{}/..", bin_dir),
+            format_args!("{bin_dir}/.."),
             in_ms
         )
     } else {
         format!(
             "{}/cassandra -f > {}/cassandra_start_{}.log 2>&1 &",
             bin_dir,
-            format_args!("{}/..", bin_dir),
+            format_args!("{bin_dir}/.."),
             in_ms
         )
     };

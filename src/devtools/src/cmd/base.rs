@@ -146,7 +146,7 @@ impl Display for CmdStatus<()> {
         } else {
             "".to_string()
         };
-        write!(f, "{}", format_args!("{} {}", prefix, output_string))
+        write!(f, "{}", format_args!("{prefix} {output_string}"))
     }
 }
 
@@ -172,7 +172,7 @@ pub fn default_stdout_process(stdout: &str, progress_bar: Option<ProgressBar>) {
     if let Some(pb) = progress_bar {
         pb.set_message(stdout.to_owned());
     } else {
-        println!("{}", stdout);
+        println!("{stdout}")
     }
 }
 
@@ -204,17 +204,16 @@ where
         };
         let write_status_to_log = writeln!(
             self.logger,
-            "command={}, \n{}\n,status={:?}",
-            cmd, runtime_log, cmd_status
+            "command={cmd}, \n{runtime_log}\n,status={cmd_status:?}",
         );
         if let Err(write_log_err) = write_status_to_log {
-            println!("write {:?} status to log error={:?}", cmd, write_log_err);
+            println!("write {cmd:?} status to log error={write_log_err:?}");
         }
         cmd_status
     }
 
     pub fn logging(&mut self, log: String) {
-        let _rs = writeln!(self.logger, "{}", log);
+        let _rs = writeln!(self.logger, "{log}");
     }
 
     pub fn run_and_record_context(&mut self, cmd: CmdEnum) -> Vec<(CmdDef, CmdStatus<()>)> {

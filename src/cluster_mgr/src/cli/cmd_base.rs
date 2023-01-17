@@ -1,6 +1,6 @@
 use crate::cli::cmd_printer::{CmdPrinter, Printable};
 use crate::cli::config::DeploymentConfig;
-use crate::cli::task::task_base::{CmdErr, TaskMgr};
+use crate::cli::task::task_base::{CmdErr, TaskId, TaskMgr};
 use crate::cli::CommandArgs;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
@@ -10,7 +10,10 @@ use crate::StateValue;
 use anyhow::anyhow;
 use itertools::Itertools;
 use owo_colors::OwoColorize;
+// use std::future::Future;
 use tracing::{error, info};
+
+// type SimpleCmdHandler = Box<dyn Fn() -> Box<dyn Future<Output = ()>> + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub struct CommandExecutor {
@@ -26,6 +29,7 @@ impl Default for CommandExecutor {
 
 impl CommandExecutor {
     pub fn new() -> Self {
+        println!("CommandExecutor init.");
         Self {
             task_mgr: TaskMgr::new(),
             state_mgr: STATE_MGR.clone(),
@@ -63,7 +67,7 @@ impl CommandExecutor {
         Ok(task_status_entity)
     }
 
-    pub async fn get_success_tasks(
+    async fn get_success_tasks(
         &self,
         cmd: CommandArgs,
     ) -> anyhow::Result<Option<Vec<TaskStatusEntity>>> {
@@ -90,7 +94,7 @@ impl CommandExecutor {
         }
     }
 
-    pub async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<DeploymentConfig> {
+    async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<Option<DeploymentConfig>> {
         match cmd.clone() {
             CommandArgs::Deploy { topology_file } => {
                 let config_rs = DeploymentConfig::load(Some(topology_file));
@@ -137,7 +141,7 @@ impl CommandExecutor {
                     })
                     .await?;
                 info!("CmdExecutor Save DeploymentConfig successfully.");
-                Ok(config)
+                Ok(Some(config))
             }
             CommandArgs::Install { cluster }
             | CommandArgs::Stop { cluster, force: _ }
@@ -164,11 +168,13 @@ impl CommandExecutor {
                 assert_eq!(entity.len(), 1);
                 let deployment_entity = entity.first().unwrap();
                 let config_content = deployment_entity.clone().deployment_config;
-                DeploymentConfig::load_from_string(config_content)
+                let config = DeploymentConfig::load_from_string(config_content)?;
+                Ok(Some(config))
             }
             CommandArgs::RunDeps { topology_file } => {
-                Ok(DeploymentConfig::load(Some(topology_file))?)
+                Ok(Some(DeploymentConfig::load(Some(topology_file))?))
             }
+            CommandArgs::Web { port: _ } => Ok(None),
         }
     }
 
@@ -201,6 +207,22 @@ impl CommandExecutor {
         Ok(())
     }
 
+    pub async fn all_tasks(&self, cmd: CommandArgs) -> Option<Vec<TaskId>> {
+        if cmd.is_parallel_cmd() {
+            None
+        } else {
+            let config = self.get_config(cmd.clone()).await.ok()?;
+            let success_task = self.get_success_tasks(cmd.clone()).await.ok()?;
+            let context_rs = self
+                .task_mgr
+                .task_context(cmd, &config.unwrap(), success_task);
+            assert!(context_rs.is_ok());
+            let context = context_rs.unwrap();
+            let task_ids = context.list_task_ids();
+            Some(task_ids)
+        }
+    }
+
     pub async fn run(&'static self, cmd: CommandArgs) -> anyhow::Result<()> {
         if !cmd.is_parallel_cmd() {
             self.simple_cmd_handle(cmd).await?;
@@ -212,7 +234,7 @@ impl CommandExecutor {
             });
             let rs = self
                 .task_mgr
-                .run_tasks(cmd.clone(), config, success_task_ids)
+                .run_tasks(cmd.clone(), config.unwrap(), success_task_ids)
                 .await?;
             join.await?;
             println!(r#"all tasks complete.task_size={}"#, rs.len());

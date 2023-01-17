@@ -22,7 +22,7 @@ pub(crate) static MONO_CLUSTER_MGR_SCHEMA_PATH: &str = "MONO_CLUSTER_MGR_SCHEMA_
 
 pub static STATE_MGR: LazyLock<StateMgr> = LazyLock::new(|| {
     futures::executor::block_on(async move {
-        let config_path = std::env::var(CONFIG_PATH_DIR);
+        let config_path = env::var(CONFIG_PATH_DIR);
         assert!(config_path.is_ok());
         let config_path_str = config_path.unwrap();
         info!("StateMgr init config_path={}", config_path_str);
@@ -142,7 +142,7 @@ impl StateMgr {
     pub async fn db_conn_pool_init(schema_path: String) -> Result<Pool<Sqlite>> {
         let db_path = StateMgr::get_or_init_db_location()?;
         let db_path_string = db_path.as_path().to_str().unwrap().to_string();
-        let db_url = format!("sqlite://{}/{}", db_path_string, CLUSTER_MGR_CLI_DB);
+        let db_url = format!("sqlite://{db_path_string}/{CLUSTER_MGR_CLI_DB}");
         StateMgr::create_schema_if_need(db_url.clone(), schema_path).await?;
         let connection_options = sqlx::sqlite::SqliteConnectOptions::from_str(db_url.as_str())?
             .create_if_missing(true)
@@ -224,12 +224,12 @@ mod tests {
     pub async fn test_db_init() {
         setup();
         let schema_path = schema_path();
-        println!("schema_path {:?}", schema_path);
+        println!("schema_path {schema_path:?}");
         std::env::set_var(MONO_CLUSTER_MGR_SCHEMA_PATH, schema_path.clone());
         let state_mgr = StateMgr::new(schema_path).await;
         assert!(state_mgr.is_ok());
         let all_tables = state_mgr.unwrap().list_tables().await;
-        println!("{:?}", all_tables);
+        println!("{all_tables:?}");
         assert_eq!(
             all_tables,
             vec![
@@ -245,7 +245,7 @@ mod tests {
     pub async fn test_state_load() {
         setup();
         let schema_path = schema_path();
-        println!("schema_path {:?}", schema_path);
+        println!("schema_path {schema_path:?}");
         std::env::set_var(MONO_CLUSTER_MGR_SCHEMA_PATH, schema_path.clone());
         let state_mgr_rs = StateMgr::new(schema_path).await;
         assert!(state_mgr_rs.is_ok());

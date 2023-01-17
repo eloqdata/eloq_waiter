@@ -24,7 +24,7 @@ impl MySQLProcess {
     }
 
     pub fn is_monograph_instance(&self, monograph_conf_list: &[String]) -> bool {
-        println!("MonographDB config lis = {:?}", monograph_conf_list);
+        println!("MonographDB config lis = {monograph_conf_list:?}");
         let exec_cmd = self
             .cmd
             .iter()
@@ -45,7 +45,7 @@ impl MySQLProcess {
                     .to_str()
                     .unwrap()
                     .to_string();
-                println!("current mysql process config file {}", file_name);
+                println!("current mysql process config file {file_name}");
                 if monograph_conf_list.contains(&file_name) {
                     return true;
                 }
@@ -121,7 +121,7 @@ impl CmdV2 for CheckMysqlStatus {
             ));
             mysql_process_vec.push(process_info);
         }
-        println!("found mysql process={:#?}", mysql_process_vec);
+        println!("found mysql process={mysql_process_vec:#?}");
         vec![(
             self.definition(),
             CmdStatus {

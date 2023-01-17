@@ -174,7 +174,7 @@ impl TaskGroup for DeploymentTaskGroup {
             .unpack_files_map()
             .keys()
             .into_iter()
-            .map(|key| format!("{}_unpack", key))
+            .map(|key| format!("{key}_unpack"))
             .collect_vec();
 
         let unpack_execution =
@@ -289,8 +289,7 @@ impl TaskGroup for InstallDBTaskGroup {
         // rm -rf cc_ng/ tx_log/
         let remote_install_dir = config.install_dir();
         let rm_log_data_cmd = format!(
-            "rm -rf {}/datafarm/cc_ng {}/datafarm/tx_log",
-            remote_install_dir, remote_install_dir
+            "rm -rf {remote_install_dir}/datafarm/cc_ng {remote_install_dir}/datafarm/tx_log",
         );
 
         let rm_log_data_task_instance = ExecCustomCommand::from_config(rm_log_data_cmd, &config);

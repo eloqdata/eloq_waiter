@@ -51,12 +51,12 @@ pub enum CommandArgs {
         #[arg(short = 'c', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
-    // #[strum(serialize = "web")]
-    // /// Start ClusterMgrCli's webservice on the specified port.
-    // Web {
-    //     #[arg(short, long, value_name = "WEB SERVICE PORT")]
-    //     port: i16,
-    // },
+    #[strum(serialize = "web")]
+    /// Start ClusterMgrCli's webservice on the specified port.
+    Web {
+        #[arg(short, long, value_name = "WEB SERVICE PORT")]
+        port: i16,
+    },
     #[strum(serialize = "start")]
     /// Start the MonographDB cluster with the specified cluster name.
     /// For example: ./cluster_mgr start  --cluster $CLUSTER_NAME
@@ -128,7 +128,7 @@ pub fn download_dir() -> PathBuf {
         let download_path_create_rs = std::fs::create_dir_all(download_path_buf.as_path());
         if let Err(create_err) = download_path_create_rs {
             error!("Create download path  {:?} error", download_path_buf);
-            panic!("Create download path Error cause by {:?} ", create_err);
+            panic!("Create download path Error cause by {create_err:?} ");
         }
         download_path_buf
     } else {
@@ -151,10 +151,9 @@ pub fn file_process_progress(
 ) -> ProgressBar {
     let cmd_pb = ProgressBar::new(total_size);
     let sty = format!(
-        "{{spinner:.green}} {:14}: [{{elapsed_precise}}] \
+        "{{spinner:.green}} {file_name:14}: [{{elapsed_precise}}] \
         [{{wide_bar:.green/white}}] \
         {{bytes}}/{{total_bytes}} ({{eta}})",
-        file_name
     );
     cmd_pb.set_style(
         ProgressStyle::default_spinner()

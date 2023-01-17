@@ -13,12 +13,12 @@ pub(crate) fn connect_mysqld_from_cli(
     let install_dir = sub_dirs.get("install").unwrap().clone();
     let sock_file = pick_up_mysql_sock(cnf);
     let set_pwd = if let Some(password) = pwd {
-        format!("--password='{}'", password)
+        format!("--password='{password}'")
     } else {
         "--password=''".to_string()
     };
     vec![
-        format!("{}/bin/mysql", install_dir),
+        format!("{install_dir}/bin/mysql"),
         "-u".to_string(),
         user,
         "-p".to_string(),
@@ -60,10 +60,7 @@ pub(crate) fn pick_up_mysql_sock(config_file: String) -> anyhow::Result<String> 
     let mut mysql_ini = configparser::ini::Ini::new();
     let load_config_rs = mysql_ini.load(config_file.as_str());
     if load_config_rs.is_err() {
-        println!(
-            "load config_file error. Please check whether the {}exists",
-            config_file
-        );
+        println!("load config_file error. Please check whether the {config_file} exists",);
         Err(anyhow!(load_config_rs.err().unwrap()))
     } else {
         Ok(mysql_ini.get("mariadb", "socket").unwrap())

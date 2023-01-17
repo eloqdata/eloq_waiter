@@ -322,18 +322,10 @@ impl TaskExecutor for UploadTask {
         // scp /xxx/local_file user@remote_host:remote_dir/file
         let scp_cmd = format!(
             // dir port, usr host remote_dir file_name
-            r#"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no {} {} -P {} {} {}@{}:{}/{}"#,
-            copy_dir,
-            scp_auth_key,
-            port,
-            source_path_str,
-            remote_user,
-            remote_host,
-            remote_install_dir,
-            dest_file_name
+            r#"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no {copy_dir} {scp_auth_key} -P {port} {source_path_str} {remote_user}@{remote_host}:{remote_install_dir}/{dest_file_name}"#,
         );
         info!("UploadTask cmd={}", scp_cmd);
-        let err_msg = format!("cmd={},source_path={}", scp_cmd, source_path_str);
+        let err_msg = format!("cmd={scp_cmd},source_path={source_path_str}");
         let task_rs = ssh_session.command(scp_cmd.as_str(), CollectOutput).await?;
         ssh_session.close().await?;
         task_return_value!(

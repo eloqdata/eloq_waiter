@@ -15,6 +15,7 @@ use strum_macros::AsRefStr;
 
 pub mod cli;
 pub mod state;
+pub mod web;
 
 #[macro_export]
 macro_rules! enum_into_trait {

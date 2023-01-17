@@ -1,7 +1,7 @@
 use crate::cli::cmd_printer::{CmdPrinter, Printable};
 use crate::cli::config::{load_remote_env, DeploymentConfig};
 use crate::cli::task::task_controller::TaskController;
-use crate::cli::task::task_group::TASK_GROUP;
+use crate::cli::task::task_group::{TaskExecutionContext, TASK_GROUP};
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::enum_into_trait;
 use crate::state::task_status_operation::TaskStatusEntity;
@@ -184,7 +184,7 @@ impl TaskId {
     }
 
     pub fn pretty_string(&self) -> ExpandedDisplay {
-        ExpandedDisplay::new(&[self.clone()])
+        ExpandedDisplay::new([self.clone()])
     }
 
     pub fn as_json_string(&self) -> String {
@@ -306,11 +306,23 @@ impl TaskMgr {
                     }
                 }
                 TaskResultEnum::Error(err_msg) => {
-                    let err_msg = format!(r#"task {} failed. cause by {}"#, task_id, err_msg);
+                    let err_msg = format!(r#"task {task_id} failed. cause by {err_msg}"#);
                     println!("{}", err_msg.red());
                 }
             }
         }
+    }
+
+    pub fn task_context(
+        &self,
+        cmd_args: CommandArgs,
+        config: &DeploymentConfig,
+        success_task: Option<Vec<TaskStatusEntity>>,
+    ) -> anyhow::Result<TaskExecutionContext> {
+        let group_key = cmd_args.as_ref();
+
+        let task_group = TASK_GROUP.get(group_key).unwrap();
+        task_group.tasks(cmd_args, config.clone(), success_task)
     }
 
     pub async fn run_tasks(
@@ -319,12 +331,7 @@ impl TaskMgr {
         config: DeploymentConfig,
         success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
-        let group_key = cmd_args.as_ref();
-
-        let task_group = TASK_GROUP.get(group_key).unwrap();
-        let tasks_execution = task_group
-            .tasks(cmd_args, config.clone(), success_task)
-            .unwrap();
+        let tasks_execution = self.task_context(cmd_args, &config, success_task)?;
 
         println!(
             "TaskMgr start current barrier={:?}",
