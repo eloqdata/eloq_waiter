@@ -41,13 +41,13 @@ impl CmdCli {
                     let cmd_status = runner.run(cmd.to_string()).await;
                     println!();
                     if cmd_status_ok(&cmd_status) {
-                        println!("Cmd ✅ {} Success.", cmd);
+                        println!("Cmd ✅ {cmd} Success.");
                     } else {
                         let failure_status = cmd_status
                             .iter()
                             .filter(|(_, status)| !status.success)
                             .collect::<Vec<_>>();
-                        println!("{:#?} ❗ {} Failure!!!", failure_status, cmd);
+                        println!("{failure_status:#?} ❗ {cmd} Failure!!!");
                     }
                     println!();
                 }

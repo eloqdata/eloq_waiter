@@ -43,7 +43,7 @@ impl UnpackFileTask {
                         };
                         let task_id = TaskId {
                             cmd: "deploy".to_string(),
-                            task: format!("{}_unpack", unpack_file),
+                            task: format!("{unpack_file}_unpack"),
                             host: remote_host,
                         };
                         (
@@ -91,21 +91,19 @@ impl TaskExecutor for UnpackFileTask {
             TaskArgValue::into_inner_value::<String>(task_input.get(REMOTE_TAR).unwrap().clone());
         let install_dir = self.config.install_dir();
         let unpack_pair = if remote_tar.contains("monograph") {
-            let target_dir = format!("{}/monographdb-release", install_dir);
+            let target_dir = format!("{install_dir}/monographdb-release");
             (
                 format!(
-                    r#"mkdir -p {}/monographdb-release && tar -zxvf {} -C {}"#,
-                    install_dir, remote_tar, target_dir
+                    r#"mkdir -p {install_dir}/monographdb-release && tar -zxvf {remote_tar} -C {target_dir}"#,
                 ),
                 target_dir,
             )
         } else {
             let extract_file_name = remote_tar.replace("-bin.tar.gz", "");
-            let target_dir = format!("{}/apache-cassandra", install_dir);
+            let target_dir = format!("{install_dir}/apache-cassandra");
             (
                 format!(
-                    r#"rm -rf {} > /dev/null; mkdir -p {} && tar -zxvf {} -C {}; mv {} {}"#,
-                    target_dir, install_dir, remote_tar, install_dir, extract_file_name, target_dir
+                    r#"rm -rf {target_dir} > /dev/null; mkdir -p {install_dir} && tar -zxvf {remote_tar} -C {install_dir}; mv {extract_file_name} {target_dir}"#,
                 ),
                 target_dir,
             )

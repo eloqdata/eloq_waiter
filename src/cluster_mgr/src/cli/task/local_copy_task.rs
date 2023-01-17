@@ -120,7 +120,7 @@ impl TaskExecutor for LocalCopyTask {
                 }
             }
 
-            let copy_cmd_str = format!("{} {}", cmd_str, args_str);
+            let copy_cmd_str = format!("{cmd_str} {args_str}");
             let status = copy_cmd.status()?;
 
             let mut copy_task_rs = HashMap::from([

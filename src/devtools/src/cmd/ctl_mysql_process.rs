@@ -111,9 +111,9 @@ impl CmdV2 for CtlMySQLProcess {
                     println!("cassandra is still unavailable. pleas check");
                     return vec![(self.definition(), CmdStatus::default())];
                 }
-                println!("use mysql config list = {:?}", mysql_cnf_list);
+                println!("use mysql config list = {mysql_cnf_list:?}");
                 for cnf in &mysql_cnf_list {
-                    println!("start mysql use default_file={}", cnf);
+                    println!("start mysql use default_file={cnf}");
                     let file_name = Path::new(cnf.as_str())
                         .file_name()
                         .unwrap()
@@ -142,7 +142,7 @@ impl CmdV2 for CtlMySQLProcess {
                         payload: None,
                     };
                     let status = context.cmd_run(cmd.clone(), |stdout, _| {
-                        println!("{}", stdout);
+                        println!("{stdout}");
                     });
                     vec_rs.push((cmd, status));
                 }
@@ -155,12 +155,12 @@ impl CmdV2 for CtlMySQLProcess {
                     if let Some(pro) = sys_process {
                         let kill_success = pro.kill();
                         kill_cmd_status.success = kill_success;
-                        println!("{:?} stop {}", process, kill_success);
+                        println!("{process:?} stop {kill_success}");
                     } else {
                         let output_msg =
-                            format!("{:?} not exit. Maybe the process has exited", process);
+                            format!("{process:?} not exit. Maybe the process has exited");
                         kill_cmd_status.output = Some(output_msg.clone());
-                        println!("{}", output_msg);
+                        println!("{output_msg}");
                     }
                     vec_rs.push((
                         CmdDef {

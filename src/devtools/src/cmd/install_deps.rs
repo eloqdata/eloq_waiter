@@ -12,7 +12,7 @@ impl InstallDeps {
         let mut install_dep_pipe = Vec::new();
         let platform = get_platform_info(None);
         let user_info = platform.clone().user;
-        println!("install_dep exec current user {:?}", user_info);
+        println!("install_dep exec current user {user_info:?}");
         let use_sudo = !user_info.is_root && user_info.has_sudo;
         for (cmd, status) in &check_dep_rs {
             if !status.success {
@@ -20,7 +20,7 @@ impl InstallDeps {
                 let dep_name = args.get(1).unwrap();
                 let install_dep =
                     install_deps_cmd(dep_name.to_string(), platform.clone(), use_sudo);
-                println!("Package {} not install {}", dep_name, install_dep);
+                println!("Package {dep_name} not install {install_dep}");
                 install_dep_pipe.push(install_dep);
             }
         }

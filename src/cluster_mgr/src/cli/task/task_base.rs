@@ -184,7 +184,7 @@ impl TaskId {
     }
 
     pub fn pretty_string(&self) -> ExpandedDisplay {
-        ExpandedDisplay::new(&[self.clone()])
+        ExpandedDisplay::new([self.clone()])
     }
 
     pub fn as_json_string(&self) -> String {
@@ -306,7 +306,7 @@ impl TaskMgr {
                     }
                 }
                 TaskResultEnum::Error(err_msg) => {
-                    let err_msg = format!(r#"task {} failed. cause by {}"#, task_id, err_msg);
+                    let err_msg = format!(r#"task {task_id} failed. cause by {err_msg}"#);
                     println!("{}", err_msg.red());
                 }
             }

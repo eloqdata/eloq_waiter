@@ -17,7 +17,7 @@ async fn main() {
     } else {
         Level::WARN
     };
-    println!("ClusterMgr Tracing Level = {:?}", level);
+    println!("ClusterMgr Tracing Level = {level:?}");
     let filter = EnvFilter::from_default_env()
         .add_directive("russh::client::encrypted=warn".parse().unwrap());
     tracing_subscriber::fmt()
