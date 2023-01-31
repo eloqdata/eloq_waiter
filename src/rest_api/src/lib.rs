@@ -1,14 +1,19 @@
+#![feature(async_closure)]
+#![feature(once_cell)]
+
 use actix_web::error;
 use anyhow::Error;
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::path::PathBuf;
 
 use derive_more::Error;
 use error::ResponseError;
 use serde_json::Value;
 
 pub mod server;
-mod web_handler;
+pub mod web_handler;
 
 pub(crate) static SUPPORT_CMD: [&str; 5] = ["deploy", "install", "start", "stop", "status"];
 
@@ -36,4 +41,20 @@ pub struct Response {
     code: usize,
     msg: Option<String>,
     data: Option<Value>,
+}
+
+#[derive(Parser, Default, Debug)]
+#[command(
+    author,
+    version = "1.0.0",
+    about = "MonographDB Cluster Manager REST API"
+)]
+#[command(next_line_help = true)]
+pub struct ServerCommandArgs {
+    #[arg(short, long, value_name = "config")]
+    pub config: PathBuf,
+    #[arg(short, long, value_name = "addr")]
+    pub addr: Option<String>,
+    #[arg(short, long, value_name = "port")]
+    pub port: Option<u16>,
 }

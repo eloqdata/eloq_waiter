@@ -639,8 +639,6 @@ dependencies = [
 name = "cluster_mgr"
 version = "0.1.0"
 dependencies = [
- "actix-server",
- "actix-web",
  "anyhow",
  "async-trait",
  "bytes",
@@ -649,7 +647,6 @@ dependencies = [
  "clap",
  "configparser",
  "crossbeam-channel",
- "derive_more",
  "dirs",
  "dyn-clone",
  "futures",
@@ -2391,6 +2388,24 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "winreg",
+]
+
+[[package]]
+name = "rest_api"
+version = "0.1.0"
+dependencies = [
+ "actix-server",
+ "actix-web",
+ "anyhow",
+ "clap",
+ "cluster_mgr",
+ "derive_more",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

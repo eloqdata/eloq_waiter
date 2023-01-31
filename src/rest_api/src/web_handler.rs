@@ -1,20 +1,18 @@
-use crate::cli::cmd_base::CommandExecutor;
-use crate::cli::config::DeploymentConfig;
-use crate::cli::task::task_base::TaskId;
-use crate::cli::CommandArgs;
-use crate::web::{Response, WebHandleError, SUPPORT_CMD};
+use crate::{Response, WebHandleError, SUPPORT_CMD};
 use actix_web::web::Json;
-use actix_web::{get, post, web, HttpResponse, Responder, Result};
+use actix_web::{get, post, web, HttpResponse, Responder};
 use anyhow::anyhow;
+use cluster_mgr::cli::cmd_base::CommandExecutor;
+use cluster_mgr::cli::config::DeploymentConfig;
+use cluster_mgr::cli::task::task_base::TaskId;
+use cluster_mgr::cli::CommandArgs;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tracing::info;
 
 #[get("/check_health")]
 pub async fn check_health() -> impl Responder {
-    HttpResponse::Ok()
-        .content_type("text/plain")
-        .body("I'm OK.")
+    HttpResponse::Ok().content_type("text/plain").body("ok")
 }
 
 fn validate_command(command: &str) -> Result<(), WebHandleError> {

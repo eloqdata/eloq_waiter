@@ -27,7 +27,7 @@ impl Default for CommandExecutor {
 
 impl CommandExecutor {
     pub fn new() -> Self {
-        println!("CommandExecutor init.");
+        info!("CommandExecutor init.");
         Self {
             task_mgr: TaskMgr::new(),
             state_mgr: Arc::new(STATE_MGR.clone()),

@@ -166,7 +166,6 @@ impl StateMgr {
     }
 
     pub async fn new(schema_path: String) -> Result<Self> {
-        info!("StateMgr init schema_path={}", schema_path);
         env::set_var(MONO_CLUSTER_MGR_SCHEMA_PATH, schema_path.clone());
         let db_conn_pool_rs = StateMgr::db_conn_pool_init(schema_path).await;
         if let Ok(db_conn_pool) = db_conn_pool_rs {
@@ -180,7 +179,7 @@ impl StateMgr {
                 (DEPLOYMENT_STATE.to_string(), Arc::new(deployment_opt_ref)),
                 (TASK_STATUS_STATE.to_string(), Arc::new(task_status_opt_ref)),
             ]);
-            info!("StateMgr init success.");
+            info!("Create StateMgr instance success.");
             Ok(Self {
                 state_map: Arc::new(state_map),
                 db_pool: db_conn_pool,

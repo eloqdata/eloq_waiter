@@ -5,8 +5,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-server = "2"
-actix-web = "4"
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
@@ -15,7 +13,6 @@ chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 configparser = { version = "3.0.2", features = ["indexmap"] }
 crossbeam-channel = "0.5"
-derive_more = "0.99"
 dirs = "4"
 dyn-clone = "1"
 futures = { version = "0.3", default-features = false, features = ["alloc", "thread-pool"] }
