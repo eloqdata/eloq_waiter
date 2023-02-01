@@ -12,8 +12,8 @@ use derive_more::Error;
 use error::ResponseError;
 use serde_json::Value;
 
+pub mod handler;
 pub mod server;
-pub mod web_handler;
 
 pub(crate) static SUPPORT_CMD: [&str; 5] = ["deploy", "install", "start", "stop", "status"];
 
