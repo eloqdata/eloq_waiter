@@ -1,9 +1,9 @@
 use clap::Parser;
 use cluster_mgr::cli::config::CONFIG_PATH_DIR;
-use cluster_mgr::cli::task::task_base::NOT_PRINT_TASK_RESULT;
 use rest_api::server::CliMgrHttpServer;
 use rest_api::ServerCommandArgs;
 use tracing::{info, Level};
+use cluster_mgr::cli::cmd_base::NOT_PRINT_TASK_RESULT;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

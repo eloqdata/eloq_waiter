@@ -23,7 +23,6 @@ use tracing::{error, info};
 use ExecutionValue as LastResult;
 
 pub type EnvProps = HashMap<String, String>;
-pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 pub(crate) static REMOTE_ENV_PROPS: LazyLock<anyhow::Result<EnvProps>> =
     LazyLock::new(|| load_remote_env(None));
 
@@ -283,9 +282,19 @@ impl TaskMgr {
 }
 
 impl TaskMgr {
-    pub async fn receive_task_result(&'static self) {
+    pub async fn recv_task_result<F, Fut>(&'static self, f: F)
+    where
+        F: Fn(TaskResultPair) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
         let mut result_reader = self.task_controller.clone().try_stream();
         while let Some(Ok(task_result_pair)) = result_reader.next().await {
+            f(task_result_pair).await;
+        }
+    }
+
+    pub async fn print_task_result(&'static self) {
+        self.recv_task_result(|task_result_pair| async {
             let task_id: String = task_result_pair.task_id;
             let result: TaskResultEnum = task_result_pair.result;
             match result {
@@ -324,7 +333,8 @@ impl TaskMgr {
                     error!("{}", err_msg.red());
                 }
             }
-        }
+        })
+        .await
     }
 
     pub fn task_context(

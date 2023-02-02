@@ -1,5 +1,5 @@
-use crate::server::{LongTaskRequestHandler, RequestPayload};
-use crate::{Response, WebHandleError, SUPPORT_CMD};
+use crate::long_task_handler::LongTaskRequestHandler;
+use crate::{RequestPayload, Response, WebHandleError, SUPPORT_CMD};
 use actix_web::web::Json;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use anyhow::anyhow;
@@ -91,16 +91,21 @@ pub async fn check_cmd_status(
 ) -> Result<impl Responder, WebHandleError> {
     let (cluster, command) = param.into_inner();
     validate_command(command.as_str())?;
+
     let cmd_executor = global_handler.get_command_executor();
-    let cluster_str = cluster.as_str();
-    let deployment_config_opt = cmd_executor.get_deployment_by_cluster(cluster_str).await?;
+    let deployment_config_opt = cmd_executor
+        .state_mgr()
+        .load_deployment_from_state(cluster.as_str())
+        .await?;
+    // cmd_executor.load_deployment_from_state(cluster_str).await?;
     if let Some(deployment_config) = deployment_config_opt {
-        let cmd_args = build_command_from_str(command.as_str(), Some(cluster_str.to_string()));
+        let cmd_args = build_command_from_str(command.as_str(), Some(cluster.clone()));
         let task_context = cmd_executor.task_context(cmd_args, deployment_config);
         let task_ids = task_context.list_task_ids();
         let cmd_vec = vec![task_context.task_group];
         let task_status_vec = cmd_executor
-            .get_task_status_by_condition(cluster, None, Some(cmd_vec))
+            .state_mgr()
+            .load_task_status_from_state(cluster, None, Some(cmd_vec))
             .await?;
         let mut success = Vec::new();
         let mut failure = Vec::new();

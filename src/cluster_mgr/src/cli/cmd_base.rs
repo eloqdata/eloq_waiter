@@ -4,13 +4,14 @@ use crate::cli::task::task_base::{CmdErr, TaskExecutionContext, TaskMgr};
 use crate::cli::CommandArgs;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
-use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR, TASK_STATUS_STATE};
-use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
+use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::anyhow;
 use owo_colors::OwoColorize;
 use std::sync::Arc;
 use tracing::{error, info};
+
+pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
 #[derive(Clone)]
 pub struct CommandExecutor {
@@ -33,83 +34,8 @@ impl CommandExecutor {
         }
     }
 
-    pub async fn get_deployment_by_cluster(
-        &self,
-        cluster: &str,
-    ) -> anyhow::Result<Option<DeploymentConfig>> {
-        let deployment_state = self
-            .state_mgr
-            .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-        let deployment_entity_vec = deployment_state
-            .load(|| -> Option<QueryCondition> {
-                Some(QueryCondition {
-                    cond_text: "cluster_name = $1".to_string(),
-                    bind_values: vec![StateValue::Varchar(cluster.to_string())],
-                })
-            })
-            .await?;
-
-        if let Some(deployment_entity) = deployment_entity_vec.first() {
-            let config_content = &deployment_entity.deployment_config;
-            let config = DeploymentConfig::load_from_string(config_content.to_string())?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn get_task_status_by_condition(
-        &self,
-        cluster_name: String,
-        status: Option<i32>,
-        command: Option<Vec<String>>,
-    ) -> anyhow::Result<Vec<TaskStatusEntity>> {
-        let task_state_operation = self
-            .state_mgr
-            .get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE);
-
-        let mut bind_index = 1;
-        let mut cond_text = format!("cluster_name=${bind_index} ");
-        let mut bind_values = vec![StateValue::Varchar(cluster_name.clone())];
-
-        if let Some(task_status) = status {
-            bind_index += 1;
-            cond_text.push_str(format!(" and task_status=${bind_index}").as_str());
-            bind_values.push(StateValue::Integer(task_status))
-        }
-        if let Some(cmd_vec) = command {
-            cond_text.push_str(" and command in (");
-            let cmd_len = cmd_vec.len();
-            cmd_vec.iter().enumerate().for_each(|(idx, cmd)| {
-                bind_index += 1;
-                cond_text.push_str(format!("${bind_index}").as_str());
-                if idx < cmd_len - 1 {
-                    cond_text.push(',');
-                }
-                bind_values.push(StateValue::Varchar(cmd.to_string()))
-            });
-            cond_text.push(')');
-        }
-        let task_status_entity = task_state_operation
-            .load(|| -> Option<QueryCondition> {
-                Some(QueryCondition {
-                    cond_text: cond_text.clone(),
-                    bind_values: bind_values.clone(),
-                })
-            })
-            .await?;
-        Ok(task_status_entity)
-    }
-
-    async fn get_success_tasks(
-        &self,
-        cmd_str: String,
-        cluster: String,
-    ) -> anyhow::Result<Option<Vec<TaskStatusEntity>>> {
-        let tasks_status = self
-            .get_task_status_by_condition(cluster, Some(0), Some(vec![cmd_str]))
-            .await?;
-        Ok(Some(tasks_status))
+    pub fn state_mgr(&self) -> &Arc<StateMgr> {
+        &self.state_mgr
     }
 
     async fn save_deployment_config(&self, config: &DeploymentConfig) -> anyhow::Result<()> {
@@ -171,7 +97,8 @@ impl CommandExecutor {
                 cluster,
             } => {
                 let config = self
-                    .get_deployment_by_cluster(cluster.as_str())
+                    .state_mgr
+                    .load_deployment_from_state(cluster.as_str()) //load_deployment_from_state(cluster.as_str())
                     .await?
                     .unwrap();
                 Ok(Some(config))
@@ -182,13 +109,14 @@ impl CommandExecutor {
         }
     }
 
-    async fn simple_cmd_handle(&self, cmd: CommandArgs) -> anyhow::Result<()> {
+    async fn run_simple_cmd(&self, cmd: CommandArgs) -> anyhow::Result<()> {
         if let CommandArgs::TaskStatus {
             cluster: cluster_value,
         } = cmd
         {
             let task_status = self
-                .get_task_status_by_condition(cluster_value.to_string(), None, None)
+                .state_mgr
+                .load_task_status_from_state(cluster_value.to_string(), None, None)
                 .await?;
             let cmd_printer = CmdPrinter::new();
             task_status.iter().for_each(|status| {
@@ -216,7 +144,6 @@ impl CommandExecutor {
         let context_rs = self.task_mgr.task_context(cmd, &config, None);
         assert!(context_rs.is_ok());
         context_rs.unwrap()
-        //context.list_task_ids()
     }
 
     pub async fn run(
@@ -225,7 +152,7 @@ impl CommandExecutor {
         deployment_config: Option<DeploymentConfig>,
     ) -> anyhow::Result<()> {
         if !cmd.is_parallel_cmd() {
-            self.simple_cmd_handle(cmd).await?;
+            self.run_simple_cmd(cmd).await?;
         } else {
             let config = match deployment_config {
                 Some(config) => {
@@ -235,17 +162,27 @@ impl CommandExecutor {
                 None => self.get_config(cmd.clone()).await?.unwrap(),
             };
             let cluster = &config.deployment.cluster_name;
+
             let success_task_ids = self
-                .get_success_tasks(cmd.as_ref().to_string(), cluster.clone())
+                .state_mgr
+                .load_task_status_from_state(
+                    cluster.clone(),
+                    Some(0),
+                    Some(vec![cmd.as_ref().to_string()]),
+                )
                 .await?;
-            let join = tokio::task::spawn(async move {
-                self.task_mgr.receive_task_result().await;
+
+            let recv_rs_and_print_join = tokio::task::spawn(async move {
+                let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
+                if not_print_task_rs.is_none() {
+                    self.task_mgr.print_task_result().await;
+                }
             });
             let rs = self
                 .task_mgr
-                .run_tasks(cmd, config, success_task_ids)
+                .run_tasks(cmd, config, Some(success_task_ids))
                 .await?;
-            join.await?;
+            recv_rs_and_print_join.await?;
             println!(r#"all tasks complete.task_size={}"#, rs.len());
         }
         Ok(())

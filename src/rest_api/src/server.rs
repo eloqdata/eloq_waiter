@@ -1,12 +1,11 @@
 use crate::handler::{check_cmd_status, check_health, ctl_cluster, deploy_cluster};
+use crate::listen_exit_signal;
+use crate::long_task_handler::LongTaskRequestHandler;
 use actix_server::Server;
 use actix_web::{middleware, web, App, HttpServer};
 use cluster_mgr::cli::cmd_base::CommandExecutor;
-use cluster_mgr::cli::config::{DeploymentConfig, CONFIG_PATH_DIR};
-use cluster_mgr::cli::CommandArgs;
+use cluster_mgr::cli::config::CONFIG_PATH_DIR;
 use std::env;
-use std::sync::Arc;
-use tokio::signal::unix::{signal, SignalKind};
 use tracing::info;
 
 macro_rules! server_listen_addr {
@@ -17,100 +16,6 @@ macro_rules! server_listen_addr {
             $default
         }
     }};
-}
-
-async fn listen_exit_signal<F, Fut, T>(t: T, call_back: F)
-where
-    T: Send + 'static,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = ()> + Send + 'static,
-{
-    let mut interrupt = signal(SignalKind::interrupt()).unwrap();
-    let mut terminate = signal(SignalKind::terminate()).unwrap();
-    tokio::select! {
-        _ = interrupt.recv() => {
-           info!("Recv interrupt.");
-           call_back(t).await;
-        }
-        _ = terminate.recv() => {
-           info!("Recv terminate.");
-           call_back(t).await;
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RequestPayload {
-    pub command: Option<CommandArgs>,
-    pub config: Option<DeploymentConfig>,
-}
-
-#[derive(Clone)]
-pub struct LongTaskRequestHandler {
-    cmd_executor: Arc<CommandExecutor>,
-    tx: crossbeam_channel::Sender<RequestPayload>,
-    rx: crossbeam_channel::Receiver<RequestPayload>,
-}
-
-impl LongTaskRequestHandler {
-    pub async fn new(cmd_executor: CommandExecutor) -> Self {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let handler = LongTaskRequestHandler {
-            cmd_executor: Arc::new(cmd_executor),
-            tx,
-            rx,
-        };
-        let handler_arc = Arc::new(handler.clone());
-        let handler_clone = Arc::clone(&handler_arc);
-        tokio::spawn(async move {
-            listen_exit_signal(handler_clone, |handler_clone| async move {
-                handler_clone.close()
-            })
-            .await;
-        });
-        tokio::spawn(async move {
-            let _ = handler_arc.handle().await;
-        });
-        handler
-    }
-
-    pub fn get_command_executor(&self) -> &CommandExecutor {
-        self.cmd_executor.as_ref()
-    }
-
-    fn close(&self) {
-        info!("LongTaskRequestHandler will exit.");
-        self.tx
-            .send(RequestPayload {
-                command: None,
-                config: None,
-            })
-            .unwrap();
-    }
-
-    pub fn submit(&self, payload: RequestPayload) {
-        self.tx.send(payload).unwrap();
-    }
-
-    pub async fn handle(&self) -> anyhow::Result<()> {
-        let cmd_executor = Box::leak(Box::new(self.cmd_executor.clone()));
-        while let Ok(payload) = self.rx.recv() {
-            let cmd_opt = payload.command;
-            if cmd_opt.is_none() {
-                break;
-            }
-            let cmd = cmd_opt.unwrap();
-            info!("Global handler process command={}", cmd.as_ref());
-            match cmd.as_ref() {
-                "deploy" => {
-                    let config = payload.config.unwrap();
-                    cmd_executor.run(cmd, Some(config)).await?
-                }
-                _ => cmd_executor.run(cmd, None).await?,
-            }
-        }
-        Ok(())
-    }
 }
 
 pub struct CliMgrHttpServer {}
