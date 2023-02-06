@@ -4,16 +4,16 @@ use std::sync::Arc;
 use tracing::info;
 
 #[derive(Clone)]
-pub struct LongTaskRequestHandler {
+pub struct GlobalCommandHandler {
     cmd_executor: Arc<CommandExecutor>,
     tx: crossbeam_channel::Sender<RequestPayload>,
     rx: crossbeam_channel::Receiver<RequestPayload>,
 }
 
-impl LongTaskRequestHandler {
+impl GlobalCommandHandler {
     pub async fn new(cmd_executor: CommandExecutor) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
-        let handler = LongTaskRequestHandler {
+        let handler = GlobalCommandHandler {
             cmd_executor: Arc::new(cmd_executor),
             tx,
             rx,
@@ -37,7 +37,7 @@ impl LongTaskRequestHandler {
     }
 
     fn close(&self) {
-        info!("LongTaskRequestHandler will exit.");
+        info!("GlobalCommandHandler will exit.");
         self.tx
             .send(RequestPayload {
                 command: None,

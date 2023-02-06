@@ -8,11 +8,12 @@ use crate::cli::task::task_base::{
 use crate::cli::task::task_utils::{
     check_process_pid, ctl_action_wait_complete, ctl_cmd, PROCESS_PID,
 };
-use crate::cli::CommandArgs;
+use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::{get_ctl_cmd_string, task_return_value};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
+use sqlx::{Connection, Executor, Row};
 use std::collections::HashMap;
 use strum_macros::AsRefStr;
 use tracing::{error, info};
@@ -81,6 +82,83 @@ macro_rules! monograph_ctl {
     }};
 }
 
+pub(crate) static MONO_DB_USER: &str = "mono_user";
+pub(crate) static MONO_DB_PWD: &str = "mono_pwd";
+
+#[derive(Clone, Debug)]
+pub struct MonographDetector {
+    host: String,
+    mysql_port: u16,
+    user: String,
+    password: String,
+}
+
+impl MonographDetector {
+    pub fn new(host: String, mysql_port: u16, user: String, password: String) -> Self {
+        Self {
+            host,
+            mysql_port,
+            user,
+            password,
+        }
+    }
+
+    pub async fn detect(&self) -> anyhow::Result<ExecutionValue> {
+        let user = &self.user;
+        let pwd = &self.password;
+        let host = &self.host;
+        let port = self.mysql_port;
+        let mysql_conn_url = format!("mysql://{user}:{pwd}@{host}:{port}/test");
+        let mono_conn_rs = sqlx::mysql::MySqlConnection::connect(mysql_conn_url.as_str()).await;
+        if let Err(mono_conn_err) = mono_conn_rs {
+            error!(
+                "established database connection failure url={},err_msg={:?}",
+                mysql_conn_url, mono_conn_err
+            );
+            return Ok(HashMap::from([
+                (CMD.to_string(), TaskArgValue::Str(mysql_conn_url)),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX)),
+                (
+                    CMD_OUTPUT.to_string(),
+                    TaskArgValue::Str(mono_conn_err.to_string()),
+                ),
+            ]));
+        }
+        let mut mono_conn = mono_conn_rs.unwrap();
+        let query_cmd = "select date_format(now(), '%Y-%m-%d %T') as now_date";
+        info!(
+            "MonographDetector established database connection successfully user={},host={}",
+            user, pwd
+        );
+        let query_rs = mono_conn.fetch_one(query_cmd).await;
+        let result = if let Ok(row) = query_rs {
+            let now_date: String = row.get(0);
+            info!("MonographDB status is normal {}", now_date);
+            Ok(now_date)
+        } else {
+            let err_msg = query_rs.err().unwrap().to_string();
+            error!(
+                "Cannot connect to MonographDB on {}, err_msg={}",
+                host, err_msg
+            );
+            Err(anyhow!(err_msg))
+        };
+        mono_conn.close().await?;
+        match result {
+            Ok(now_date) => Ok(HashMap::from([
+                (CMD.to_string(), TaskArgValue::Str(query_cmd.to_string())),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
+                (CMD_OUTPUT.to_string(), TaskArgValue::Str(now_date)),
+            ])),
+            Err(err) => Ok(HashMap::from([
+                (CMD.to_string(), TaskArgValue::Str(query_cmd.to_string())),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX)),
+                (CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string())),
+            ])),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MonographCtlTask {
     config: DeploymentConfig,
@@ -98,12 +176,27 @@ impl MonographCtlTask {
         let remote_install_dir = config.install_dir();
         let mono_hosts = config.get_host_list(DeploymentService::Monograph);
 
-        let is_force_stop = match cmd_arg {
+        let mut db_user = "_NONE".to_string();
+        let mut db_pwd = "_NONE".to_string();
+        let mut is_force_stop = false;
+        match cmd_arg.clone() {
             CommandArgs::Stop {
                 cluster: _,
                 ref force,
-            } => force.is_some() && force.as_ref().unwrap().as_str() == "true",
-            _ => false,
+            } => is_force_stop = force.is_some() && force.as_ref().unwrap().as_str() == "true",
+            CommandArgs::Status {
+                cluster: _,
+                user,
+                password,
+            } => {
+                if let Some(user_val) = user {
+                    db_user = user_val;
+                }
+                if let Some(password_val) = password {
+                    db_pwd = password_val;
+                }
+            }
+            _ => {}
         };
         let cmd_str_ref = cmd_arg.as_ref();
         mono_hosts
@@ -114,29 +207,41 @@ impl MonographCtlTask {
                     task: format!("monographdb-{cmd_str_ref}"),
                     host: host.to_string(),
                 };
-
-                let ctl_cmd = match cmd_str_ref {
-                    "start" => {
-                        monograph_cmd!(MonographCtlCmd::Start, remote_install_dir, host.clone())
-                    }
-                    "status" => {
-                        monograph_cmd!(MonographCtlCmd::Status, remote_install_dir)
-                    }
+                let cmd_task_input_tuple = match cmd_str_ref {
+                    "start" => (
+                        monograph_cmd!(MonographCtlCmd::Start, remote_install_dir, host.clone()),
+                        HashMap::default(),
+                    ),
+                    "status" => (
+                        monograph_cmd!(MonographCtlCmd::Status, remote_install_dir),
+                        HashMap::from([
+                            (MONO_DB_USER.to_string(), TaskArgValue::Str(db_user.clone())),
+                            (MONO_DB_PWD.to_string(), TaskArgValue::Str(db_pwd.clone())),
+                        ]),
+                    ),
                     "stop" => {
                         if is_force_stop {
-                            monograph_cmd!(MonographCtlCmd::ForceStop, remote_install_dir)
+                            (
+                                monograph_cmd!(MonographCtlCmd::ForceStop, remote_install_dir),
+                                HashMap::default(),
+                            )
                         } else {
-                            monograph_cmd!(MonographCtlCmd::Stop, remote_install_dir)
+                            (
+                                monograph_cmd!(MonographCtlCmd::Stop, remote_install_dir),
+                                HashMap::default(),
+                            )
                         }
                     }
                     _ => {
                         unreachable!()
                     }
                 };
+                let ctl_cmd = cmd_task_input_tuple.0;
+                let task_input = cmd_task_input_tuple.1;
                 (
                     task_id.clone(),
                     TaskInstance {
-                        task_input: HashMap::default(),
+                        task_input,
                         task: Box::new(MonographCtlTask::new(config.clone(), task_id, ctl_cmd)),
                         task_host: TaskHost::Remote {
                             user: conn_user.clone(),
@@ -172,7 +277,6 @@ impl MonographCtlTask {
                     continue;
                 }
                 let parse_rs = line_normal.parse::<i32>().unwrap();
-                info!("MonographCtlTask found MonographDB PID={:?}", parse_rs);
                 pid = Some(parse_rs);
                 break;
             }
@@ -202,22 +306,35 @@ impl TaskExecutor for MonographCtlTask {
     async fn execute(
         &self,
         task_host: TaskHost,
-        _task_arg: HashMap<String, TaskArgValue>,
+        task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         println!("{} execute.\n", self.task_id.pretty_string());
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let remote_install_dir = self.config.install_dir();
+        let (host_value, _) = ssh_session.ssh_conn_info();
+
         let check_status_cmd =
             monograph_cmd!(MonographCtlCmd::Status, remote_install_dir).cmd_value();
         let check_process_status = self.monograph_pid(ssh_session.clone()).await;
         let ctl_cmd_ref = self.ctl_cmd.as_ref();
         let mono_ctl_rs = match ctl_cmd_ref {
             "status" => {
-                monograph_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
-                    self.monograph_pid(ssh_session.clone()).await
-                })
+                let db_user = TaskArgValue::into_inner_value::<String>(
+                    task_arg.get(MONO_DB_USER).unwrap().clone(),
+                );
+                let db_pwd = TaskArgValue::into_inner_value::<String>(
+                    task_arg.get(MONO_DB_PWD).unwrap().clone(),
+                );
+                let mysql_port = self.config.deployment.port.mysql_port;
+                if !db_user.eq("_NONE") && db_pwd.eq("_NONE") {
+                    let db_detector =
+                        MonographDetector::new(host_value, mysql_port, db_user, db_pwd);
+                    db_detector.detect().await
+                } else {
+                    check_process_status
+                }
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();

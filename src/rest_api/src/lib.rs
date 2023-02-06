@@ -16,12 +16,15 @@ use serde_json::Value;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::info;
 
-mod cluster_probe;
+mod global_handler;
 pub mod handler;
-mod long_task_handler;
 pub mod server;
 
-pub(crate) static SUPPORT_CMD: [&str; 5] = ["deploy", "install", "start", "stop", "status"];
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MonographConnInfo {
+    pub user: String,
+    pub password: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct RequestPayload {
@@ -49,7 +52,7 @@ impl From<Error> for WebHandleError {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Response {
+pub struct ResponseData {
     code: usize,
     msg: Option<String>,
     data: Option<Value>,

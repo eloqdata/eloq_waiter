@@ -1,6 +1,8 @@
-use crate::handler::{check_cmd_status, check_health, ctl_cluster, deploy_cluster};
+use crate::global_handler::GlobalCommandHandler;
+use crate::handler::{
+    check_cmd_status, check_health, ctl_cluster, deploy_cluster, mono_service_status,
+};
 use crate::listen_exit_signal;
-use crate::long_task_handler::LongTaskRequestHandler;
 use actix_server::Server;
 use actix_web::{middleware, web, App, HttpServer};
 use cluster_mgr::cli::cmd_base::CommandExecutor;
@@ -52,7 +54,7 @@ impl CliMgrHttpServer {
         let listen_addr = server_listen_addr!(addr, "127.0.0.1".to_string());
         let listen_port = server_listen_addr!(port, 8090);
         env::set_var(CONFIG_PATH_DIR, config_path);
-        let handler = LongTaskRequestHandler::new(CommandExecutor::new()).await;
+        let handler = GlobalCommandHandler::new(CommandExecutor::new()).await;
         let global_handler = web::Data::new(handler);
         let server = HttpServer::new(move || {
             App::new()
@@ -62,6 +64,7 @@ impl CliMgrHttpServer {
                 .service(check_cmd_status)
                 .service(deploy_cluster)
                 .service(ctl_cluster)
+                .service(mono_service_status)
                 .service(web::resource("/").route(
                     web::get().to(|| async { "Hey man. I'm MonographDB cluster RESTful Service." }),
                 ))

@@ -5,6 +5,7 @@ use crate::state::state_base::{QueryCondition, StateOperation, StateOperationAny
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
 use crate::StateValue;
 use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Pool, QueryBuilder, Sqlite, SqlitePool};
@@ -111,6 +112,26 @@ impl StateMgr {
             })
             .await?;
         Ok(task_status_entity)
+    }
+
+    pub async fn load_deployment_list_from_state(&self) -> Result<Option<Vec<DeploymentConfig>>> {
+        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
+        let deployment_entity_vec = deployment_state
+            .load(|| -> Option<QueryCondition> { None })
+            .await?;
+        if deployment_entity_vec.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                deployment_entity_vec
+                    .iter()
+                    .map(|deployment| {
+                        let config_string = &deployment.deployment_config;
+                        DeploymentConfig::load_from_string(config_string.to_string()).unwrap()
+                    })
+                    .collect_vec(),
+            ))
+        }
     }
 
     pub async fn load_deployment_from_state(

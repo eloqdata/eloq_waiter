@@ -1,4 +1,3 @@
-use crate::cli::cmd_printer::{CmdPrinter, Printable};
 use crate::cli::config::DeploymentConfig;
 use crate::cli::task::task_base::{CmdErr, TaskExecutionContext, TaskMgr};
 use crate::cli::CommandArgs;
@@ -7,7 +6,6 @@ use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::anyhow;
-use owo_colors::OwoColorize;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -15,7 +13,7 @@ pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
 #[derive(Clone)]
 pub struct CommandExecutor {
-    task_mgr: TaskMgr,
+    task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
 }
 
@@ -29,9 +27,13 @@ impl CommandExecutor {
     pub fn new() -> Self {
         info!("CommandExecutor init.");
         Self {
-            task_mgr: TaskMgr::new(),
+            task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
         }
+    }
+
+    pub fn task_mgr(&self) -> &Arc<TaskMgr> {
+        &self.task_mgr
     }
 
     pub fn state_mgr(&self) -> &Arc<StateMgr> {
@@ -90,8 +92,11 @@ impl CommandExecutor {
             | CommandArgs::Stop { cluster, force: _ }
             | CommandArgs::Start { cluster }
             | CommandArgs::Restart { cluster }
-            | CommandArgs::Status { cluster }
-            | CommandArgs::TaskStatus { cluster }
+            | CommandArgs::Status {
+                cluster,
+                user: _,
+                password: _,
+            }
             | CommandArgs::Exec {
                 command: _,
                 cluster,
@@ -109,38 +114,7 @@ impl CommandExecutor {
         }
     }
 
-    async fn run_simple_cmd(&self, cmd: CommandArgs) -> anyhow::Result<()> {
-        if let CommandArgs::TaskStatus {
-            cluster: cluster_value,
-        } = cmd
-        {
-            let task_status = self
-                .state_mgr
-                .load_task_status_from_state(cluster_value.to_string(), None, None)
-                .await?;
-            let cmd_printer = CmdPrinter::new();
-            task_status.iter().for_each(|status| {
-                let task = status.clone().task;
-                cmd_printer.add_row(task, status, |task, status| -> Printable {
-                    Printable {
-                        task_id: task,
-                        cmd: status.clone().command,
-                        cmd_status: if status.task_status == 0 {
-                            "Success".green().to_string()
-                        } else {
-                            "Failure".red().to_string()
-                        },
-                        cmd_output: "".to_string(),
-                    }
-                })
-            });
-            cmd_printer.table_print();
-        }
-        Ok(())
-    }
-
     pub fn task_context(&self, cmd: CommandArgs, config: DeploymentConfig) -> TaskExecutionContext {
-        assert!(cmd.is_parallel_cmd());
         let context_rs = self.task_mgr.task_context(cmd, &config, None);
         assert!(context_rs.is_ok());
         context_rs.unwrap()
@@ -151,40 +125,36 @@ impl CommandExecutor {
         cmd: CommandArgs,
         deployment_config: Option<DeploymentConfig>,
     ) -> anyhow::Result<()> {
-        if !cmd.is_parallel_cmd() {
-            self.run_simple_cmd(cmd).await?;
-        } else {
-            let config = match deployment_config {
-                Some(config) => {
-                    self.save_deployment_config(&config).await?;
-                    config
-                }
-                None => self.get_config(cmd.clone()).await?.unwrap(),
-            };
-            let cluster = &config.deployment.cluster_name;
+        let config = match deployment_config {
+            Some(config) => {
+                self.save_deployment_config(&config).await?;
+                config
+            }
+            None => self.get_config(cmd.clone()).await?.unwrap(),
+        };
+        let cluster = &config.deployment.cluster_name;
 
-            let success_task_ids = self
-                .state_mgr
-                .load_task_status_from_state(
-                    cluster.clone(),
-                    Some(0),
-                    Some(vec![cmd.as_ref().to_string()]),
-                )
-                .await?;
+        let success_task_ids = self
+            .state_mgr
+            .load_task_status_from_state(
+                cluster.clone(),
+                Some(0),
+                Some(vec![cmd.as_ref().to_string()]),
+            )
+            .await?;
 
-            let recv_rs_and_print_join = tokio::task::spawn(async move {
-                let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
-                if not_print_task_rs.is_none() {
-                    self.task_mgr.print_task_result().await;
-                }
-            });
-            let rs = self
-                .task_mgr
-                .run_tasks(cmd, config, Some(success_task_ids))
-                .await?;
-            recv_rs_and_print_join.await?;
-            println!(r#"all tasks complete.task_size={}"#, rs.len());
-        }
+        let recv_rs_and_print_join = tokio::task::spawn(async move {
+            let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
+            if not_print_task_rs.is_none() {
+                self.task_mgr.print_task_result().await;
+            }
+        });
+        let rs = self
+            .task_mgr
+            .run_tasks(cmd, config, Some(success_task_ids))
+            .await?;
+        recv_rs_and_print_join.await?;
+        println!(r#"all tasks complete.task_size={}"#, rs.len());
         Ok(())
     }
 }
