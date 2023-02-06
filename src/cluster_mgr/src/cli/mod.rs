@@ -84,10 +84,14 @@ pub enum CommandArgs {
     },
     #[strum(serialize = "status")]
     /// Check MonographDB cluster status.
-    /// For example: ./cluster_mgr status -cluster $CLUSTER_NAME
+    /// For example: ./cluster_mgr status --cluster $CLUSTER_NAME --user $DB_USER --password $DB_PASSWORD
     Status {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
+        #[arg(short, long, value_name = "MonographDB user")]
+        user: Option<String>,
+        #[arg(short, long, value_name = "MonographDB password")]
+        password: Option<String>,
     },
     #[strum(serialize = "run-deps")]
     /// Install MonographDB runtime dependencies.
@@ -96,19 +100,6 @@ pub enum CommandArgs {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },
-    /// List task execution status.
-    /// For example ./cluster_mgr task-status --cluster $CLUSTER_NAME
-    #[strum(serialize = "task_status")]
-    TaskStatus {
-        #[arg(short, long, value_name = "CLUSTER NAME")]
-        cluster: String,
-    },
-}
-
-impl CommandArgs {
-    pub fn is_parallel_cmd(&self) -> bool {
-        !matches!(self, CommandArgs::TaskStatus { cluster: _ })
-    }
 }
 
 pub fn download_dir() -> PathBuf {

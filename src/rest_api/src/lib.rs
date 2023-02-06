@@ -8,14 +8,29 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
+use cluster_mgr::cli::config::DeploymentConfig;
+use cluster_mgr::cli::CommandArgs;
 use derive_more::Error;
 use error::ResponseError;
 use serde_json::Value;
+use tokio::signal::unix::{signal, SignalKind};
+use tracing::info;
 
+mod global_handler;
 pub mod handler;
 pub mod server;
 
-pub(crate) static SUPPORT_CMD: [&str; 5] = ["deploy", "install", "start", "stop", "status"];
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MonographConnInfo {
+    pub user: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RequestPayload {
+    pub command: Option<CommandArgs>,
+    pub config: Option<DeploymentConfig>,
+}
 
 #[derive(Debug, Error)]
 pub struct WebHandleError {
@@ -37,7 +52,7 @@ impl From<Error> for WebHandleError {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Response {
+pub struct ResponseData {
     code: usize,
     msg: Option<String>,
     data: Option<Value>,
@@ -57,4 +72,24 @@ pub struct ServerCommandArgs {
     pub addr: Option<String>,
     #[arg(short, long, value_name = "port")]
     pub port: Option<u16>,
+}
+
+pub(crate) async fn listen_exit_signal<F, Fut, T>(t: T, call_back: F)
+where
+    T: Send + 'static,
+    F: Fn(T) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let mut interrupt = signal(SignalKind::interrupt()).unwrap();
+    let mut terminate = signal(SignalKind::terminate()).unwrap();
+    tokio::select! {
+        _ = interrupt.recv() => {
+           info!("Recv interrupt.");
+           call_back(t).await;
+        }
+        _ = terminate.recv() => {
+           info!("Recv terminate.");
+           call_back(t).await;
+        }
+    }
 }

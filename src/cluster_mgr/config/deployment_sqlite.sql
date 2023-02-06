@@ -19,14 +19,14 @@ create table if not exists t_task_status (
 );
 create table if not exists t_service_instance
 (
-    service_instance_id integer      not null primary key AUTOINCREMENT,
     cluster_name        varchar(200) not null,
     service_name        varchar(60)  not null,
-    service_status      integer      not null, -- 0:available,1:unavailable,2:stop,3:not-running,
+    service_status      integer      not null, -- 0:available,1:unavailable,2:not exists,
     current_config      integer,
     host                varchar(100) not null,
     create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
-    update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP
+    update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    primary key (cluster_name, service_name)
 );
 create table if not exists t_service_config
 (

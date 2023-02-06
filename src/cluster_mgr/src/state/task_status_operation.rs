@@ -8,7 +8,7 @@ pub(crate) const TASK_STATUS_SELECT: &str = r#"select cluster_name,task,command,
 
 pub(crate) const TASK_STATUS_UPSERT: [&str; 2] = [
     r#"insert into t_task_status(cluster_name,task,command,task_host,task_status,create_timestamp,update_timestamp) values( "#,
-    r#" )on CONFLICT (cluster_name, task, command, task_host) DO UPDATE SET task_status = excluded.task_status"#,
+    r#" )on CONFLICT (cluster_name, task, command, task_host) DO UPDATE SET task_status = excluded.task_status,update_timestamp=excluded.update_timestamp"#,
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq, FromRow)]

@@ -23,7 +23,6 @@ use tracing::{error, info};
 use ExecutionValue as LastResult;
 
 pub type EnvProps = HashMap<String, String>;
-pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 pub(crate) static REMOTE_ENV_PROPS: LazyLock<anyhow::Result<EnvProps>> =
     LazyLock::new(|| load_remote_env(None));
 
@@ -66,14 +65,16 @@ macro_rules! post_task_execute {
             (1, None)
         };
 
+        let now: DateTime<Utc> = chrono::Utc::now();
+        //let datetime_now = default_utc.format("%Y-%m-%d %H:%M:%S");
         let task_status_entity = TaskStatusEntity {
             cluster_name: $cluster,
             task: String::from($task_mame),
             command: String::from($command),
             task_host: String::from($task_host),
             task_status: status_tuple.0,
-            create_timestamp: Default::default(),
-            update_timestamp: Default::default(),
+            create_timestamp: now,
+            update_timestamp: now,
         };
         $crate::cli::task::task_utils::save_task_status(task_status_entity, status_tuple.1).await
     }};
@@ -257,8 +258,8 @@ impl TaskResultEnum {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskResultPair {
-    pub(crate) task_id: String,
-    pub(crate) result: TaskResultEnum,
+    pub task_id: String,
+    pub result: TaskResultEnum,
 }
 
 /// `TaskMgr` is the entry point for task invocation, calling `TaskGroup` and  `TaskController`
@@ -283,9 +284,19 @@ impl TaskMgr {
 }
 
 impl TaskMgr {
-    pub async fn receive_task_result(&'static self) {
+    pub async fn recv_task_result<F, Fut>(&self, f: F)
+    where
+        F: Fn(TaskResultPair) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
         let mut result_reader = self.task_controller.clone().try_stream();
         while let Some(Ok(task_result_pair)) = result_reader.next().await {
+            f(task_result_pair).await;
+        }
+    }
+
+    pub async fn print_task_result(&self) {
+        self.recv_task_result(|task_result_pair| async {
             let task_id: String = task_result_pair.task_id;
             let result: TaskResultEnum = task_result_pair.result;
             match result {
@@ -324,7 +335,8 @@ impl TaskMgr {
                     error!("{}", err_msg.red());
                 }
             }
-        }
+        })
+        .await
     }
 
     pub fn task_context(

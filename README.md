@@ -33,7 +33,7 @@ cargo install --force cargo-make
 ```shell
 cargo build --release
 # Compile the two packages separately with cargo make.
-cargo make --no-workspace  --makefile Makefile.toml  cluster_mgr_pkg/devtools_pkg
+cargo make --no-workspace  --makefile Makefile.toml  cluster_mgr_pkg/devtools_pkg/rest_api_pkg
 ```
 
 ## Features
@@ -49,6 +49,10 @@ cargo make --no-workspace  --makefile Makefile.toml  cluster_mgr_pkg/devtools_pk
 1. Installation and deployment the MonographDB cluster, including the underlying storage it depends on (if required)
 2. Manage cluster start, stop, status check, and commands are idempotent.
 3. Support batch execution of custom commands.
+
+### REST API
+
+The HTTP API with the same functionality as ClusterMgr. [REST API](./doc/cluster_mgr_rest.md)
 
 ## How to use
 
