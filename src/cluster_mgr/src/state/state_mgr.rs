@@ -1,8 +1,11 @@
-use crate::cli::config::CONFIG_PATH_DIR;
+use crate::cli::config::{DeploymentConfig, CONFIG_PATH_DIR};
 use crate::state::deployment_operation::DeploymentOperation;
-use crate::state::state_base::{StateOperation, StateOperationAny};
-use crate::state::task_status_operation::TaskStatusOperation;
+use crate::state::service_status_operation::{ServiceInstanceEntity, ServiceInstanceOperation};
+use crate::state::state_base::{QueryCondition, StateOperation, StateOperationAny};
+use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
+use crate::StateValue;
 use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Pool, QueryBuilder, Sqlite, SqlitePool};
@@ -14,8 +17,9 @@ use std::sync::{Arc, LazyLock};
 use std::{env, fs};
 use tracing::{error, info};
 
-pub static DEPLOYMENT_STATE: &str = "Deployment";
-pub static TASK_STATUS_STATE: &str = "TaskStatus";
+pub const DEPLOYMENT_STATE: &str = "Deployment";
+pub const TASK_STATUS_STATE: &str = "TaskStatus";
+pub const SERVICE_STATUS_STATE: &str = "ServiceStatus";
 
 pub(crate) static CLUSTER_MGR_CLI_DB: &str = "cluster_mgr_state.db";
 pub(crate) static MONO_CLUSTER_MGR_SCHEMA_PATH: &str = "MONO_CLUSTER_MGR_SCHEMA_PATH";
@@ -49,6 +53,110 @@ pub struct TableName {
 }
 
 impl StateMgr {
+    pub async fn load_service_status_from_state(
+        &self,
+        cluster_name: String,
+    ) -> Result<Vec<ServiceInstanceEntity>> {
+        let service_state_operation =
+            self.get_state_operation::<ServiceInstanceOperation>(SERVICE_STATUS_STATE);
+
+        let service_state = service_state_operation
+            .load(move || -> Option<QueryCondition> {
+                Some(QueryCondition {
+                    cond_text: "cluster_name = $1".to_string(),
+                    bind_values: vec![StateValue::Varchar(cluster_name.clone())],
+                })
+            })
+            .await?;
+
+        Ok(service_state)
+    }
+
+    pub async fn load_task_status_from_state(
+        &self,
+        cluster_name: String,
+        status: Option<i32>,
+        command: Option<Vec<String>>,
+    ) -> Result<Vec<TaskStatusEntity>> {
+        let task_state_operation =
+            self.get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE);
+
+        let mut bind_index = 1;
+        let mut cond_text = format!("cluster_name=${bind_index} ");
+        let mut bind_values = vec![StateValue::Varchar(cluster_name.clone())];
+
+        if let Some(task_status) = status {
+            bind_index += 1;
+            cond_text.push_str(format!(" and task_status=${bind_index}").as_str());
+            bind_values.push(StateValue::Integer(task_status))
+        }
+        if let Some(cmd_vec) = command {
+            cond_text.push_str(" and command in (");
+            let cmd_len = cmd_vec.len();
+            cmd_vec.iter().enumerate().for_each(|(idx, cmd)| {
+                bind_index += 1;
+                cond_text.push_str(format!("${bind_index}").as_str());
+                if idx < cmd_len - 1 {
+                    cond_text.push(',');
+                }
+                bind_values.push(StateValue::Varchar(cmd.to_string()))
+            });
+            cond_text.push(')');
+        }
+        let task_status_entity = task_state_operation
+            .load(|| -> Option<QueryCondition> {
+                Some(QueryCondition {
+                    cond_text: cond_text.clone(),
+                    bind_values: bind_values.clone(),
+                })
+            })
+            .await?;
+        Ok(task_status_entity)
+    }
+
+    pub async fn load_deployment_list_from_state(&self) -> Result<Option<Vec<DeploymentConfig>>> {
+        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
+        let deployment_entity_vec = deployment_state
+            .load(|| -> Option<QueryCondition> { None })
+            .await?;
+        if deployment_entity_vec.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                deployment_entity_vec
+                    .iter()
+                    .map(|deployment| {
+                        let config_string = &deployment.deployment_config;
+                        DeploymentConfig::load_from_string(config_string.to_string()).unwrap()
+                    })
+                    .collect_vec(),
+            ))
+        }
+    }
+
+    pub async fn load_deployment_from_state(
+        &self,
+        cluster: &str,
+    ) -> Result<Option<DeploymentConfig>> {
+        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
+        let deployment_entity_vec = deployment_state
+            .load(|| -> Option<QueryCondition> {
+                Some(QueryCondition {
+                    cond_text: "cluster_name = $1".to_string(),
+                    bind_values: vec![StateValue::Varchar(cluster.to_string())],
+                })
+            })
+            .await?;
+
+        if let Some(deployment_entity) = deployment_entity_vec.first() {
+            let config_content = &deployment_entity.deployment_config;
+            let config = DeploymentConfig::load_from_string(config_content.to_string())?;
+            Ok(Some(config))
+        } else {
+            Ok(None)
+        }
+    }
+
     #[allow(dead_code)]
     async fn list_tables(&self) -> Vec<String> {
         let table_result = QueryBuilder::new(
@@ -175,9 +283,17 @@ impl StateMgr {
             let task_status_opt_ref = Box::leak(TaskStatusOperation::boxed(db_conn_pool.clone()))
                 as &dyn StateOperationAny;
 
+            let service_status_opt_ref =
+                Box::leak(ServiceInstanceOperation::boxed(db_conn_pool.clone()))
+                    as &dyn StateOperationAny;
+
             let state_map: HashMap<String, Arc<&'static dyn StateOperationAny>> = HashMap::from([
                 (DEPLOYMENT_STATE.to_string(), Arc::new(deployment_opt_ref)),
                 (TASK_STATUS_STATE.to_string(), Arc::new(task_status_opt_ref)),
+                (
+                    SERVICE_STATUS_STATE.to_string(),
+                    Arc::new(service_status_opt_ref),
+                ),
             ]);
             info!("Create StateMgr instance success.");
             Ok(Self {
