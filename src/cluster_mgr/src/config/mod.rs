@@ -121,6 +121,10 @@ pub enum DeploymentService {
     Monograph,
     #[strum(serialize = "storage")]
     Storage,
+    #[strum(serialize = "prometheus")]
+    Prometheus,
+    #[strum(serialize = "grafana")]
+    Grafana,
 }
 
 pub fn config_path_string(path: Option<String>) -> anyhow::Result<String> {

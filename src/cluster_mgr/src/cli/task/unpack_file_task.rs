@@ -1,8 +1,8 @@
-use crate::config::config_base::DeploymentConfig;
 use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
+use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;

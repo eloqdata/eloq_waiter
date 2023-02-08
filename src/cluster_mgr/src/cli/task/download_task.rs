@@ -8,6 +8,7 @@ use crate::config::DownloadUrl;
 use anyhow::anyhow;
 use futures::stream::StreamExt;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -47,6 +48,17 @@ impl DownloadFromRemoteTask {
                 download_url_vec.push(cass_download_url_string.to_string());
             }
         }
+
+        if let Some(monitor) = &config.deployment.monitor {
+            let monitor_download_url_vec = monitor.monitor_download_links()?;
+            let monitor_download_string_vec = monitor_download_url_vec
+                .iter()
+                .filter(|url| !url.is_local())
+                .map(|download_url| download_url.get_url())
+                .collect_vec();
+            download_url_vec.extend(monitor_download_string_vec.into_iter());
+        }
+
         let download_dir = download_dir();
         let local_ip = local_ip_address::local_ip()?.to_string();
         let download_tasks = download_url_vec
