@@ -124,6 +124,7 @@ impl DeploymentConfig {
                 }
             }
         });
+        println!("unpack_files={unpack_files:#?}");
         unpack_files
     }
 

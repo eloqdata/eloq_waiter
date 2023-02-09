@@ -5,7 +5,6 @@ use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::load_remote_env;
 use crate::enum_into_trait;
-use crate::state::task_status_operation::TaskStatusEntity;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use futures::StreamExt;
@@ -340,25 +339,23 @@ impl TaskMgr {
         .await
     }
 
-    pub fn task_context(
+    pub async fn task_context(
         &self,
         cmd_args: CommandArgs,
         config: &DeploymentConfig,
-        success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
         let group_key = cmd_args.as_ref();
 
         let task_group = TASK_GROUP.get(group_key).unwrap();
-        task_group.tasks(cmd_args, config.clone(), success_task)
+        task_group.tasks(cmd_args, config.clone()).await
     }
 
     pub async fn run_tasks(
         &'static self,
         cmd_args: CommandArgs,
         config: DeploymentConfig,
-        success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
-        let tasks_execution = self.task_context(cmd_args, &config, success_task)?;
+        let tasks_execution = self.task_context(cmd_args, &config).await?;
         info!(
             "TaskMgr start current barrier={:?}",
             tasks_execution.barrier

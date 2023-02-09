@@ -92,7 +92,7 @@ impl Monitor {
             ),
             (
                 GRAFANA_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.prometheus.download_url.as_str())?,
+                DownloadUrl::from_url_str(self.grafana.download_url.as_str())?,
             ),
             (
                 NODE_EXPORTER_FILE_KEY.to_string(),

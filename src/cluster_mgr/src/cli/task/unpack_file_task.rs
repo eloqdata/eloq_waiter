@@ -10,11 +10,29 @@ use std::collections::HashMap;
 use tracing::info;
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
+pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 5] = [
+    "apache-cassandra",
+    "prometheus",
+    "grafana",
+    "node_exporter",
+    "mysqld_exporter",
+];
 
 #[derive(Debug, Clone)]
 pub struct UnpackFileTask {
     config: DeploymentConfig,
     task_id: TaskId,
+}
+
+fn extract_unpacked_name(raw_file_name: &str) -> String {
+    for unpacked in REMOTE_UNPACKED_NAMES {
+        if !raw_file_name.contains(unpacked) {
+            continue;
+        }
+        return unpacked.to_string();
+    }
+    unreachable!()
 }
 
 impl UnpackFileTask {
@@ -29,13 +47,17 @@ impl UnpackFileTask {
         let unpack_task_instance = all_hosts
             .into_iter()
             .map(|entry| {
-                let unpack_file = entry.0;
+                let packed_file = entry.0;
                 let hosts = entry.1;
+                let unpacked_file = if packed_file.contains("monograph") {
+                    "monographdb-release".to_string()
+                } else {
+                    extract_unpacked_name(packed_file.as_str())
+                };
                 hosts
                     .into_iter()
                     .map(|remote_host| {
-                        let remote_tarball =
-                            format!("{}/{}", remote_install_dir, unpack_file.as_str());
+                        let remote_tarball = format!("{remote_install_dir}/{packed_file}");
                         let task_host = TaskHost::Remote {
                             user: conn_usr.clone(),
                             port: ssh_port as usize,
@@ -43,16 +65,19 @@ impl UnpackFileTask {
                         };
                         let task_id = TaskId {
                             cmd: "deploy".to_string(),
-                            task: format!("{unpack_file}_unpack"),
+                            task: format!("{packed_file}_unpack"),
                             host: remote_host,
                         };
                         (
                             task_id.clone(),
                             TaskInstance {
-                                task_input: HashMap::from([(
-                                    REMOTE_TAR.to_string(),
-                                    TaskArgValue::Str(remote_tarball),
-                                )]),
+                                task_input: HashMap::from([
+                                    (REMOTE_TAR.to_string(), TaskArgValue::Str(remote_tarball)),
+                                    (
+                                        UNPACKED_NAME.to_string(),
+                                        TaskArgValue::Str(unpacked_file.clone()),
+                                    ),
+                                ]),
                                 task: Box::new(UnpackFileTask {
                                     config: config.clone(),
                                     task_id,
@@ -89,21 +114,22 @@ impl TaskExecutor for UnpackFileTask {
         .await?;
         let remote_tar =
             TaskArgValue::into_inner_value::<String>(task_input.get(REMOTE_TAR).unwrap().clone());
+        let unpacked_name = TaskArgValue::into_inner_value::<String>(
+            task_input.get(UNPACKED_NAME).unwrap().clone(),
+        );
+
         let install_dir = self.config.install_dir();
-        let unpack_pair = if remote_tar.contains("monograph") {
-            let target_dir = format!("{install_dir}/monographdb-release");
+        let unpack_pair = if unpacked_name.contains("monograph") {
+            let target_dir = format!("{install_dir}/{unpacked_name}");
             (
-                format!(
-                    r#"mkdir -p {install_dir}/monographdb-release && tar -zxvf {remote_tar} -C {target_dir}"#,
-                ),
+                format!(r#"mkdir -p {target_dir} && tar -zxvf {remote_tar} -C {target_dir}"#,),
                 target_dir,
             )
         } else {
-            let extract_file_name = remote_tar.replace("-bin.tar.gz", "");
-            let target_dir = format!("{install_dir}/apache-cassandra");
+            let target_dir = format!("{install_dir}/{unpacked_name}");
             (
                 format!(
-                    r#"rm -rf {target_dir} > /dev/null; mkdir -p {install_dir} && tar -zxvf {remote_tar} -C {install_dir}; mv {extract_file_name} {target_dir}"#,
+                    r#"mkdir -p {target_dir}; tar -zxvf {remote_tar} -C {target_dir} --strip-components 1 --overwrite"#,
                 ),
                 target_dir,
             )
@@ -126,5 +152,16 @@ impl TaskExecutor for UnpackFileTask {
                 TaskArgValue::Str(unpack_pair.1)
             )])
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::task::unpack_file_task::extract_unpacked_name;
+
+    #[test]
+    pub fn test_extract_unpacked_name() {
+        let unpacked_name = extract_unpacked_name("monographdb-ubuntu20-release-bin.tar.gz");
+        println!("unpacked fil name={unpacked_name}")
     }
 }

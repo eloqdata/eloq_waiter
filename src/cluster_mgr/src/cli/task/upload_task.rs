@@ -24,12 +24,6 @@ pub(crate) const INSTALL_MONOGRAPH_UPLOAD_TASK: &str = "install_monograph_script
 pub(crate) const MONOGRAPH_CONFIG_UPLOAD_TASK: &str = "monograph_config_upload";
 pub(crate) const MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK: &str = "monograph_install_db_conf_upload";
 
-pub(crate) const ALL_UPLOAD_TASKS: [&str; 4] = [
-    DB_CONFIG_UPLOAD_TASK,
-    INSTALL_MONOGRAPH_UPLOAD_TASK,
-    MONOGRAPH_CONFIG_UPLOAD_TASK,
-    MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK,
-];
 
 #[derive(Debug, Clone)]
 pub struct UploadTask {
