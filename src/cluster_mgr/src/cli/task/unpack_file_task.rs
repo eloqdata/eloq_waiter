@@ -11,12 +11,13 @@ use tracing::info;
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
-pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 5] = [
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 6] = [
     "apache-cassandra",
     "prometheus",
     "grafana",
     "node_exporter",
     "mysqld_exporter",
+    "datastax-mcac-agent",
 ];
 
 #[derive(Debug, Clone)]

@@ -62,7 +62,7 @@ impl CassandraOpTask {
         >,
     > {
         let cass_hosts = self.config.get_host_list(DeploymentService::Storage);
-        let cass_config = self.config.load_cassandra_config_template()?;
+        let cass_config = DeploymentConfig::load_cassandra_config_template()?;
         let client_transport_port = cass_config
             .get("native_transport_port")
             .unwrap()

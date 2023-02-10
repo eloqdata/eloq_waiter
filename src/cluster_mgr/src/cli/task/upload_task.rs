@@ -5,8 +5,8 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::config::config_base::{
-    DeploymentConfig, CASSANDRA_FILE_KEY, GRAFANA_FILE_KEY, MONOGRAPH_FILE_KEY,
-    MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    DeploymentConfig, CASSANDRA_COLLECTOR_AGENT_FILE_KEY, CASSANDRA_FILE_KEY, GRAFANA_FILE_KEY,
+    MONOGRAPH_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::{DeploymentService, StorageProvider};
 use crate::task_return_value;
@@ -24,7 +24,6 @@ pub(crate) const INSTALL_MONOGRAPH_UPLOAD_TASK: &str = "install_monograph_script
 pub(crate) const MONOGRAPH_CONFIG_UPLOAD_TASK: &str = "monograph_config_upload";
 pub(crate) const MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK: &str = "monograph_install_db_conf_upload";
 
-
 #[derive(Debug, Clone)]
 pub struct UploadTask {
     config: DeploymentConfig,
@@ -33,33 +32,33 @@ pub struct UploadTask {
 
 macro_rules! simple_upload_task_execution {
     ($task_instance:expr,$install_image_files:expr,$file_key:expr,$task:expr,$config:expr,$remote_host:expr, $task_host:expr) => {
-        let download_file = $install_image_files.get($file_key).unwrap();
+        if let Some(download_file) = $install_image_files.get($file_key) {
+            let download_path = download_dir()
+                .join(download_file.to_string())
+                .to_str()
+                .unwrap()
+                .to_string();
 
-        let download_path = download_dir()
-            .join(download_file)
-            .to_str()
-            .unwrap()
-            .to_string();
+            let task_id = TaskId {
+                cmd: "deploy".to_string(),
+                task: $task,
+                host: $remote_host,
+            };
 
-        let task_id = TaskId {
-            cmd: "deploy".to_string(),
-            task: $task,
-            host: $remote_host,
-        };
+            let upload_task = UploadTask::new($config.clone(), task_id.clone());
 
-        let upload_task = UploadTask::new($config.clone(), task_id.clone());
-
-        $task_instance.insert(
-            task_id,
-            TaskInstance {
-                task_input: HashMap::from([(
-                    SOURCE_PATH.to_string(),
-                    TaskArgValue::Str(download_path),
-                )]),
-                task: Box::new(upload_task),
-                task_host: $task_host.clone(),
-            },
-        )
+            $task_instance.insert(
+                task_id,
+                TaskInstance {
+                    task_input: HashMap::from([(
+                        SOURCE_PATH.to_string(),
+                        TaskArgValue::Str(download_path),
+                    )]),
+                    task: Box::new(upload_task),
+                    task_host: $task_host.clone(),
+                },
+            );
+        }
     };
 }
 
@@ -88,46 +87,67 @@ macro_rules! monograph_config_task_execution {
 }
 
 impl UploadTask {
-    /// Upload the cassandra.yaml file to the remote host (remote host list from deployment.yaml).
+    /// Upload the cassandra.yaml and jvm11-server.options or cassandra-env.sh file to the remote host (remote host list from deployment.yaml).
     pub fn build_upload_cass_conf_task(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let cass_config = config.gen_cassandra_config()?;
         let ssh_port = config.connection.ssh_port();
         let conn_user = config.clone().connection.username;
+        // TODO
+        let cass_config = config.gen_cassandra_config()?;
         let upload_cass_config_task = cass_config
             .into_iter()
-            .map(|(host, cass_config)| {
-                let cass_config_path_str = cass_config.to_str().unwrap().to_string();
-                let task_id = TaskId {
-                    cmd: "install".to_string(),
-                    task: "cassandra_config_upload".to_string(),
-                    host: host.clone(),
-                };
-                (
-                    task_id.clone(),
-                    TaskInstance {
-                        task_input: HashMap::from([
+            .map(|(host, cass_configs)| {
+                cass_configs
+                    .into_iter()
+                    .map(|cass_config| {
+                        let cass_config_path_str = cass_config.to_str().unwrap().to_string();
+                        let config_file_tuple = if cass_config_path_str.contains("env.sh") {
+                            ("cassandra-env", "apache-cassandra/conf/cassandra-env.sh")
+                        } else if cass_config_path_str.contains("yaml") {
                             (
-                                SOURCE_PATH.to_string(),
-                                TaskArgValue::Str(cass_config_path_str),
-                            ),
+                                "cassandra-config-options",
+                                "apache-cassandra/conf/cassandra.yaml",
+                            )
+                        } else {
                             (
-                                DEST_PATH.to_string(),
-                                TaskArgValue::Str(
-                                    "apache-cassandra/conf/cassandra.yaml".to_string(),
-                                ),
-                            ),
-                        ]),
-                        task: Box::new(UploadTask::new(config.clone(), task_id)),
-                        task_host: TaskHost::Remote {
-                            user: conn_user.clone(),
-                            port: ssh_port as usize,
-                            hosts: host,
-                        },
-                    },
-                )
+                                "jvm11-server-options",
+                                "apache-cassandra/conf/jvm11-server.options",
+                            )
+                        };
+
+                        let task_id = TaskId {
+                            cmd: "install".to_string(),
+                            task: config_file_tuple.0.to_string(),
+                            host: host.clone(),
+                        };
+
+                        (
+                            task_id.clone(),
+                            TaskInstance {
+                                task_input: HashMap::from([
+                                    (
+                                        SOURCE_PATH.to_string(),
+                                        TaskArgValue::Str(cass_config_path_str),
+                                    ),
+                                    (
+                                        DEST_PATH.to_string(),
+                                        TaskArgValue::Str(config_file_tuple.1.to_string()),
+                                    ),
+                                ]),
+                                task: Box::new(UploadTask::new(config.clone(), task_id)),
+                                task_host: TaskHost::Remote {
+                                    user: conn_user.clone(),
+                                    port: ssh_port as usize,
+                                    hosts: host.clone(),
+                                },
+                            },
+                        )
+                    })
+                    .collect::<IndexMap<TaskId, TaskInstance>>()
             })
+            .into_iter()
+            .flatten()
             .collect::<IndexMap<TaskId, TaskInstance>>();
         Ok(upload_cass_config_task)
     }
@@ -199,6 +219,15 @@ impl UploadTask {
                                 install_image_files,
                                 CASSANDRA_FILE_KEY,
                                 "cassandra_upload".to_string(),
+                                config,
+                                remote_host.clone(),
+                                task_host
+                            );
+                            simple_upload_task_execution!(
+                                task_instance,
+                                install_image_files,
+                                CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
+                                "cassandra_collector_agent_upload".to_string(),
                                 config,
                                 remote_host,
                                 task_host

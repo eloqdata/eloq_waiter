@@ -7,7 +7,7 @@
 mono_waiter_dist/
 mono_cluster_mgr_dist/
 *.bash
-*.json
+#*.json
 *.log
 *.sh
 # JetBrains

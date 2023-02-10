@@ -1,5 +1,6 @@
 use crate::config::config_base::{
-    GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
+    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::DownloadUrl;
 use itertools::Itertools;
@@ -75,7 +76,10 @@ pub struct Monitor {
     pub prometheus: Prometheus,
     pub grafana: Grafana,
     pub node_exporter: String,
+    pub node_exporter_port: u16,
     pub mysql_exporter: String,
+    pub mysql_exporter_port: u16,
+    pub cassandra_collector: Option<String>,
 }
 
 impl Monitor {
@@ -85,7 +89,7 @@ impl Monitor {
     }
 
     pub fn monitor_download_links_as_amp(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
-        Ok(HashMap::from([
+        let mut download_link = HashMap::from([
             (
                 PROMETHEUS_FILE_KEY.to_string(),
                 DownloadUrl::from_url_str(self.prometheus.download_url.as_str())?,
@@ -102,6 +106,13 @@ impl Monitor {
                 MYSQL_EXPORTER_FILE_KEY.to_string(),
                 DownloadUrl::from_url_str(self.mysql_exporter.as_str())?,
             ),
-        ]))
+        ]);
+        if let Some(mcac) = &self.cassandra_collector {
+            download_link.insert(
+                CASSANDRA_COLLECTOR_AGENT_FILE_KEY.to_string(),
+                DownloadUrl::from_url_str(mcac.as_str())?,
+            );
+        }
+        Ok(download_link)
     }
 }
