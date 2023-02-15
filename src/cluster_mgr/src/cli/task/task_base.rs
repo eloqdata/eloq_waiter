@@ -143,6 +143,8 @@ pub enum CmdErr {
     CassandraOpErr(String),
     #[error("Error executing LocalCopyTask; please check if the source path exists path {0}")]
     CopyTaskErr(String),
+    #[error("Error executing MonographDB monitor component task {0}, error causes {1}")]
+    MonitorCtlCmdErr(String, String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -1,16 +1,12 @@
-use crate::cli::{
-    download_dir, CASSANDRA_CONF_TEMPLATE, MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE,
-    MONOGRAPH_INSTALL_TEMPLATE, START_MONOGRAPH_TEMPLATE,
-};
-use crate::cli::{CASSANDRA_ENV_TEMPLATE, MONOGRAPH_INSTALL_SCRIPT};
-use crate::cli::{CASSANDRA_JVM_SERVER_CONF, START_MONOGRAPH_SCRIPT};
+use crate::cli::download_dir;
+
 use crate::config::connection::Connection;
 use crate::config::deployment::Deployment;
-use crate::config::deployment::Monitor;
-use crate::config::DeploymentService::Prometheus;
+use crate::config::monitor::Monitor;
 use crate::config::{
     config_path_string, config_template, DeploymentService, StorageProvider,
-    CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR,
+    CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE,
+    START_MONOGRAPH_SCRIPT, START_MONOGRAPH_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
@@ -18,11 +14,10 @@ use anyhow::anyhow;
 use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use sysinfo::SystemExt;
 use tracing::{error, info};
@@ -32,7 +27,7 @@ pub const CASSANDRA_FILE_KEY: &str = "cassandra";
 pub const PROMETHEUS_FILE_KEY: &str = "prometheus";
 pub const GRAFANA_FILE_KEY: &str = "grafana";
 pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
-pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysql_exporter";
+pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
 pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
 
 macro_rules! extract_monitor_host {
@@ -49,6 +44,9 @@ macro_rules! monitor_components_unpack_file {
     ($unpack_files:expr,$hosts:expr, $monitor:expr,$get_download_url:expr) => {
         if let Some(monitor_ref) = $monitor {
             let monitor_downlad_url = $get_download_url(monitor_ref);
+            if monitor_downlad_url.is_empty() {
+                return;
+            }
             let download_url_obj_rs = DownloadUrl::from_url_str(monitor_downlad_url.as_str());
             if let Ok(download_url_obj) = download_url_obj_rs {
                 let file_name = download_url_obj.file_name();
@@ -83,9 +81,19 @@ impl DeploymentConfig {
                         let file_name = DownloadUrl::from_url_str(cassandra.download_url.as_str())
                             .unwrap()
                             .file_name();
-                        if file_name.contains("tar.gz") {
-                            unpack_files.insert(file_name, hosts.clone());
-                        }
+                        unpack_files.insert(file_name, hosts.clone());
+                        monitor_components_unpack_file!(
+                            unpack_files,
+                            hosts.clone(),
+                            monitor_opt,
+                            |monitor: &Monitor| -> String {
+                                if let Some(mcac) = &monitor.cassandra_collector {
+                                    mcac.mcac_agent.clone()
+                                } else {
+                                    "".to_string()
+                                }
+                            }
+                        );
                     }
                 }
                 DeploymentService::Monograph => {
@@ -143,39 +151,12 @@ impl DeploymentConfig {
         gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
     }
 
-    pub fn gen_monograph_config(&self, db_host: Option<String>) -> anyhow::Result<PathBuf> {
-        let port = self.deployment.clone().port.monograph_port.start;
-        let set_ip_list = db_host.is_some();
-        let my_ini_rs = self.build_monograph_config(set_ip_list);
-
-        let host_and_file_tuple = if let Some(host) = db_host {
-            (host.clone(), host)
-        } else {
-            ("127.0.0.1".to_string(), "local".to_string())
-        };
-        let db_config_location = download_dir().join(format!("my_{}.cnf", host_and_file_tuple.1));
-        if let Ok(mut my_ini) = my_ini_rs {
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "monograph_local_ip",
-                Some(format!("{}:{}", host_and_file_tuple.0, port)),
-            );
-
-            if let Err(err) = my_ini.write(db_config_location.clone()) {
-                Err(anyhow!(err))
-            } else {
-                Ok(db_config_location)
-            }
-        } else {
-            Err(my_ini_rs.err().unwrap())
-        }
-    }
-
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
         let download_dir = download_dir();
         let my_local = download_dir.join("my_local.cnf");
         if !my_local.exists() {
-            self.gen_monograph_config(None)?;
+            self.deployment
+                .gen_monograph_config(None, self.install_dir())?;
         }
         let mut my_ini_local = Ini::new();
         let _config_map_rs = my_ini_local.load(my_local).unwrap();
@@ -190,8 +171,7 @@ impl DeploymentConfig {
     pub fn install_dir(&self) -> String {
         format!(
             "{}/{}",
-            self.deployment.clone().install_dir,
-            self.deployment.cluster_name
+            &self.deployment.install_dir, self.deployment.cluster_name
         )
     }
 
@@ -224,7 +204,7 @@ impl DeploymentConfig {
         let install_db_template = config_template(MONOGRAPH_INSTALL_TEMPLATE)?;
         let remote_install_dir = self.install_dir();
 
-        let rs = std::fs::read_to_string(install_db_template.as_path())?;
+        let rs = fs::read_to_string(install_db_template.as_path())?;
         let final_script = rs
             .replace(
                 "_CASSANDRA_STORAGE_BIN",
@@ -244,107 +224,11 @@ impl DeploymentConfig {
 
     pub fn build_start_monograph_script(&self) -> anyhow::Result<String> {
         let script_path = config_template(START_MONOGRAPH_TEMPLATE)?;
-        let rs = std::fs::read_to_string(script_path.as_path())?;
+        let rs = fs::read_to_string(script_path.as_path())?;
         Ok(rs.replace(
             "_MY_INSTALL_DIR",
             format!("{}/monographdb-release/install", self.install_dir()).as_str(),
         ))
-    }
-
-    pub fn build_monograph_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
-        let storage_provider = self.get_monograph_storage()?;
-        let deployment = self.deployment.clone();
-        let mut mysql_ini = Ini::new();
-        match storage_provider {
-            StorageProvider::Cassandra => {
-                mysql_ini
-                    .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
-                    .unwrap();
-
-                let cassandra_hosts = self.get_host_list(DeploymentService::Storage).join(",");
-                mysql_ini.set(
-                    CONFIG_MARIADB_SECTION,
-                    "monograph_cass_hosts",
-                    Some(cassandra_hosts),
-                );
-            }
-            StorageProvider::DynamoDB => {
-                mysql_ini
-                    .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
-                    .unwrap();
-
-                let dynamodb = deployment.storage_service.dynamodb.unwrap();
-                mysql_ini.set(
-                    CONFIG_MARIADB_SECTION,
-                    "monograph_aws_access_key_id",
-                    Some(dynamodb.access_key_id),
-                );
-                mysql_ini.set(
-                    CONFIG_MARIADB_SECTION,
-                    "monograph_aws_secret_key",
-                    Some(dynamodb.secret_key),
-                );
-                mysql_ini.set(
-                    CONFIG_MARIADB_SECTION,
-                    "monograph_dynamodb_region",
-                    Some(dynamodb.region),
-                );
-                mysql_ini.set(
-                    CONFIG_MARIADB_SECTION,
-                    "monograph_dynamodb_endpoint",
-                    Some(dynamodb.endpoint),
-                );
-            }
-        };
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "datadir",
-            Some(format!("{}/datafarm", self.install_dir())),
-        );
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "lc_messages_dir",
-            Some(format!(
-                "{}/monographdb-release/install/share",
-                self.install_dir()
-            )),
-        );
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "plugin_dir",
-            Some(format!(
-                "{}/monographdb-release/install/lib/plugin",
-                self.install_dir()
-            )),
-        );
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "port",
-            Some(deployment.port.mysql_port.to_string()),
-        );
-
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "socket",
-            Some(format!("/tmp/mysql{}.sock", deployment.port.mysql_port)),
-        );
-
-        let use_port = deployment.port.monograph_port.start;
-        if set_ip_list {
-            let ip_list = self
-                .get_host_list(DeploymentService::Monograph)
-                .iter()
-                .map(|host| format!("{}:{}", host.clone(), use_port))
-                .join(",");
-            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
-        } else {
-            mysql_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "monograph_ip_list",
-                Some(format!("{}:{}", "127.0.0.1", use_port)),
-            );
-        }
-        Ok(mysql_ini.clone())
     }
 
     fn read_config_from_file(path: String) -> anyhow::Result<Self> {
@@ -364,7 +248,10 @@ impl DeploymentConfig {
                 DeploymentService::Storage,
                 self.get_host_list(DeploymentService::Storage),
             ),
-            (Prometheus, self.get_host_list(Prometheus)),
+            (
+                DeploymentService::Prometheus,
+                self.get_host_list(DeploymentService::Prometheus),
+            ),
             (
                 DeploymentService::Grafana,
                 self.get_host_list(DeploymentService::Grafana),
@@ -390,7 +277,7 @@ impl DeploymentConfig {
                 }
             }
             DeploymentService::Monograph => deployment.mono_service.host.to_vec(),
-            Prometheus => {
+            DeploymentService::Prometheus => {
                 extract_monitor_host!(deployment, prometheus)
             }
             DeploymentService::Grafana => {
@@ -419,7 +306,7 @@ impl DeploymentConfig {
         if !self.validate_storage_service() {
             let err_msg = format!(
                 "DynamoDB Option={}, Cassandra option={}",
-                storage.cassandra.is_some(),
+                storage.dynamodb.is_some(),
                 storage.cassandra.is_some()
             );
             Err(anyhow!(ConfigErr::StorageConfigErr(err_msg)))
@@ -433,102 +320,6 @@ impl DeploymentConfig {
 
     pub fn config_to_string(&self) -> String {
         serde_yaml::to_string(self).unwrap()
-    }
-
-    pub fn load_cassandra_config_template() -> anyhow::Result<HashMap<String, Value>> {
-        let cass_template_path_buf = config_template(CASSANDRA_CONF_TEMPLATE)?;
-        let cass_opened_file = File::open(cass_template_path_buf.as_path())?;
-        // cassandra.yaml config object
-        let cass_conf_map =
-            serde_yaml::from_reader::<File, HashMap<String, Value>>(cass_opened_file)?;
-        Ok(cass_conf_map)
-    }
-
-    fn gen_cassandra_env(&self) -> anyhow::Result<bool> {
-        if let Some(monitor) = &self.deployment.monitor {
-            if monitor.cassandra_collector.is_some() {
-                let install_dir = self.install_dir();
-                let mcac_root =
-                    format!("MCAC_ROOT={install_dir}/{CASSANDRA_COLLECTOR_AGENT_FILE_KEY}\n",);
-                let append_jvm_opts =
-                    r#"JVM_OPTS="$JVM_OPTS -javaagent:${MCAC_ROOT}/lib/datastax-mcac-agent.jar""#;
-
-                let cass_env_file_path = config_template(CASSANDRA_ENV_TEMPLATE)?;
-                let final_cass_env = download_dir().join("cassandra-env.sh");
-                fs::copy(cass_env_file_path, final_cass_env.clone())?;
-                let mut cass_env_file = File::options()
-                    .write(true)
-                    .append(true)
-                    .open(final_cass_env)?;
-                cass_env_file.write_all(mcac_root.as_bytes())?;
-                cass_env_file.write_all(append_jvm_opts.as_bytes())?;
-                cass_env_file.flush()?;
-            }
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    // key is cassandra host, value is cassandra.yaml config
-    pub fn gen_cassandra_config(&self) -> anyhow::Result<HashMap<String, Vec<PathBuf>>> {
-        if self.deployment.storage_service.cassandra.is_none() {
-            let storage_provider = self.get_monograph_storage()?;
-            return Err(anyhow!(ConfigErr::GenCassandraConfigErr(
-                storage_provider.as_ref().to_string()
-            )));
-        }
-        let has_cassandra_monitor = self.gen_cassandra_env()?;
-        let cass_env_sh = if has_cassandra_monitor {
-            Some(download_dir().join("cassandra-env.sh"))
-        } else {
-            None
-        };
-        let jvm_server_options_path = config_template(CASSANDRA_JVM_SERVER_CONF)?;
-        let cass = self.deployment.clone().storage_service.cassandra.unwrap();
-        // cassandra.yaml config object
-        let mut cass_conf_map = DeploymentConfig::load_cassandra_config_template()?;
-        let cassandra_hosts = self.get_host_list(DeploymentService::Storage);
-        let storage_cluster = if cass.storage_cluster.is_none() {
-            format!("{}_cass_cluster", self.deployment.cluster_name)
-        } else {
-            cass.storage_cluster.unwrap()
-        };
-
-        cass_conf_map.insert("cluster_name".to_string(), Value::String(storage_cluster));
-        let seeds = cassandra_hosts.join(",");
-        let seed_values = format!(
-            r#"
-           - class_name: org.apache.cassandra.locator.SimpleSeedProvider
-             parameters:
-             - seeds: {seeds}"#,
-        );
-        let seed_yaml_value: Value = serde_yaml::from_str(seed_values.as_str())?;
-        cass_conf_map.insert(String::from("seed_provider"), seed_yaml_value);
-        let cass_config_vec = cassandra_hosts
-            .iter()
-            .map(|host| {
-                let host_value = Value::String(host.to_string());
-                cass_conf_map.insert(String::from("listen_address"), host_value.clone());
-                cass_conf_map.insert(
-                    String::from("rpc_address"),
-                    Value::String("0.0.0.0".to_string()),
-                );
-                cass_conf_map.insert(String::from("broadcast_rpc_address"), host_value.clone());
-                cass_conf_map.insert(String::from("broadcast_address"), host_value);
-                let config_path = download_dir().join(format!("cassandra_{host}.yaml"));
-                let new_config_file = File::create(config_path.as_path()).unwrap();
-                let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
-                assert!(gen_config_write.is_ok());
-                let mut config_path_vec = vec![config_path, jvm_server_options_path.clone()];
-                if let Some(env_sh) = &cass_env_sh {
-                    config_path_vec.push(env_sh.clone());
-                }
-                (host.to_string(), config_path_vec)
-            })
-            .collect::<HashMap<String, Vec<PathBuf>>>();
-
-        Ok(cass_config_vec)
     }
 
     /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
@@ -589,21 +380,30 @@ impl DeploymentConfig {
 #[cfg(test)]
 mod tests {
     use crate::config::config_base::DeploymentConfig;
-    use crate::config::CONFIG_PATH_DIR;
+    use crate::config::{DeploymentService, CONFIG_PATH_DIR};
     use std::path::PathBuf;
+
+    fn set_config_path_env_and_get() -> String {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let config_path = manifest_dir.join("config");
+        std::env::set_var(CONFIG_PATH_DIR, config_path.to_str().unwrap());
+        config_path.to_str().unwrap().to_string()
+    }
 
     #[test]
     pub fn test_cass_env_gen() {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let config_path = manifest_dir.join("config");
-        let config_path_string = config_path.to_str().unwrap().to_string();
-        std::env::set_var(CONFIG_PATH_DIR, config_path.to_str().unwrap());
+        let config_path_string = set_config_path_env_and_get();
         let config_rs =
             DeploymentConfig::load(Some(format!("{config_path_string}/deployment.yaml")));
         assert!(config_rs.is_ok());
         let config = config_rs.unwrap();
-        let cass_env_rs = config.gen_cassandra_env();
-        println!("cass_env_rs={cass_env_rs:?}");
-        // assert!(cass_env_rs.is_ok());
+        let monitor_opt = config.clone().deployment.monitor;
+        let monitor = monitor_opt.as_ref();
+        assert!(monitor.is_some());
+
+        let mono_host_list = config.get_host_list(DeploymentService::Monograph);
+        let monitor = monitor.unwrap();
+        let pro_rs = monitor.gen_prometheus_config(mono_host_list);
+        println!("pro_rs={pro_rs:#?}")
     }
 }

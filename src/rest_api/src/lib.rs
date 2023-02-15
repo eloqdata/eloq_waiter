@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use cluster_mgr::config::config_base::DeploymentConfig;
 use cluster_mgr::cli::CommandArgs;
+use cluster_mgr::config::config_base::DeploymentConfig;
 use derive_more::Error;
 use error::ResponseError;
 use serde_json::Value;

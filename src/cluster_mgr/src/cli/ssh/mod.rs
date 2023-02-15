@@ -1,5 +1,6 @@
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::AsyncWriteExt;
 use russh::*;
@@ -124,16 +125,20 @@ impl SSHSession {
             ),
             (CMD_OUTPUT.to_string(), TaskArgValue::Str(output_str)),
         ]);
-        channel.eof().await?;
+        channel.close().await?;
         Ok(cmd_res)
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
-        info!("SSHSession close() invoke.");
         let session = self.session.lock().await;
-        session
+        let close_rs = session
             .disconnect(Disconnect::ByApplication, "", "English")
-            .await?;
-        Ok(())
+            .await;
+        if let Err(close_err) = close_rs {
+            error!("SSHSession close error cause by {}", close_err.to_string());
+            Err(anyhow!(close_err.to_string()))
+        } else {
+            Ok(())
+        }
     }
 }

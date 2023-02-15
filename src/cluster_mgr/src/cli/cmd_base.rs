@@ -100,6 +100,10 @@ impl CommandExecutor {
             | CommandArgs::Exec {
                 command: _,
                 cluster,
+            }
+            | CommandArgs::Monitor {
+                command: _,
+                cluster,
             } => {
                 let config = self
                     .state_mgr

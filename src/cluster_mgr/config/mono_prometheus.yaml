@@ -8,37 +8,6 @@ global:
 
 # A scrape configuration containing exactly one endpoint to scrape.
 scrape_configs:
-  - job_name: 'metrics-node'
-    scrape_interval: 3s
-    static_configs:
-      - targets: [ 'localhsot:9100' ]
-        labels:
-          alias: prometheus-node
-
-  - job_name: 'mysql-monograph'
-    params:
-      auth_module:
-        - client.servers
-    static_configs:
-      - targets:
-          - localhost:3317
-      #- file_sd_configs:
-      #- files:
-      #  - monograph_dsn.yml
-    scrape_interval: 5s
-    relabel_configs:
-      - source_labels: [ __address__ ]
-        target_label: __param_target
-      - source_labels: [ __param_target ]
-        target_label: instance
-      - target_label: __address__
-        replacement: localhost:9401
-
-  - job_name: 'prometheus'
-    scrape_interval: 3s
-    static_configs:
-      - targets: [ 'localhost:9090' ]
-
 #alerting:
 #  alertmanagers:
 #    - scheme: http

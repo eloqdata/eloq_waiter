@@ -1,37 +1,16 @@
-use crate::config::config_base::{
-    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
-    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+use crate::cli::download_dir;
+
+use crate::config::monitor::Monitor;
+use crate::config::storage_service_config::StorageService;
+use crate::config::{
+    config_template, CONFIG_MARIADB_SECTION, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
+    MONOGRAPH_CONF_TEMPLATE,
 };
-use crate::config::DownloadUrl;
+use anyhow::anyhow;
+use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-#[macro_export]
-macro_rules! monitor_components {
-    ($component_name:ident) => {
-        #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-        pub struct $component_name {
-            pub download_url: String,
-            pub port: u16,
-            pub host: String,
-        }
-    };
-}
-
-monitor_components!(Prometheus);
-monitor_components!(Grafana);
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Deployment {
-    pub install_image: String,
-    pub cluster_name: String,
-    pub install_dir: String,
-    pub port: Port,
-    pub mono_service: MonographService,
-    pub storage_service: StorageService,
-    pub monitor: Option<Monitor>,
-}
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Port {
@@ -51,68 +30,138 @@ pub struct MonographService {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct StorageService {
-    pub cassandra: Option<Cassandra>,
-    pub dynamodb: Option<Dynamodb>,
+pub struct Deployment {
+    pub install_image: String,
+    pub cluster_name: String,
+    pub install_dir: String,
+    pub port: Port,
+    pub mono_service: MonographService,
+    pub storage_service: StorageService,
+    pub monitor: Option<Monitor>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Cassandra {
-    pub host: Vec<String>,
-    pub download_url: String,
-    pub storage_cluster: Option<String>,
-}
+impl Deployment {
+    pub fn build_monograph_config(
+        &self,
+        set_ip_list: bool,
+        install_dir: String,
+    ) -> anyhow::Result<Ini> {
+        let mut mysql_ini = Ini::new();
+        if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
+            mysql_ini
+                .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
+                .unwrap();
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Dynamodb {
-    pub access_key_id: String,
-    pub secret_key: String,
-    pub region: String,
-    pub endpoint: String,
-}
+            let cassandra_hosts = cassandra.host.join(",");
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_cass_hosts",
+                Some(cassandra_hosts),
+            );
+        } else {
+            mysql_ini
+                .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
+                .unwrap();
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Monitor {
-    pub prometheus: Prometheus,
-    pub grafana: Grafana,
-    pub node_exporter: String,
-    pub node_exporter_port: u16,
-    pub mysql_exporter: String,
-    pub mysql_exporter_port: u16,
-    pub cassandra_collector: Option<String>,
-}
-
-impl Monitor {
-    pub fn monitor_download_links(&self) -> anyhow::Result<Vec<DownloadUrl>> {
-        let download_links = self.monitor_download_links_as_amp()?;
-        Ok(download_links.into_values().collect_vec())
-    }
-
-    pub fn monitor_download_links_as_amp(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
-        let mut download_link = HashMap::from([
-            (
-                PROMETHEUS_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.prometheus.download_url.as_str())?,
-            ),
-            (
-                GRAFANA_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.grafana.download_url.as_str())?,
-            ),
-            (
-                NODE_EXPORTER_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.node_exporter.as_str())?,
-            ),
-            (
-                MYSQL_EXPORTER_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.mysql_exporter.as_str())?,
-            ),
-        ]);
-        if let Some(mcac) = &self.cassandra_collector {
-            download_link.insert(
-                CASSANDRA_COLLECTOR_AGENT_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(mcac.as_str())?,
+            let dynamodb = self.storage_service.dynamodb.as_ref().unwrap();
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_aws_access_key_id",
+                Some(dynamodb.clone().access_key_id),
+            );
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_aws_secret_key",
+                Some(dynamodb.clone().secret_key),
+            );
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_dynamodb_region",
+                Some(dynamodb.clone().region),
+            );
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_dynamodb_endpoint",
+                Some(dynamodb.clone().endpoint),
             );
         }
-        Ok(download_link)
+
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "datadir",
+            Some(format!("{install_dir}/datafarm")),
+        );
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "lc_messages_dir",
+            Some(format!("{install_dir}/monographdb-release/install/share")),
+        );
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "plugin_dir",
+            Some(format!(
+                "{install_dir}/monographdb-release/install/lib/plugin",
+            )),
+        );
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "port",
+            Some(self.port.mysql_port.to_string()),
+        );
+
+        mysql_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "socket",
+            Some(format!("/tmp/mysql{}.sock", self.port.mysql_port)),
+        );
+
+        let use_port = self.port.monograph_port.start;
+        let monograph_hosts = &self.mono_service.host;
+        if set_ip_list {
+            let ip_list = monograph_hosts
+                .iter()
+                .map(|host| format!("{}:{}", host.clone(), use_port))
+                .join(",");
+            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
+        } else {
+            mysql_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_ip_list",
+                Some(format!("{}:{}", "127.0.0.1", use_port)),
+            );
+        }
+        Ok(mysql_ini.clone())
+    }
+
+    pub fn gen_monograph_config(
+        &self,
+        db_host: Option<String>,
+        install_dir: String,
+    ) -> anyhow::Result<PathBuf> {
+        let port = self.port.monograph_port.start;
+        let set_ip_list = db_host.is_some();
+        let my_ini_rs = self.build_monograph_config(set_ip_list, install_dir);
+
+        let host_and_file_tuple = if let Some(host) = db_host {
+            (host.clone(), host)
+        } else {
+            ("127.0.0.1".to_string(), "local".to_string())
+        };
+        let db_config_location = download_dir().join(format!("my_{}.cnf", host_and_file_tuple.1));
+        if let Ok(mut my_ini) = my_ini_rs {
+            my_ini.set(
+                CONFIG_MARIADB_SECTION,
+                "monograph_local_ip",
+                Some(format!("{}:{}", host_and_file_tuple.0, port)),
+            );
+
+            if let Err(err) = my_ini.write(db_config_location.clone()) {
+                Err(anyhow!(err))
+            } else {
+                Ok(db_config_location)
+            }
+        } else {
+            Err(my_ini_rs.err().unwrap())
+        }
     }
 }

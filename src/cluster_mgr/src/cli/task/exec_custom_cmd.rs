@@ -17,6 +17,49 @@ pub struct ExecCustomCommand {
 }
 
 impl ExecCustomCommand {
+    pub fn build_task_by_host(
+        cmd_string: String,
+        config: &DeploymentConfig,
+        hosts: Vec<String>,
+        task_name: Option<String>,
+    ) -> IndexMap<TaskId, TaskInstance> {
+        let conn_user = &config.connection.username;
+        let ssh_port = config.connection.ssh_port();
+        hosts
+            .iter()
+            .map(|host| {
+                let task_host = TaskHost::Remote {
+                    user: conn_user.clone(),
+                    port: ssh_port as usize,
+                    hosts: host.clone(),
+                };
+                let task = if let Some(input_task_name) = &task_name {
+                    input_task_name.to_string()
+                } else {
+                    format!("exec_cmd_in_{host}")
+                };
+                let task_id = TaskId {
+                    cmd: "exec_cmd_by_hosts".to_string(),
+                    task,
+                    host: host.to_string(),
+                };
+
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::default(),
+                        task: Box::new(ExecCustomCommand::new(
+                            cmd_string.clone(),
+                            task_id,
+                            config.clone(),
+                        )),
+                        task_host,
+                    },
+                )
+            })
+            .collect::<IndexMap<TaskId, TaskInstance>>()
+    }
+
     pub fn from_config(
         cmd_string: String,
         config: &DeploymentConfig,
@@ -34,7 +77,7 @@ impl ExecCustomCommand {
                 };
                 let task_id = TaskId {
                     cmd: "exec_cmd".to_string(),
-                    task: "custom-task".to_string(),
+                    task: format!("exec_cmd_in_{host_val}"),
                     host: host_val.clone(),
                 };
                 (

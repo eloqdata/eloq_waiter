@@ -2,6 +2,7 @@ use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::download_task::DownloadFromRemoteTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::local_copy_task::LocalCopyTask;
+use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
 use crate::cli::task::runtime_deps_install::RuntimeDepsInstallation;
@@ -54,7 +55,8 @@ task_group_boxed! {
     {InstallDBTaskGroup},
     {CtrlDBTaskGroup},
     {CustomCmdTaskGroup},
-    {InstallRuntimeDepsTaskGroup}
+    {InstallRuntimeDepsTaskGroup},
+    {MonitorCtlTaskGroup}
 }
 
 pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock::new(|| {
@@ -67,6 +69,7 @@ pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock:
         ("status".to_string(), CtrlDBTaskGroup::boxed()),
         ("exec_cmd".to_string(), CustomCmdTaskGroup::boxed()),
         ("run-deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
+        ("monitor".to_string(), MonitorCtlTaskGroup::boxed()),
     ])
 });
 
@@ -124,15 +127,20 @@ impl TaskGroup for DeploymentTaskGroup {
             &success_task_entity,
         );
 
+        let mut upload_monitor_tasks = UploadTask::build_upload_monitor_config_tasks(&config)?;
+        let upload_mysql_exporter_tasks = UploadTask::build_upload_mysql_exporter_tasks(&config)?;
+        upload_monitor_tasks.extend(upload_mysql_exporter_tasks.into_iter());
         let barrier = Some(vec![
             copy_or_download_task_instances.len(),
             upload_task.len(),
             unpack_task.len(),
+            upload_monitor_tasks.len(),
         ]);
         let mut executable = IndexMap::new();
         executable.extend(copy_or_download_task_instances.into_iter());
         executable.extend(upload_task.into_iter());
         executable.extend(unpack_task.into_iter());
+        executable.extend(upload_monitor_tasks.into_iter());
         Ok(TaskExecutionContext {
             task_group: cmd_ref,
             barrier,
@@ -141,7 +149,6 @@ impl TaskGroup for DeploymentTaskGroup {
     }
 }
 
-//TODO refactor
 #[async_trait::async_trait]
 impl TaskGroup for InstallDBTaskGroup {
     async fn tasks(
@@ -172,17 +179,32 @@ impl TaskGroup for InstallDBTaskGroup {
         let mut execution_context_tuple = match storage_provider {
             StorageProvider::Cassandra => {
                 let upload_cass_config_task = UploadTask::build_upload_cass_conf_task(&config)?;
-                let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
-                let monograph_install = MonographInstall::from_config(&config, install_db_host);
-                let barrier = vec![
-                    upload_cass_config_task.len(),
-                    cassandra_start.len(),
-                    monograph_install.len(),
-                ];
+                let mut barrier = vec![upload_cass_config_task.len()];
                 let mut executable = IndexMap::new();
                 executable.extend(upload_cass_config_task.into_iter());
+                if let Some(monitor) = config.deployment.monitor.as_ref() {
+                    if let Some(mcac_collector) = &monitor.cassandra_collector {
+                        let install_dir = config.install_dir();
+                        let update_http_port_cmd = mcac_collector.update_http_port_cmd(install_dir);
+                        let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
+                        let update_http_port_task = ExecCustomCommand::build_task_by_host(
+                            update_http_port_cmd,
+                            &config,
+                            cassandra_hosts,
+                            None,
+                        );
+                        barrier.push(update_http_port_task.len());
+                        executable.extend(update_http_port_task.into_iter());
+                    }
+                }
+                let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
+                let monograph_install = MonographInstall::from_config(&config, install_db_host);
+                barrier.push(cassandra_start.len());
+                barrier.push(monograph_install.len());
+
                 executable.extend(cassandra_start.into_iter());
                 executable.extend(monograph_install.into_iter());
+
                 TaskExecutionContext {
                     task_group: cmd_args.as_ref().to_string(),
                     barrier: Some(barrier),
@@ -345,6 +367,77 @@ impl TaskGroup for InstallRuntimeDepsTaskGroup {
             task_group: cmd_arg.as_ref().to_string(),
             barrier: None,
             executable: install_runtime_deps,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskGroup for MonitorCtlTaskGroup {
+    async fn tasks(
+        &self,
+        cmd_arg: CommandArgs,
+        config: DeploymentConfig,
+    ) -> anyhow::Result<TaskExecutionContext> {
+        let monitor_ctl_cmd = match &cmd_arg {
+            CommandArgs::Monitor {
+                cluster: _,
+                command,
+            } => command,
+            _ => unreachable!(),
+        };
+        let mut executable = IndexMap::new();
+        let mut barrier = vec![];
+        if monitor_ctl_cmd.to_lowercase().eq("start") {
+            let monitor_opt = config.deployment.monitor.as_ref();
+            assert!(monitor_opt.is_some());
+            let monitor = monitor_opt.unwrap();
+            let install_dir = config.install_dir();
+            let mysql_port = config.deployment.port.mysql_port;
+            let create_monitor_user_cmd =
+                monitor.create_monitor_user_cmd(install_dir.clone(), mysql_port);
+
+            let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+            let pick_mono_instance = monograph_hosts.first().unwrap();
+
+            let create_user_task = ExecCustomCommand::build_task_by_host(
+                create_monitor_user_cmd,
+                &config,
+                vec![pick_mono_instance.to_string()],
+                Some("create_monitor_user".to_string()),
+            );
+            barrier.push(create_user_task.len());
+            executable.extend(create_user_task.into_iter());
+
+            let flush_privileges =
+                monitor.flush_privileges_for_create_user(install_dir, mysql_port);
+            let flush_privilege_task = ExecCustomCommand::build_task_by_host(
+                flush_privileges,
+                &config,
+                monograph_hosts,
+                Some("flush_privilege".to_string()),
+            );
+            barrier.push(flush_privilege_task.len());
+            executable.extend(flush_privilege_task.into_iter());
+        }
+
+        let exporter_task_instance = MonitorCtlTask::exporter_ctl_task(cmd_arg.clone(), &config);
+        let prometheus_task_instance =
+            MonitorCtlTask::prometheus_ctl_task(cmd_arg.clone(), &config);
+        let grafana_task_instance = MonitorCtlTask::grafana_clt_task(cmd_arg.clone(), &config);
+
+        barrier.push(exporter_task_instance.len());
+        barrier.push(prometheus_task_instance.len());
+        barrier.push(grafana_task_instance.len());
+
+        executable.extend(exporter_task_instance.into_iter());
+        executable.extend(prometheus_task_instance.into_iter());
+        executable.extend(grafana_task_instance.into_iter());
+
+        let cmd_ref = cmd_arg.as_ref();
+        Ok(TaskExecutionContext {
+            task_group: format!("control-{cmd_ref}"),
+            barrier: Some(barrier),
+            executable,
         })
     }
 }

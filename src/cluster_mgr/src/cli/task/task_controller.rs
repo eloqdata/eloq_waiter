@@ -51,7 +51,7 @@ impl TaskController {
                     begin = end;
                     end = begin + *barrier_val;
                 }
-                info!("TaskController run_task_split {}..{}", begin, end);
+                //info!("TaskController run_task_split {begin}..{end}");
                 let task_slice = &tasks[begin..end];
                 split.push(task_slice);
             }
@@ -119,8 +119,9 @@ impl TaskController {
                     let result = match execution_rs {
                         Ok(rs) => TaskResultEnum::Success(rs),
                         Err(err_msg) => {
-                            error!("Task {:?} execution fail", task_id);
-                            TaskResultEnum::Error(err_msg.to_string())
+                            let err_msg_str = err_msg.to_string();
+                            error!("Task {:?} execution fail {:?}", task_id, err_msg_str);
+                            TaskResultEnum::Error(err_msg_str)
                         }
                     };
                     let task_pair = TaskResultPair {
