@@ -1,10 +1,15 @@
-use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::download_dir;
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
+use crate::config::config_base::{
+    DeploymentConfig, CASSANDRA_COLLECTOR_AGENT_FILE_KEY, CASSANDRA_FILE_KEY, GRAFANA_FILE_KEY,
+    MONOGRAPH_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+};
+use crate::config::{DeploymentService, StorageProvider};
+use crate::monitor_component_config_dir;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -20,18 +25,44 @@ pub(crate) const INSTALL_MONOGRAPH_UPLOAD_TASK: &str = "install_monograph_script
 pub(crate) const MONOGRAPH_CONFIG_UPLOAD_TASK: &str = "monograph_config_upload";
 pub(crate) const MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK: &str = "monograph_install_db_conf_upload";
 
-pub(crate) const ALL_UPLOAD_TASKS: [&str; 4] = [
-    DB_CONFIG_UPLOAD_TASK,
-    INSTALL_MONOGRAPH_UPLOAD_TASK,
-    MONOGRAPH_CONFIG_UPLOAD_TASK,
-    MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK,
-];
-
 #[derive(Debug, Clone)]
 pub struct UploadTask {
     config: DeploymentConfig,
     task_id: TaskId,
 }
+
+macro_rules! simple_upload_task_execution {
+    ($task_instance:expr,$install_image_files:expr,$file_key:expr,$task:expr,$config:expr,$remote_host:expr, $task_host:expr) => {
+        if let Some(download_file) = $install_image_files.get($file_key) {
+            let download_path = download_dir()
+                .join(download_file.to_string())
+                .to_str()
+                .unwrap()
+                .to_string();
+
+            let task_id = TaskId {
+                cmd: "deploy".to_string(),
+                task: $task,
+                host: $remote_host,
+            };
+
+            let upload_task = UploadTask::new($config.clone(), task_id.clone());
+
+            $task_instance.insert(
+                task_id,
+                TaskInstance {
+                    task_input: HashMap::from([(
+                        SOURCE_PATH.to_string(),
+                        TaskArgValue::Str(download_path),
+                    )]),
+                    task: Box::new(upload_task),
+                    task_host: $task_host.clone(),
+                },
+            );
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! monograph_config_task_execution {
     ( $({$execution_vec:expr, $task_name:expr, $config:expr, $task_host:expr, $source_path:expr}),*) => {
@@ -56,47 +87,111 @@ macro_rules! monograph_config_task_execution {
     };
 }
 
+macro_rules! monitor_config_upload_task_execution {
+    ($config:expr,$component:ident, $monitor_component_host:expr,
+     $monitor:expr,$dest_host:expr, $gen_conf_func:expr,$task_name:expr,
+     $task_instance_map:expr) => {
+        let config_path = $gen_conf_func($dest_host).unwrap();
+        if !config_path.is_empty() {
+            // let remote_config_path = monitor_remote_config_path!(remote_install_dir, component_name);
+            let monitor_host = $monitor_component_host;//&$monitor.$component.host;
+            let upload_task_id = TaskId {
+                cmd: "deploy".to_string(),
+                task: $task_name,
+                host: monitor_host.clone(),
+            };
+            let connection = &$config.connection;
+            let remote_host = TaskHost::Remote {
+                user: connection.username.to_string(),
+                port: connection.ssh_port() as usize,
+                hosts: monitor_host.to_string(),
+            };
+            let component_name = stringify!($component).to_string();
+            let dest_file_name = monitor_component_config_dir!(component_name);
+
+            $task_instance_map.insert(
+                upload_task_id.clone(),
+                TaskInstance {
+                    task_input: HashMap::from([
+                        (SOURCE_PATH.to_string(), TaskArgValue::Str(config_path)),
+                        (DEST_PATH.to_string(), TaskArgValue::Str(dest_file_name)),
+                    ]),
+                    task: Box::new(UploadTask::new($config.clone(), upload_task_id)),
+                    task_host: remote_host,
+                },
+            );
+        }
+    };
+}
 impl UploadTask {
-    /// Upload the cassandra.yaml file to the remote host (remote host list from deployment.yaml).
+    /// Upload the cassandra.yaml and jvm11-server.options or cassandra-env.sh file to the remote host (remote host list from deployment.yaml).
     pub fn build_upload_cass_conf_task(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let cass_config = config.gen_cassandra_config()?;
         let ssh_port = config.connection.ssh_port();
         let conn_user = config.clone().connection.username;
+        let deployment = config.deployment.clone();
+        let monitor = deployment.monitor;
+        let install_dir = config.install_dir();
+
+        let cass_config = config.deployment.storage_service.gen_cassandra_config(
+            install_dir,
+            deployment.cluster_name,
+            monitor,
+        )?;
         let upload_cass_config_task = cass_config
             .into_iter()
-            .map(|(host, cass_config)| {
-                let cass_config_path_str = cass_config.to_str().unwrap().to_string();
-                let task_id = TaskId {
-                    cmd: "install".to_string(),
-                    task: "cassandra_config_upload".to_string(),
-                    host: host.clone(),
-                };
-                (
-                    task_id.clone(),
-                    TaskInstance {
-                        task_input: HashMap::from([
+            .map(|(host, cass_configs)| {
+                cass_configs
+                    .into_iter()
+                    .map(|cass_config| {
+                        let cass_config_path_str = cass_config.to_str().unwrap().to_string();
+                        let config_file_tuple = if cass_config_path_str.contains("env.sh") {
+                            ("cassandra-env", "apache-cassandra/conf/cassandra-env.sh")
+                        } else if cass_config_path_str.contains("yaml") {
                             (
-                                SOURCE_PATH.to_string(),
-                                TaskArgValue::Str(cass_config_path_str),
-                            ),
+                                "cassandra-config-options",
+                                "apache-cassandra/conf/cassandra.yaml",
+                            )
+                        } else {
                             (
-                                DEST_PATH.to_string(),
-                                TaskArgValue::Str(
-                                    "apache-cassandra/conf/cassandra.yaml".to_string(),
-                                ),
-                            ),
-                        ]),
-                        task: Box::new(UploadTask::new(config.clone(), task_id)),
-                        task_host: TaskHost::Remote {
-                            user: conn_user.clone(),
-                            port: ssh_port as usize,
-                            hosts: host,
-                        },
-                    },
-                )
+                                "jvm11-server-options",
+                                "apache-cassandra/conf/jvm11-server.options",
+                            )
+                        };
+
+                        let task_id = TaskId {
+                            cmd: "install".to_string(),
+                            task: config_file_tuple.0.to_string(),
+                            host: host.clone(),
+                        };
+
+                        (
+                            task_id.clone(),
+                            TaskInstance {
+                                task_input: HashMap::from([
+                                    (
+                                        SOURCE_PATH.to_string(),
+                                        TaskArgValue::Str(cass_config_path_str),
+                                    ),
+                                    (
+                                        DEST_PATH.to_string(),
+                                        TaskArgValue::Str(config_file_tuple.1.to_string()),
+                                    ),
+                                ]),
+                                task: Box::new(UploadTask::new(config.clone(), task_id)),
+                                task_host: TaskHost::Remote {
+                                    user: conn_user.clone(),
+                                    port: ssh_port as usize,
+                                    hosts: host.clone(),
+                                },
+                            },
+                        )
+                    })
+                    .collect::<IndexMap<TaskId, TaskInstance>>()
             })
+            .into_iter()
+            .flatten()
             .collect::<IndexMap<TaskId, TaskInstance>>();
         Ok(upload_cass_config_task)
     }
@@ -131,13 +226,119 @@ impl UploadTask {
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
-    fn task_install_from_hosts(
+    pub fn build_upload_mysql_exporter_tasks(
+        config: &DeploymentConfig,
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+        let tasks = if let Some(monitor) = config.deployment.monitor.as_ref() {
+            let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+            let mut task_instances = IndexMap::new();
+            let mysql_port = config.deployment.port.mysql_port;
+            monograph_hosts.iter().enumerate().for_each(|(idx, host)| {
+                if idx == 0 {
+                    monitor_config_upload_task_execution!(
+                        config,
+                        mysql_exporter,
+                        host.clone(),
+                        monitor,
+                        Vec::default(),
+                        move |_: Vec<String>| -> anyhow::Result<String> {
+                            let create_mysql_user_script = monitor.gen_monitor_user_sql_file()?;
+                            Ok(create_mysql_user_script.to_str().unwrap().to_string())
+                        },
+                        "upload_create_monitor_user_task".to_string(),
+                        task_instances
+                    );
+                }
+                monitor_config_upload_task_execution!(
+                    config,
+                    mysql_exporter,
+                    host.clone(),
+                    monitor,
+                    Vec::default(),
+                    move |_: Vec<String>| -> anyhow::Result<String> {
+                        let mysql_exporter_config =
+                            monitor.gen_mysql_exporter_connect_config(host.clone(), mysql_port)?;
+                        Ok(mysql_exporter_config.to_str().unwrap().to_string())
+                    },
+                    "upload_mysql_exporter_config".to_string(),
+                    task_instances
+                );
+            });
+            task_instances
+        } else {
+            IndexMap::new()
+        };
+        Ok(tasks)
+    }
+
+    pub fn build_upload_monitor_config_tasks(
+        config: &DeploymentConfig,
+    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+        let task_instances = if let Some(monitor) = config.deployment.monitor.as_ref() {
+            let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+            let mut task_instances = IndexMap::new();
+
+            let prometheus_host = monitor.prometheus.host.to_string();
+            monitor_config_upload_task_execution!(
+                config,
+                prometheus,
+                prometheus_host.clone(),
+                monitor,
+                monograph_hosts,
+                |dest_host: Vec<String>| -> anyhow::Result<String> {
+                    let config_path = monitor.gen_prometheus_config(dest_host)?;
+                    Ok(config_path.to_str().unwrap().to_string())
+                },
+                "upload_prometheus_config".to_string(),
+                task_instances
+            );
+
+            let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
+            monitor_config_upload_task_execution!(
+                config,
+                prometheus,
+                prometheus_host,
+                monitor,
+                cassandra_hosts,
+                |dest_host: Vec<String>| -> anyhow::Result<String> {
+                    let mcac_config = monitor.gen_mcac_file_sd_config(dest_host)?;
+                    if let Some(config_path) = mcac_config {
+                        Ok(config_path.to_str().unwrap().to_string())
+                    } else {
+                        Ok("".to_string())
+                    }
+                },
+                "upload_mcac_targets_config".to_string(),
+                task_instances
+            );
+
+            let grafana_host = &monitor.grafana.host;
+            monitor_config_upload_task_execution!(
+                config,
+                grafana,
+                grafana_host.to_string(),
+                monitor,
+                Vec::default(),
+                |_: Vec<String>| -> anyhow::Result<String> {
+                    let path = monitor.gen_grafana_datasource_config()?;
+                    Ok(path.to_str().unwrap().to_string())
+                },
+                "upload_prometheus_datasource_config".to_string(),
+                task_instances
+            );
+            task_instances
+        } else {
+            IndexMap::default()
+        };
+        Ok(task_instances)
+    }
+
+    fn task_instance_from_hosts(
         service: DeploymentService,
         host_vec: Vec<String>,
         config: &DeploymentConfig,
+        install_image_files: &HashMap<String, String>,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let download_files = config.download_file_as_map()?;
-
         let install_db_script_opt = if service == DeploymentService::Monograph {
             let db_config_pair = config.gen_install_db_script()?;
             Some(db_config_pair)
@@ -145,7 +346,10 @@ impl UploadTask {
             None
         };
 
-        let install_db_config_path = config.clone().gen_monograph_config(None)?;
+        let install_dir = config.install_dir();
+        let install_db_config_path = config
+            .deployment
+            .gen_monograph_config(None, install_dir.clone())?;
 
         let install_db_config = install_db_config_path.to_str().unwrap().to_string();
         let conn_user = config.connection.clone().username;
@@ -161,42 +365,35 @@ impl UploadTask {
                 };
                 match service {
                     DeploymentService::Storage => {
-                        let mut task_instance = HashMap::new();
+                        let mut task_instance = IndexMap::new();
                         if storage_provider == StorageProvider::Cassandra {
-                            let cassandra_download_file =
-                                download_files.get(&DeploymentService::Storage).unwrap();
-
-                            let cassandra_download_path = download_dir()
-                                .join(cassandra_download_file)
-                                .to_str()
-                                .unwrap()
-                                .to_string();
-
-                            let task_id = TaskId {
-                                cmd: "deploy".to_string(),
-                                task: format!("{}_upload", "cassandra"),
-                                host: remote_host,
-                            };
-                            let upload_cassandra = UploadTask::new(
-                                config.clone(),
-                                task_id.clone()
+                            //$task_instance:expr,$install_image_files:expr,$file_key:expr,$task:expr,$config:expr,$task_host:expr
+                            simple_upload_task_execution!(
+                                task_instance,
+                                install_image_files,
+                                CASSANDRA_FILE_KEY,
+                                "cassandra_upload".to_string(),
+                                config,
+                                remote_host.clone(),
+                                task_host
                             );
-                            task_instance.insert(task_id, TaskInstance {
-                                task_input: HashMap::from([(
-                                    SOURCE_PATH.to_string(),
-                                    TaskArgValue::Str(cassandra_download_path),
-                                )]),
-                                task: Box::new(upload_cassandra),
-                                task_host,
-                            });
+                            simple_upload_task_execution!(
+                                task_instance,
+                                install_image_files,
+                                CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
+                                "cassandra_collector_agent_upload".to_string(),
+                                config,
+                                remote_host,
+                                task_host
+                            );
                         }
                         task_instance
                     }
                     DeploymentService::Monograph => {
                         info!("UploadTask upload file to remote={:?}", task_host);
-                        let mut task_execution_vec:HashMap<TaskId, TaskInstance> = HashMap::new();
+                        let mut task_execution_vec:IndexMap<TaskId, TaskInstance> = IndexMap::new();
                         let db_config_path =
-                            config.clone().gen_monograph_config(Some(remote_host)).unwrap();
+                            config.clone().deployment.gen_monograph_config(Some(remote_host.clone()), install_dir.clone()).unwrap();
 
                         let install_db_script = install_db_script_opt.as_ref().unwrap().clone();
                         let db_config_path_str = db_config_path.to_str().unwrap().to_string();
@@ -204,7 +401,7 @@ impl UploadTask {
                         let install_db_path_string = install_db_script.to_str().unwrap().to_string();
 
                         let monograph_download_file =
-                             download_files.get(&DeploymentService::Monograph).unwrap();
+                            install_image_files.get(MONOGRAPH_FILE_KEY).unwrap();
 
                         let monograph_download_location = download_dir().
                             join(monograph_download_file).to_str().
@@ -215,7 +412,53 @@ impl UploadTask {
                             {task_execution_vec, MONOGRAPH_CONFIG_UPLOAD_TASK.to_string(), config, task_host, monograph_download_location},
                             {task_execution_vec, MONOGRAPH_INSTALL_CONFIG_UPLOAD_TASK.to_string(), config, task_host, install_db_config.clone()}
                         }
+
+                        simple_upload_task_execution!(
+                                task_execution_vec,
+                                install_image_files,
+                                NODE_EXPORTER_FILE_KEY,
+                                "node_exporter_upload".to_string(),
+                                config,
+                                remote_host.clone(),
+                                task_host
+                        );
+
+                        simple_upload_task_execution!(
+                                task_execution_vec,
+                                install_image_files,
+                                MYSQL_EXPORTER_FILE_KEY,
+                                "mysql_exporter_upload".to_string(),
+                                config,
+                                remote_host,
+                                task_host
+                        );
                         task_execution_vec
+                    }
+                    DeploymentService::Prometheus => {
+                        let mut task_instance = IndexMap::new();
+                        simple_upload_task_execution!(
+                                task_instance,
+                                install_image_files,
+                                PROMETHEUS_FILE_KEY,
+                                "prometheus_upload".to_string(),
+                                config,
+                                remote_host,
+                                task_host
+                        );
+                        task_instance
+                    }
+                    DeploymentService::Grafana => {
+                        let mut task_instance = IndexMap::new();
+                        simple_upload_task_execution!(
+                                task_instance,
+                                install_image_files,
+                                GRAFANA_FILE_KEY,
+                                "grafana_upload".to_string(),
+                                config,
+                                remote_host,
+                                task_host
+                       );
+                       task_instance
                     }
                 }
             })
@@ -231,12 +474,19 @@ impl UploadTask {
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let all_hosts = config.get_host_as_map();
+        let install_image_files_map = config.install_image_files()?;
         let upload_task_instance = all_hosts
             .into_iter()
             .map(|entry| {
                 let service = entry.0;
                 let hosts = entry.1;
-                UploadTask::task_install_from_hosts(service, hosts, config).unwrap()
+                UploadTask::task_instance_from_hosts(
+                    service,
+                    hosts,
+                    config,
+                    &install_image_files_map,
+                )
+                .unwrap()
             })
             .into_iter()
             .flatten()

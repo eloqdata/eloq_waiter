@@ -1,4 +1,3 @@
-use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::{
@@ -6,10 +5,12 @@ use crate::cli::task::task_base::{
     TaskInstance,
 };
 use crate::cli::task::task_utils::{
-    check_process_pid, ctl_action_wait_complete, ctl_cmd, PROCESS_PID,
+    check_process_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::{get_ctl_cmd_string, task_return_value};
+use crate::config::config_base::DeploymentConfig;
+use crate::config::DeploymentService;
+use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -262,38 +263,10 @@ impl MonographCtlTask {
         }
     }
 
-    fn parse_monograph_pid(output: String) -> Option<i32> {
-        if output.is_empty() {
-            None
-        } else {
-            let mut pid = None;
-            let output_normal = output.trim();
-            for line in output_normal.lines() {
-                let line_normal = line.trim();
-                if line_normal.is_empty() {
-                    continue;
-                }
-                if !line_normal.chars().all(char::is_numeric) {
-                    continue;
-                }
-                let parse_rs = line_normal.parse::<i32>().unwrap();
-                pid = Some(parse_rs);
-                break;
-            }
-            println!("MonographCtlTask found MonographDB PID={pid:?}");
-            pid
-        }
-    }
-
     async fn monograph_pid(&self, ssh_conn: SSHSession) -> anyhow::Result<ExecutionValue> {
         let remote_install_dir = self.config.install_dir();
         let check_status = monograph_cmd!(MonographCtlCmd::Status, remote_install_dir);
-        check_process_pid(
-            check_status.cmd_value(),
-            ssh_conn,
-            MonographCtlTask::parse_monograph_pid,
-        )
-        .await
+        check_process_pid(check_status.cmd_value(), ssh_conn, parse_process_pid).await
     }
 }
 
@@ -339,22 +312,13 @@ impl TaskExecutor for MonographCtlTask {
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
                 monograph_ctl!(self, check_process_status, {!=, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
-                    ctl_action_wait_complete(stop_cmd, check_status_cmd, ssh_session.clone(),
-                        async move |stop_cmd, ssh_conn| { ssh_conn.command(stop_cmd.as_str(), CollectOutput).await},
-                        |output| -> bool {
-                           MonographCtlTask::parse_monograph_pid(output).is_none()
-                        },
-                    ).await
+                     wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
                 })
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
                 monograph_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
-                    ctl_action_wait_complete(start_cmd,check_status_cmd,ssh_session.clone(),
-                         async move |start_cmd, ssh_conn| { ctl_cmd(start_cmd, ssh_conn).await},
-                         |output| -> bool { MonographCtlTask::parse_monograph_pid(output).is_some() },
-
-                    ).await
+                    wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 })
             }
             _ => {

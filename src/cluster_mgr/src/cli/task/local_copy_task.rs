@@ -1,8 +1,9 @@
-use crate::cli::config::{DeploymentConfig, DownloadUrl};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{download_dir, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::config_base::DeploymentConfig;
+use crate::config::DownloadUrl;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -69,6 +70,23 @@ impl LocalCopyTask {
                     "copy_cassandra".to_string()
                 );
             }
+        }
+        let monitor_opt = &config.deployment.monitor;
+        if monitor_opt.is_some() {
+            let monitor = monitor_opt.as_ref().unwrap();
+            let monitor_download_urls = monitor.monitor_download_links()?;
+            monitor_download_urls
+                .iter()
+                .filter(|monitor_download_url| monitor_download_url.is_local())
+                .for_each(|monitor_download_url| {
+                    let file_name = monitor_download_url.file_name();
+                    build_copy_task_instances!(
+                        local_copy_task_instance,
+                        monitor_download_url.get_url(),
+                        file_name,
+                        format!("copy_monitor_{file_name}")
+                    );
+                });
         }
         Ok(local_copy_task_instance)
     }
