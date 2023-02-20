@@ -12,6 +12,7 @@ use std::fmt::Debug;
 use strum_macros::AsRefStr;
 
 pub mod cli;
+pub mod config;
 pub mod state;
 
 #[macro_export]

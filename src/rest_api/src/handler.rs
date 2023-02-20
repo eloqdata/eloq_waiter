@@ -2,9 +2,9 @@ use crate::global_handler::GlobalCommandHandler;
 use crate::{MonographConnInfo, RequestPayload, ResponseData, WebHandleError};
 use actix_web::{get, post, web, HttpResponse, Responder};
 use anyhow::anyhow;
-use cluster_mgr::cli::config::DeploymentConfig;
 use cluster_mgr::cli::task::task_base::TaskId;
 use cluster_mgr::cli::CommandArgs;
+use cluster_mgr::config::config_base::DeploymentConfig;
 use serde_json::{json, Value};
 // use tracing::info;
 
@@ -99,7 +99,10 @@ pub async fn check_cmd_status(
     // cmd_executor.load_deployment_from_state(cluster_str).await?;
     if let Some(deployment_config) = deployment_config_opt {
         let cmd_args = build_command_from_str(command.as_str(), Some(cluster.clone()));
-        let task_context = cmd_executor.task_context(cmd_args, deployment_config);
+        let task_context = cmd_executor
+            .task_mgr()
+            .task_context(cmd_args, &deployment_config)
+            .await?;
         let task_ids = task_context.list_task_ids();
         let cmd_vec = vec![task_context.task_group];
         let task_status_vec = cmd_executor

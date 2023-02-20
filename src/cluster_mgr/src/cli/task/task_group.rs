@@ -1,15 +1,18 @@
-use crate::cli::config::{DeploymentConfig, DeploymentService, StorageProvider};
 use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
-use crate::cli::task::download_task::{DownloadFromRemoteTask, ALL_DOWNLOAD_TASKS};
+use crate::cli::task::download_task::DownloadFromRemoteTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::local_copy_task::LocalCopyTask;
+use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
 use crate::cli::task::monograph_ctl_task::MonographCtlTask;
 use crate::cli::task::monograph_install_task::MonographInstall;
 use crate::cli::task::runtime_deps_install::RuntimeDepsInstallation;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
-use crate::cli::task::upload_task::{UploadTask, ALL_UPLOAD_TASKS};
+use crate::cli::task::upload_task::UploadTask;
 use crate::cli::CommandArgs;
+use crate::config::config_base::DeploymentConfig;
+use crate::config::{DeploymentService, StorageProvider};
+use crate::state::state_mgr::STATE_MGR;
 use crate::state::task_status_operation::TaskStatusEntity;
 use dyn_clone::DynClone;
 use indexmap::IndexMap;
@@ -20,12 +23,12 @@ use tracing::info;
 
 /// `TaskGroup` base on different business logic, multiple tasks are organized into task groups,
 /// and barriers are inserted between task lists according to dependencies.
+#[async_trait::async_trait]
 pub trait TaskGroup: Send + Sync + DynClone {
-    fn tasks(
+    async fn tasks(
         &self,
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
-        already_successful: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext>;
 }
 
@@ -52,7 +55,8 @@ task_group_boxed! {
     {InstallDBTaskGroup},
     {CtrlDBTaskGroup},
     {CustomCmdTaskGroup},
-    {InstallRuntimeDepsTaskGroup}
+    {InstallRuntimeDepsTaskGroup},
+    {MonitorCtlTaskGroup}
 }
 
 pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock::new(|| {
@@ -65,135 +69,92 @@ pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock:
         ("status".to_string(), CtrlDBTaskGroup::boxed()),
         ("exec_cmd".to_string(), CustomCmdTaskGroup::boxed()),
         ("run-deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
+        ("monitor".to_string(), MonitorCtlTaskGroup::boxed()),
     ])
 });
 
-#[macro_export]
-macro_rules! deploy_task_match {
-    ($task_impl:ident, $all_task_name:expr, $all_success_tasks:expr, $config:expr) => {{
-        let all_task_execution_context_list = $task_impl::from_config($config)?;
-        let task_execution_vec = DeploymentTaskGroup::skip_success_task_execution(
-            $all_task_name,
-            all_task_execution_context_list,
-            $all_success_tasks,
-        );
-        task_execution_vec
-    }};
-}
-
 impl DeploymentTaskGroup {
-    fn get_task_entity_by_name(
-        task_name_vec: Vec<String>,
-        success_task_entity: Vec<TaskStatusEntity>,
-    ) -> Vec<TaskStatusEntity> {
-        success_task_entity
-            .iter()
-            .filter(|task_status_entity| {
-                let task_id_string = task_status_entity.task.clone();
-                let task_name = TaskId::from_json_string(task_id_string).task;
-                task_name_vec.contains(&task_name)
-            })
-            .cloned()
-            .collect_vec()
-    }
-
     fn skip_success_task_execution(
-        task_name_vec: Vec<String>,
-        task_list: IndexMap<TaskId, TaskInstance>,
-        all_task_entity: Vec<TaskStatusEntity>,
+        task_instances: &IndexMap<TaskId, TaskInstance>,
+        success_task_entity: &[TaskStatusEntity],
     ) -> IndexMap<TaskId, TaskInstance> {
-        let success_tasks =
-            DeploymentTaskGroup::get_task_entity_by_name(task_name_vec, all_task_entity);
-
-        let mut result = IndexMap::new();
-        for task_entry in task_list.iter() {
-            let task_instance = task_entry.1;
-            let (_, _, host) = task_instance.task_host.ssh_conn_tuple();
-            let include_host = success_tasks
+        if success_task_entity.is_empty() {
+            task_instances.clone()
+        } else {
+            success_task_entity
                 .iter()
-                .filter(|task| task.task_host == host)
-                .count()
-                > 0;
-            if !include_host {
-                result.insert(task_entry.0.clone(), task_instance.clone());
-            }
+                .map(|task_status| {
+                    let task_id_string = &task_status.task;
+                    TaskId::from_json_string(task_id_string.clone())
+                })
+                .filter(|task_id| !task_instances.contains_key(task_id))
+                .map(|task_id| {
+                    (
+                        task_id.clone(),
+                        task_instances.get(&task_id).unwrap().clone(),
+                    )
+                })
+                .collect::<IndexMap<TaskId, TaskInstance>>()
         }
-        result
     }
 }
 
+#[async_trait::async_trait]
 impl TaskGroup for DeploymentTaskGroup {
-    fn tasks(
+    async fn tasks(
         &self,
-        _cmd_args: CommandArgs,
+        cmd_args: CommandArgs,
         config: DeploymentConfig,
-        successful_tasks: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let all_success_tasks = if let Some(task_status_entity) = successful_tasks {
-            task_status_entity
-        } else {
-            vec![]
-        };
+        let cmd_ref = cmd_args.as_ref().to_string();
+        let cluster = &config.deployment.cluster_name;
 
-        let download_tasks = ALL_DOWNLOAD_TASKS
-            .iter()
-            .copied()
-            .map(|task| task.to_string())
-            .collect_vec();
+        let success_task_entity = STATE_MGR
+            .load_task_status_from_state(cluster.to_string(), Some(0), Some(vec![cmd_ref.clone()]))
+            .await?;
 
-        let download_execution = deploy_task_match!(
-            DownloadFromRemoteTask,
-            download_tasks,
-            all_success_tasks.clone(),
-            &config
+        let download_task = DownloadFromRemoteTask::from_config(&config)?;
+        let mut copy_or_download_task_instances = LocalCopyTask::form_config(&config)?;
+        copy_or_download_task_instances.extend(download_task.into_iter());
+
+        let upload_task = DeploymentTaskGroup::skip_success_task_execution(
+            &UploadTask::from_config(&config)?,
+            &success_task_entity,
         );
 
-        let upload_tasks = ALL_UPLOAD_TASKS
-            .iter()
-            .copied()
-            .map(|task| task.to_string())
-            .collect_vec();
+        let unpack_task = DeploymentTaskGroup::skip_success_task_execution(
+            &UnpackFileTask::from_config(&config)?,
+            &success_task_entity,
+        );
 
-        let upload_execution =
-            deploy_task_match!(UploadTask, upload_tasks, all_success_tasks.clone(), &config);
-
-        let unpack_tasks = config
-            .unpack_files_map()
-            .keys()
-            .into_iter()
-            .map(|key| format!("{key}_unpack"))
-            .collect_vec();
-
-        let unpack_execution =
-            deploy_task_match!(UnpackFileTask, unpack_tasks, all_success_tasks, &config);
-
-        let mut copy_or_download_task_instances = LocalCopyTask::form_config(&config)?;
-        copy_or_download_task_instances.extend(download_execution.into_iter());
-
-        let barrier = vec![
+        let mut upload_monitor_tasks = UploadTask::build_upload_monitor_config_tasks(&config)?;
+        let upload_mysql_exporter_tasks = UploadTask::build_upload_mysql_exporter_tasks(&config)?;
+        upload_monitor_tasks.extend(upload_mysql_exporter_tasks.into_iter());
+        let barrier = Some(vec![
             copy_or_download_task_instances.len(),
-            upload_execution.len(),
-            unpack_execution.len(),
-        ];
+            upload_task.len(),
+            unpack_task.len(),
+            upload_monitor_tasks.len(),
+        ]);
         let mut executable = IndexMap::new();
         executable.extend(copy_or_download_task_instances.into_iter());
-        executable.extend(upload_execution.into_iter());
-        executable.extend(unpack_execution.into_iter());
-
+        executable.extend(upload_task.into_iter());
+        executable.extend(unpack_task.into_iter());
+        executable.extend(upload_monitor_tasks.into_iter());
         Ok(TaskExecutionContext {
-            task_group: "deploy".to_string(),
-            barrier: Some(barrier),
+            task_group: cmd_ref,
+            barrier,
             executable,
         })
     }
 }
 
+#[async_trait::async_trait]
 impl TaskGroup for InstallDBTaskGroup {
-    fn tasks(
+    async fn tasks(
         &self,
-        _cmd_args: CommandArgs,
+        cmd_args: CommandArgs,
         config: DeploymentConfig,
-        _successful_tasks: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
         let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
         let monograph_hosts_len = monograph_hosts.len();
@@ -218,28 +179,43 @@ impl TaskGroup for InstallDBTaskGroup {
         let mut execution_context_tuple = match storage_provider {
             StorageProvider::Cassandra => {
                 let upload_cass_config_task = UploadTask::build_upload_cass_conf_task(&config)?;
-                let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
-                let monograph_install = MonographInstall::from_config(&config, install_db_host);
-                let barrier = vec![
-                    upload_cass_config_task.len(),
-                    cassandra_start.len(),
-                    monograph_install.len(),
-                ];
+                let mut barrier = vec![upload_cass_config_task.len()];
                 let mut executable = IndexMap::new();
                 executable.extend(upload_cass_config_task.into_iter());
+                if let Some(monitor) = config.deployment.monitor.as_ref() {
+                    if let Some(mcac_collector) = &monitor.cassandra_collector {
+                        let install_dir = config.install_dir();
+                        let update_http_port_cmd = mcac_collector.update_http_port_cmd(install_dir);
+                        let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
+                        let update_http_port_task = ExecCustomCommand::build_task_by_host(
+                            update_http_port_cmd,
+                            &config,
+                            cassandra_hosts,
+                            None,
+                        );
+                        barrier.push(update_http_port_task.len());
+                        executable.extend(update_http_port_task.into_iter());
+                    }
+                }
+                let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
+                let monograph_install = MonographInstall::from_config(&config, install_db_host);
+                barrier.push(cassandra_start.len());
+                barrier.push(monograph_install.len());
+
                 executable.extend(cassandra_start.into_iter());
                 executable.extend(monograph_install.into_iter());
+
                 TaskExecutionContext {
-                    task_group: "install".to_string(),
+                    task_group: cmd_args.as_ref().to_string(),
                     barrier: Some(barrier),
                     executable,
                 }
             }
-            StorageProvider::DynamoDB => {
+            _ => {
                 let monograph_is_multi_node = monograph_hosts.len() > 1;
                 let monograph_install = MonographInstall::from_config(&config, install_db_host);
                 TaskExecutionContext {
-                    task_group: "install".to_string(),
+                    task_group: cmd_args.as_ref().to_string(),
                     barrier: if monograph_is_multi_node {
                         Some(vec![monograph_install.len()])
                     } else {
@@ -289,12 +265,12 @@ impl TaskGroup for InstallDBTaskGroup {
     }
 }
 
+#[async_trait::async_trait]
 impl TaskGroup for CtrlDBTaskGroup {
-    fn tasks(
+    async fn tasks(
         &self,
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
-        _successful_tasks: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cmd_ref = cmd_arg.as_ref();
         let storage_provider = config.get_monograph_storage()?;
@@ -352,13 +328,14 @@ impl TaskGroup for CtrlDBTaskGroup {
     }
 }
 
+#[async_trait::async_trait]
 impl TaskGroup for CustomCmdTaskGroup {
-    fn tasks(
+    async fn tasks(
         &self,
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
-        _successful_tasks: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
+        let cmd_ref = cmd_arg.as_ref().to_string();
         let user_command = match cmd_arg {
             CommandArgs::Exec {
                 command,
@@ -371,25 +348,96 @@ impl TaskGroup for CustomCmdTaskGroup {
         let exec_cmd_task_execution = ExecCustomCommand::from_config(user_command, &config);
 
         Ok(TaskExecutionContext {
-            task_group: "exec_cmd".to_string(),
+            task_group: cmd_ref,
             barrier: None,
             executable: exec_cmd_task_execution,
         })
     }
 }
 
+#[async_trait::async_trait]
 impl TaskGroup for InstallRuntimeDepsTaskGroup {
-    fn tasks(
+    async fn tasks(
         &self,
-        _cmd_arg: CommandArgs,
+        cmd_arg: CommandArgs,
         config: DeploymentConfig,
-        _already_successful: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
         let install_runtime_deps = RuntimeDepsInstallation::from_config(&config)?;
         Ok(TaskExecutionContext {
-            task_group: "run-deps".to_string(),
+            task_group: cmd_arg.as_ref().to_string(),
             barrier: None,
             executable: install_runtime_deps,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskGroup for MonitorCtlTaskGroup {
+    async fn tasks(
+        &self,
+        cmd_arg: CommandArgs,
+        config: DeploymentConfig,
+    ) -> anyhow::Result<TaskExecutionContext> {
+        let monitor_ctl_cmd = match &cmd_arg {
+            CommandArgs::Monitor {
+                cluster: _,
+                command,
+            } => command,
+            _ => unreachable!(),
+        };
+        let mut executable = IndexMap::new();
+        let mut barrier = vec![];
+        if monitor_ctl_cmd.to_lowercase().eq("start") {
+            let monitor_opt = config.deployment.monitor.as_ref();
+            assert!(monitor_opt.is_some());
+            let monitor = monitor_opt.unwrap();
+            let install_dir = config.install_dir();
+            let mysql_port = config.deployment.port.mysql_port;
+            let create_monitor_user_cmd =
+                monitor.create_monitor_user_cmd(install_dir.clone(), mysql_port);
+
+            let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+            let pick_mono_instance = monograph_hosts.first().unwrap();
+
+            let create_user_task = ExecCustomCommand::build_task_by_host(
+                create_monitor_user_cmd,
+                &config,
+                vec![pick_mono_instance.to_string()],
+                Some("create_monitor_user".to_string()),
+            );
+            barrier.push(create_user_task.len());
+            executable.extend(create_user_task.into_iter());
+
+            let flush_privileges =
+                monitor.flush_privileges_for_create_user(install_dir, mysql_port);
+            let flush_privilege_task = ExecCustomCommand::build_task_by_host(
+                flush_privileges,
+                &config,
+                monograph_hosts,
+                Some("flush_privilege".to_string()),
+            );
+            barrier.push(flush_privilege_task.len());
+            executable.extend(flush_privilege_task.into_iter());
+        }
+
+        let exporter_task_instance = MonitorCtlTask::exporter_ctl_task(cmd_arg.clone(), &config);
+        let prometheus_task_instance =
+            MonitorCtlTask::prometheus_ctl_task(cmd_arg.clone(), &config);
+        let grafana_task_instance = MonitorCtlTask::grafana_clt_task(cmd_arg.clone(), &config);
+
+        barrier.push(exporter_task_instance.len());
+        barrier.push(prometheus_task_instance.len());
+        barrier.push(grafana_task_instance.len());
+
+        executable.extend(exporter_task_instance.into_iter());
+        executable.extend(prometheus_task_instance.into_iter());
+        executable.extend(grafana_task_instance.into_iter());
+
+        let cmd_ref = cmd_arg.as_ref();
+        Ok(TaskExecutionContext {
+            task_group: format!("control-{cmd_ref}"),
+            barrier: Some(barrier),
+            executable,
         })
     }
 }

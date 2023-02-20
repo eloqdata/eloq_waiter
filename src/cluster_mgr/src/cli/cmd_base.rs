@@ -1,6 +1,6 @@
-use crate::cli::config::DeploymentConfig;
-use crate::cli::task::task_base::{CmdErr, TaskExecutionContext, TaskMgr};
+use crate::cli::task::task_base::{CmdErr, TaskMgr};
 use crate::cli::CommandArgs;
+use crate::config::config_base::DeploymentConfig;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
@@ -100,6 +100,10 @@ impl CommandExecutor {
             | CommandArgs::Exec {
                 command: _,
                 cluster,
+            }
+            | CommandArgs::Monitor {
+                command: _,
+                cluster,
             } => {
                 let config = self
                     .state_mgr
@@ -114,12 +118,6 @@ impl CommandExecutor {
         }
     }
 
-    pub fn task_context(&self, cmd: CommandArgs, config: DeploymentConfig) -> TaskExecutionContext {
-        let context_rs = self.task_mgr.task_context(cmd, &config, None);
-        assert!(context_rs.is_ok());
-        context_rs.unwrap()
-    }
-
     pub async fn run(
         &'static self,
         cmd: CommandArgs,
@@ -132,16 +130,6 @@ impl CommandExecutor {
             }
             None => self.get_config(cmd.clone()).await?.unwrap(),
         };
-        let cluster = &config.deployment.cluster_name;
-
-        let success_task_ids = self
-            .state_mgr
-            .load_task_status_from_state(
-                cluster.clone(),
-                Some(0),
-                Some(vec![cmd.as_ref().to_string()]),
-            )
-            .await?;
 
         let recv_rs_and_print_join = tokio::task::spawn(async move {
             let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
@@ -149,10 +137,7 @@ impl CommandExecutor {
                 self.task_mgr.print_task_result().await;
             }
         });
-        let rs = self
-            .task_mgr
-            .run_tasks(cmd, config, Some(success_task_ids))
-            .await?;
+        let rs = self.task_mgr.run_tasks(cmd, config).await?;
         recv_rs_and_print_join.await?;
         println!(r#"all tasks complete.task_size={}"#, rs.len());
         Ok(())

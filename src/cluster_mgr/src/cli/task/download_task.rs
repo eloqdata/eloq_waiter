@@ -1,25 +1,23 @@
-use crate::cli::config::{DeploymentConfig, DownloadUrl};
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{download_dir, file_process_progress, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::config_base::DeploymentConfig;
+use crate::config::DownloadUrl;
 use anyhow::anyhow;
 use futures::stream::StreamExt;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 use tracing::{error, info};
 
-pub const MONOGRAPH_DEFAULT_FILE_NAME: &str = "monographdb-release-bin.tar.gz";
-
 pub(crate) const DOWNLOAD_URL: &str = "download_url";
+pub(crate) const DOWNLOAD_FILE_NAME: &str = "download_file_name";
 pub(crate) const DOWNLOAD_PATH: &str = "download_path";
-
-pub(crate) const MONOGRAPH_DOWNLOAD_TASK: &str = "monogrphdb_download";
-pub(crate) const CASSANDRA_DOWNLOAD_TASK: &str = "cassandra_download";
-pub(crate) const ALL_DOWNLOAD_TASKS: [&str; 2] = [MONOGRAPH_DOWNLOAD_TASK, CASSANDRA_DOWNLOAD_TASK];
 
 #[derive(Debug, Clone)]
 pub struct DownloadFromRemoteTask {
@@ -46,19 +44,28 @@ impl DownloadFromRemoteTask {
                 download_url_vec.push(cass_download_url_string.to_string());
             }
         }
+
+        if let Some(monitor) = &config.deployment.monitor {
+            let monitor_download_url_vec = monitor.monitor_download_links()?;
+            let monitor_download_string_vec = monitor_download_url_vec
+                .iter()
+                .filter(|url| !url.is_local())
+                .map(|download_url| download_url.get_url())
+                .collect_vec();
+            download_url_vec.extend(monitor_download_string_vec.into_iter());
+        }
+
         let download_dir = download_dir();
         let local_ip = local_ip_address::local_ip()?.to_string();
         let download_tasks = download_url_vec
             .into_iter()
             .map(|download_url| {
-                let task_name = if download_url.to_lowercase().contains("monograph") {
-                    MONOGRAPH_DOWNLOAD_TASK
-                } else {
-                    CASSANDRA_DOWNLOAD_TASK
-                };
+                let download_file_name = DownloadUrl::from_url_str(download_url.as_str())
+                    .unwrap()
+                    .file_name();
                 let task_id = TaskId {
                     cmd: "deploy".to_string(),
-                    task: task_name.to_string(),
+                    task: format!("{download_file_name}_download"),
                     host: local_ip.to_string(),
                 };
                 (
@@ -66,6 +73,10 @@ impl DownloadFromRemoteTask {
                     TaskInstance {
                         task_input: HashMap::from([
                             (DOWNLOAD_URL.to_string(), TaskArgValue::Str(download_url)),
+                            (
+                                DOWNLOAD_FILE_NAME.to_string(),
+                                TaskArgValue::Str(download_file_name),
+                            ),
                             (
                                 DOWNLOAD_PATH.to_string(),
                                 TaskArgValue::Str(download_dir.to_str().unwrap().to_string()),
@@ -102,9 +113,13 @@ impl TaskExecutor for DownloadFromRemoteTask {
         let download_dir = TaskArgValue::into_inner_value::<String>(
             task_input.get(DOWNLOAD_PATH).unwrap().clone(),
         );
+        let download_file_name = TaskArgValue::into_inner_value::<String>(
+            task_input.get(DOWNLOAD_FILE_NAME).unwrap().clone(),
+        );
         let download_path = PathBuf::from(download_dir.as_str());
-        info!("DownloadTask start download_url={}", download_url);
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .build()?;
         let download_url_cloned = download_url.clone();
         let rsp_rs = client.get(download_url.as_str()).send().await;
         if let Err(rsp_err) = rsp_rs {
@@ -141,21 +156,8 @@ impl TaskExecutor for DownloadFromRemoteTask {
                 create_download_path_rs.err().unwrap().to_string()
             )));
         }
-
-        let download_file_tuple = {
-            let download_file_name = http_response
-                .url()
-                .path_segments()
-                .and_then(|segments| segments.last())
-                .and_then(|name| if name.is_empty() { None } else { Some(name) })
-                .unwrap_or(MONOGRAPH_DEFAULT_FILE_NAME);
-
-            let file_length = http_response.content_length().unwrap();
-            (download_file_name, file_length)
-        };
-        let file_name = download_file_tuple.0.to_string();
-        let file_len = download_file_tuple.1;
-        let local_file_path = download_path.join(file_name.clone());
+        let file_len = http_response.content_length().unwrap();
+        let local_file_path = download_path.join(download_file_name.clone());
         if local_file_path.exists() {
             info!(
                 "The local file {:?} exists. please delete it if you want to re-download it first.",
@@ -174,33 +176,40 @@ impl TaskExecutor for DownloadFromRemoteTask {
 
         let mut download_file = create_local_file_rs.unwrap();
         let mut downloaded = 0_u64;
-        let pb = file_process_progress(file_len, format!("DOWNLOAD [{file_name}]"), "#>-");
+        let pb = file_process_progress(file_len, format!("DOWNLOAD [{download_file_name}]"), "#>-");
 
         let mut stream_reader = http_response.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
             if stream_chunk.is_err() {
-                return Err(anyhow!(DownloadErr(
-                    download_url_cloned,
-                    stream_chunk.err().unwrap().to_string()
-                )));
+                let err_msg = stream_chunk.err().unwrap().to_string();
+                error!(
+                    "DownloadRemote task error file={},msg={}",
+                    download_url_cloned, err_msg
+                );
+                return Err(anyhow!(DownloadErr(download_url_cloned, err_msg)));
             }
             if let Ok(chunk) = stream_chunk {
                 if let Err(write_err) = download_file.write_all(&chunk) {
-                    return Err(anyhow!(DownloadErr(
-                        download_url_cloned,
-                        write_err.to_string()
-                    )));
+                    let err_msg = write_err.to_string();
+                    error!(
+                        "DownloadRemote task error file={},msg={}",
+                        download_url_cloned, err_msg
+                    );
+                    return Err(anyhow!(DownloadErr(download_url_cloned, err_msg)));
                 }
                 let new_progress = std::cmp::min(downloaded + (chunk.len() as u64), file_len);
                 downloaded = new_progress;
                 pb.set_position(downloaded);
             } else {
                 let stream_chunk_err = stream_chunk.err().unwrap().to_string();
-                error!("DownloadTask write local file error {}", stream_chunk_err);
+                error!(
+                    "DownloadTask {} write local file error {} ",
+                    download_url_cloned, stream_chunk_err
+                );
                 return Err(anyhow!(DownloadErr(download_url_cloned, stream_chunk_err)));
             }
         }
-        pb.finish_with_message(format!("{file_name} download compete"));
+        pb.finish_with_message(format!("{download_file_name} download compete"));
 
         let mut download_result = HashMap::new();
 
@@ -215,6 +224,6 @@ impl TaskExecutor for DownloadFromRemoteTask {
 
         download_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
 
-        Ok(Some(download_result))
+        Ok(None)
     }
 }

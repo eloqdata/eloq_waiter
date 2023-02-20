@@ -1,13 +1,12 @@
-use crate::cli::config::DeploymentConfig;
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
+use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use itertools::Itertools;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -21,8 +20,6 @@ impl RuntimeDepsInstallation {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let all_host_map = config.get_host_as_map();
-
         let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None)?;
         let os_name = os_and_deps_pair.0;
         let dep_cmd_partial = match os_name.as_str() {
@@ -41,12 +38,7 @@ impl RuntimeDepsInstallation {
 
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
-        let host_values = all_host_map
-            .values()
-            .into_iter()
-            .flat_map(|entry| entry.iter().cloned().collect_vec())
-            .collect_vec();
-
+        let host_values = config.get_unique_host_list();
         let install_dep_task = host_values
             .iter()
             .map(|host_name| {

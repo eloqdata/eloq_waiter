@@ -7,21 +7,12 @@ use tracing::error;
 
 pub mod cmd_base;
 mod cmd_printer;
-pub mod config;
 pub mod ssh;
 pub mod task;
 
 pub const CMD_STATUS: &str = "_cmd_status_";
 pub const CMD_OUTPUT: &str = "_cmd_output_";
 pub const CMD: &str = "_cmd_";
-pub const MONOGRAPH_CONF: &str = "my.cnf";
-pub const MONOGRAPH_CONF_TEMPLATE: &str = "my_template.cnf";
-pub const MONOGRAPH_CONF_DYNAMO_TEMPLATE: &str = "my_template_dynamo.cnf";
-pub const START_MONOGRAPH_SCRIPT: &str = "start_monographdb.bash";
-pub const START_MONOGRAPH_TEMPLATE: &str = "start_monographdb.template";
-pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
-pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
-pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
 
 #[derive(Parser, Default, Debug)]
 #[command(author, version = "1.0.0", about = "MonographDB Cluster Manager Cli")]
@@ -99,6 +90,15 @@ pub enum CommandArgs {
     RunDeps {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
+    },
+    #[strum(serialize = "monitor")]
+    /// Start or stop monitoring components,including prometheus,grafana,node_exporter,mysql_exporter
+    /// For example: ./cluster_mgr monitor --cluster $CLUSTER_NAME --command start/stop
+    Monitor {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
+        #[arg(long, value_name = "MONITOR START/STOP COMMAND")]
+        command: String,
     },
 }
 

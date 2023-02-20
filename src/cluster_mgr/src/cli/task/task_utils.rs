@@ -11,7 +11,44 @@ use anyhow::anyhow;
 use std::time::Duration;
 use tracing::{error, info};
 
+#[macro_export]
+macro_rules! wait_command_complete {
+    ($cmd:expr,$process_cmd:expr,$ssh_session:expr, $check_fn:ident) => {{
+        ctl_action_wait_complete(
+            $cmd,
+            $process_cmd,
+            $ssh_session,
+            async move |cmd, ssh_conn| ssh_conn.command(cmd.as_str(), CollectOutput).await,
+            |output| -> bool { parse_process_pid(output).$check_fn() },
+        )
+        .await
+    }};
+}
+
 pub(crate) const PROCESS_PID: &str = "_process_pid_";
+
+pub fn parse_process_pid(process_info: String) -> Option<i32> {
+    if process_info.is_empty() {
+        None
+    } else {
+        let mut pid = None;
+        let output_normal = process_info.trim();
+        for line in output_normal.lines() {
+            let line_normal = line.trim();
+            if line_normal.is_empty() {
+                continue;
+            }
+            if !line_normal.chars().all(char::is_numeric) {
+                continue;
+            }
+            let parse_rs = line_normal.parse::<i32>().unwrap();
+            pid = Some(parse_rs);
+            break;
+        }
+        println!("ProcessInfo PID={pid:?}");
+        pid
+    }
+}
 
 pub(crate) async fn check_process_pid<F>(
     check_cmd: String,
@@ -44,27 +81,6 @@ where
         );
     }
     Ok(cmd_exec_rs)
-}
-
-pub(crate) async fn ctl_cmd(cmd: String, ssh_conn: SSHSession) -> anyhow::Result<ExecutionValue> {
-    let start_rs = ssh_conn.command(cmd.as_str(), CollectOutput).await?; //ssh_conn.run_cmd(start_cmd.clone(), true)?;
-    let status_code =
-        TaskArgValue::into_inner_value::<usize>(start_rs.get(CMD_STATUS).unwrap().clone());
-    info!(
-        "Start command execution completed.cmd={},status_code={}",
-        cmd, status_code
-    );
-    if status_code != 0 {
-        error!(
-            "Start command execution failed. status_code={}, cmd={}",
-            status_code, cmd
-        );
-        Err(anyhow!(format!(
-            "Start failed cmd={cmd}, cmd_code={status_code}",
-        )))
-    } else {
-        Ok(start_rs)
-    }
 }
 
 pub(crate) async fn ctl_action_wait_complete<F1, F2, Fut2>(
@@ -106,7 +122,6 @@ pub(crate) async fn wait_process_complete<F>(
 ) -> anyhow::Result<bool>
 where
     F: Fn(String) -> bool,
-    // Fut: Future<Output = bool>,
 {
     let sleep_duration = Duration::from_secs(1);
     let mut timeout_remaining = wait_timeout;
@@ -119,9 +134,13 @@ where
         let rs = ssh_conn
             .command(check_status_cmd.as_str(), CollectOutput)
             .await;
+        println!("check_status_cmd = {rs:?}");
         if rs.as_ref().is_err() {
             let err_msg = rs.err().unwrap().to_string();
-            error!("CheckStatus return failed. {}", err_msg);
+            error!(
+                "CheckStatus return failed. {} {}",
+                err_msg, check_status_cmd
+            );
             return Err(anyhow!(err_msg));
         }
         let exec_rs = rs.as_ref().unwrap();

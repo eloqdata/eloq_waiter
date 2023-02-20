@@ -1,10 +1,10 @@
 use crate::cli::cmd_printer::{CmdPrinter, Printable};
-use crate::cli::config::{load_remote_env, DeploymentConfig};
 use crate::cli::task::task_controller::TaskController;
 use crate::cli::task::task_group::TASK_GROUP;
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::config_base::DeploymentConfig;
+use crate::config::load_remote_env;
 use crate::enum_into_trait;
-use crate::state::task_status_operation::TaskStatusEntity;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use futures::StreamExt;
@@ -143,6 +143,8 @@ pub enum CmdErr {
     CassandraOpErr(String),
     #[error("Error executing LocalCopyTask; please check if the source path exists path {0}")]
     CopyTaskErr(String),
+    #[error("Error executing MonographDB monitor component task {0}, error causes {1}")]
+    MonitorCtlCmdErr(String, String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -339,25 +341,23 @@ impl TaskMgr {
         .await
     }
 
-    pub fn task_context(
+    pub async fn task_context(
         &self,
         cmd_args: CommandArgs,
         config: &DeploymentConfig,
-        success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<TaskExecutionContext> {
         let group_key = cmd_args.as_ref();
 
         let task_group = TASK_GROUP.get(group_key).unwrap();
-        task_group.tasks(cmd_args, config.clone(), success_task)
+        task_group.tasks(cmd_args, config.clone()).await
     }
 
     pub async fn run_tasks(
         &'static self,
         cmd_args: CommandArgs,
         config: DeploymentConfig,
-        success_task: Option<Vec<TaskStatusEntity>>,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
-        let tasks_execution = self.task_context(cmd_args, &config, success_task)?;
+        let tasks_execution = self.task_context(cmd_args, &config).await?;
         info!(
             "TaskMgr start current barrier={:?}",
             tasks_execution.barrier

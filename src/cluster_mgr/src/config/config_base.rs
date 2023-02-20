@@ -1,0 +1,409 @@
+use crate::cli::download_dir;
+
+use crate::config::connection::Connection;
+use crate::config::deployment::Deployment;
+use crate::config::monitor::Monitor;
+use crate::config::{
+    config_path_string, config_template, DeploymentService, StorageProvider,
+    CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE,
+    START_MONOGRAPH_SCRIPT, START_MONOGRAPH_TEMPLATE,
+};
+use crate::config::{ConfigErr, DownloadUrl};
+use crate::gen_db_misc_files;
+use anyhow::anyhow;
+use configparser::ini::Ini;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use sysinfo::SystemExt;
+use tracing::{error, info};
+
+pub const MONOGRAPH_FILE_KEY: &str = "monograph";
+pub const CASSANDRA_FILE_KEY: &str = "cassandra";
+pub const PROMETHEUS_FILE_KEY: &str = "prometheus";
+pub const GRAFANA_FILE_KEY: &str = "grafana";
+pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
+pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
+pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
+
+macro_rules! extract_monitor_host {
+    ($deployment_ref:expr, $monitor_components:ident) => {{
+        if let Some(monitor) = $deployment_ref.monitor.as_ref() {
+            vec![monitor.$monitor_components.host.clone()]
+        } else {
+            vec![]
+        }
+    }};
+}
+
+macro_rules! monitor_components_unpack_file {
+    ($unpack_files:expr,$hosts:expr, $monitor:expr,$get_download_url:expr) => {
+        if let Some(monitor_ref) = $monitor {
+            let monitor_downlad_url = $get_download_url(monitor_ref);
+            if monitor_downlad_url.is_empty() {
+                return;
+            }
+            let download_url_obj_rs = DownloadUrl::from_url_str(monitor_downlad_url.as_str());
+            if let Ok(download_url_obj) = download_url_obj_rs {
+                let file_name = download_url_obj.file_name();
+                if file_name.contains("tar.gz") {
+                    $unpack_files.insert(file_name, $hosts);
+                }
+            }
+        }
+    };
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct DeploymentConfig {
+    pub connection: Connection,
+    pub deployment: Deployment,
+}
+
+impl DeploymentConfig {
+    /// key is host, value is tarball
+    pub fn unpack_files_map(&self) -> HashMap<String, Vec<String>> {
+        let all_hosts = self.get_host_as_map();
+        let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
+        let monitor_opt = self.deployment.monitor.as_ref();
+        let install_image = &self.deployment.install_image;
+        let mut unpack_files = HashMap::new();
+        all_hosts.iter().for_each(|entry| {
+            let hosts = entry.1;
+            let service = entry.0;
+            match service {
+                DeploymentService::Storage => {
+                    if let Some(cassandra) = cassandra_opt {
+                        let file_name = DownloadUrl::from_url_str(cassandra.download_url.as_str())
+                            .unwrap()
+                            .file_name();
+                        unpack_files.insert(file_name, hosts.clone());
+                        monitor_components_unpack_file!(
+                            unpack_files,
+                            hosts.clone(),
+                            monitor_opt,
+                            |monitor: &Monitor| -> String {
+                                if let Some(mcac) = &monitor.cassandra_collector {
+                                    mcac.mcac_agent.clone()
+                                } else {
+                                    "".to_string()
+                                }
+                            }
+                        );
+                    }
+                }
+                DeploymentService::Monograph => {
+                    let monograph_file_name = DownloadUrl::from_url_str(install_image.as_str())
+                        .unwrap()
+                        .file_name();
+                    if monograph_file_name.contains("tar.gz") {
+                        unpack_files.insert(monograph_file_name, hosts.clone());
+                    }
+
+                    monitor_components_unpack_file!(
+                        unpack_files,
+                        hosts.clone(),
+                        monitor_opt,
+                        |monitor: &Monitor| -> String { monitor.node_exporter.clone() }
+                    );
+
+                    monitor_components_unpack_file!(
+                        unpack_files,
+                        hosts.clone(),
+                        monitor_opt,
+                        |monitor: &Monitor| -> String { monitor.mysql_exporter.clone() }
+                    );
+                }
+                DeploymentService::Prometheus => {
+                    monitor_components_unpack_file!(
+                        unpack_files,
+                        hosts.clone(),
+                        monitor_opt,
+                        |monitor: &Monitor| -> String { monitor.prometheus.download_url.clone() }
+                    );
+                }
+                DeploymentService::Grafana => {
+                    monitor_components_unpack_file!(
+                        unpack_files,
+                        hosts.clone(),
+                        monitor_opt,
+                        |monitor: &Monitor| -> String { monitor.grafana.download_url.clone() }
+                    );
+                }
+            }
+        });
+        unpack_files
+    }
+
+    pub fn gen_install_db_script(&self) -> anyhow::Result<PathBuf> {
+        gen_db_misc_files!(
+            self,
+            build_install_monograph_script,
+            MONOGRAPH_INSTALL_SCRIPT
+        )
+    }
+
+    pub fn gen_db_start_script(&self) -> anyhow::Result<PathBuf> {
+        gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
+    }
+
+    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
+        let download_dir = download_dir();
+        let my_local = download_dir.join("my_local.cnf");
+        if !my_local.exists() {
+            self.deployment
+                .gen_monograph_config(None, self.install_dir())?;
+        }
+        let mut my_ini_local = Ini::new();
+        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
+        {
+            Ok(keyspace)
+        } else {
+            Ok("mono".to_string())
+        }
+    }
+
+    pub fn install_dir(&self) -> String {
+        format!(
+            "{}/{}",
+            &self.deployment.install_dir, self.deployment.cluster_name
+        )
+    }
+
+    // The names of all the files that need to be installed as images.
+    // monograph,cassandra,prometheus,grafana,node_exporter,mysql_exporter,cassandra_collector_agent
+    pub fn install_image_files(&self) -> anyhow::Result<HashMap<String, String>> {
+        let deployment = &self.deployment;
+        let mut files = HashMap::new();
+        let monograph_file =
+            DownloadUrl::from_url_str(deployment.install_image.as_str())?.file_name();
+
+        files.insert(MONOGRAPH_FILE_KEY.to_string(), monograph_file);
+
+        if let Some(cassandra) = deployment.storage_service.cassandra.as_ref() {
+            let cass_file_name =
+                DownloadUrl::from_url_str(cassandra.download_url.as_str())?.file_name();
+            files.insert(CASSANDRA_FILE_KEY.to_string(), cass_file_name);
+        }
+
+        if let Some(monitor) = deployment.monitor.as_ref() {
+            let monitor_download_links = monitor.monitor_download_links_as_amp()?;
+            monitor_download_links.iter().for_each(|entry| {
+                files.insert(entry.0.clone(), entry.1.file_name());
+            });
+        }
+        Ok(files)
+    }
+
+    pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
+        let install_db_template = config_template(MONOGRAPH_INSTALL_TEMPLATE)?;
+        let remote_install_dir = self.install_dir();
+
+        let rs = fs::read_to_string(install_db_template.as_path())?;
+        let final_script = rs
+            .replace(
+                "_CASSANDRA_STORAGE_BIN",
+                format!("{}/{}", remote_install_dir, "apache-cassandra/bin").as_str(),
+            )
+            .replace(
+                "_MONOGRAPH_DB_HOME",
+                format!("{}/{}/install", remote_install_dir, "monographdb-release").as_str(),
+            )
+            .replace(
+                "_MY_CONF",
+                format!("{remote_install_dir}/my_local.cnf").as_str(),
+            )
+            .replace("_MY_CLUSTER_HOME", remote_install_dir.as_str());
+        Ok(final_script)
+    }
+
+    pub fn build_start_monograph_script(&self) -> anyhow::Result<String> {
+        let script_path = config_template(START_MONOGRAPH_TEMPLATE)?;
+        let rs = fs::read_to_string(script_path.as_path())?;
+        Ok(rs.replace(
+            "_MY_INSTALL_DIR",
+            format!("{}/monographdb-release/install", self.install_dir()).as_str(),
+        ))
+    }
+
+    fn read_config_from_file(path: String) -> anyhow::Result<Self> {
+        let open_file_handler = File::open(Path::new(path.as_str()))?;
+        let deployment_config =
+            serde_yaml::from_reader::<File, DeploymentConfig>(open_file_handler)?;
+        Ok(deployment_config)
+    }
+
+    pub fn get_host_as_map(&self) -> HashMap<DeploymentService, Vec<String>> {
+        HashMap::from([
+            (
+                DeploymentService::Monograph,
+                self.get_host_list(DeploymentService::Monograph),
+            ),
+            (
+                DeploymentService::Storage,
+                self.get_host_list(DeploymentService::Storage),
+            ),
+            (
+                DeploymentService::Prometheus,
+                self.get_host_list(DeploymentService::Prometheus),
+            ),
+            (
+                DeploymentService::Grafana,
+                self.get_host_list(DeploymentService::Grafana),
+            ),
+        ])
+    }
+
+    pub fn get_unique_host_list(&self) -> Vec<String> {
+        let mut hosts_vec = self.get_host_list(DeploymentService::Monograph);
+        let storage_hosts = self.get_host_list(DeploymentService::Storage);
+        hosts_vec.extend(storage_hosts.into_iter());
+        hosts_vec.into_iter().unique().collect_vec()
+    }
+
+    pub fn get_host_list(&self, service: DeploymentService) -> Vec<String> {
+        let deployment = &self.deployment;
+        match service {
+            DeploymentService::Storage => {
+                if let Some(cassandra) = &deployment.storage_service.cassandra {
+                    cassandra.host.to_vec()
+                } else {
+                    vec![]
+                }
+            }
+            DeploymentService::Monograph => deployment.mono_service.host.to_vec(),
+            DeploymentService::Prometheus => {
+                extract_monitor_host!(deployment, prometheus)
+            }
+            DeploymentService::Grafana => {
+                extract_monitor_host!(deployment, grafana)
+            }
+        }
+    }
+
+    pub fn load_from_string(config_content: String) -> anyhow::Result<Self> {
+        let deployment_config_rs =
+            serde_yaml::from_str::<DeploymentConfig>(config_content.as_str());
+        if let Ok(deployment_config) = deployment_config_rs {
+            Ok(deployment_config)
+        } else {
+            Err(anyhow!(deployment_config_rs.err().unwrap().to_string()))
+        }
+    }
+
+    pub fn validate_storage_service(&self) -> bool {
+        let storage_service = &self.deployment.storage_service;
+        storage_service.dynamodb.is_some() || storage_service.cassandra.is_some()
+    }
+
+    pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
+        let storage = &self.deployment.storage_service;
+        if !self.validate_storage_service() {
+            let err_msg = format!(
+                "DynamoDB Option={}, Cassandra option={}",
+                storage.dynamodb.is_some(),
+                storage.cassandra.is_some()
+            );
+            Err(anyhow!(ConfigErr::StorageConfigErr(err_msg)))
+        } else {
+            if storage.cassandra.is_some() {
+                return Ok(StorageProvider::Cassandra);
+            }
+            Ok(StorageProvider::DynamoDB)
+        }
+    }
+
+    pub fn config_to_string(&self) -> String {
+        serde_yaml::to_string(self).unwrap()
+    }
+
+    /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
+    /// for example: ubuntu_runtime_deps, centos_runtime_deps
+    pub fn load_runtime_deps_by_os(os_name: Option<String>) -> anyhow::Result<(String, String)> {
+        let config_path_var_rs = std::env::var(CONFIG_PATH_DIR);
+        assert!(config_path_var_rs.is_ok());
+        let curr_os_name = if let Some(short_os_name) = os_name {
+            short_os_name.to_lowercase()
+        } else {
+            let system = sysinfo::System::new();
+            let curr_os_name = system.name();
+            assert!(curr_os_name.is_some());
+            let os_name = curr_os_name.unwrap().to_lowercase();
+            if os_name.starts_with("ubuntu") {
+                "ubuntu".to_string()
+            } else if os_name.starts_with("centos") {
+                "centos".to_string()
+            } else {
+                unreachable!()
+            }
+        };
+        let runtime_deps_file = format!("{curr_os_name}_runtime_deps");
+        let config_path = config_path_var_rs.unwrap();
+        let deps_path = PathBuf::from(config_path.as_str()).join(runtime_deps_file);
+        let deps_file_opened = File::open(deps_path.as_path())?;
+        let lines = BufReader::new(deps_file_opened).lines();
+
+        let deps_string = lines
+            .filter_map(|line_rs| {
+                if let Ok(line) = line_rs {
+                    Some(line)
+                } else {
+                    None
+                }
+            })
+            .join(" ");
+        Ok((curr_os_name, deps_string))
+    }
+
+    pub fn load(path: Option<String>) -> anyhow::Result<Self> {
+        let path_string = config_path_string(path)?;
+        info!("DeploymentConfig load file from {}", path_string);
+        let config_rs = DeploymentConfig::read_config_from_file(path_string);
+        if let Ok(config) = config_rs {
+            Ok(config)
+        } else {
+            let config_err = config_rs.err().unwrap().to_string();
+            error!(
+                "DeploymentConfig load error cause by {:?}",
+                config_err.as_str()
+            );
+            Err(anyhow!(config_err))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::config_base::DeploymentConfig;
+    use crate::config::{DeploymentService, CONFIG_PATH_DIR};
+    use std::path::PathBuf;
+
+    fn set_config_path_env_and_get() -> String {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let config_path = manifest_dir.join("config");
+        std::env::set_var(CONFIG_PATH_DIR, config_path.to_str().unwrap());
+        config_path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    pub fn test_cass_env_gen() {
+        let config_path_string = set_config_path_env_and_get();
+        let config_rs =
+            DeploymentConfig::load(Some(format!("{config_path_string}/deployment.yaml")));
+        assert!(config_rs.is_ok());
+        let config = config_rs.unwrap();
+        let monitor_opt = config.clone().deployment.monitor;
+        let monitor = monitor_opt.as_ref();
+        assert!(monitor.is_some());
+
+        let mono_host_list = config.get_host_list(DeploymentService::Monograph);
+        let monitor = monitor.unwrap();
+        let pro_rs = monitor.gen_prometheus_config(mono_host_list);
+        println!("pro_rs={pro_rs:#?}")
+    }
+}

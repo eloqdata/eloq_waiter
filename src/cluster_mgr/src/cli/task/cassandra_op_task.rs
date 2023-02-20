@@ -1,8 +1,9 @@
-use crate::cli::config::{DeploymentConfig, DeploymentService};
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::config_base::DeploymentConfig;
+use crate::config::{load_yaml_config_template, DeploymentService, CASSANDRA_CONF_TEMPLATE};
 use async_trait::async_trait;
 use cdrs_tokio::authenticators::NoneAuthenticatorProvider;
 use cdrs_tokio::cluster::session::{Session, SessionBuilder, TcpSessionBuilder};
@@ -61,7 +62,7 @@ impl CassandraOpTask {
         >,
     > {
         let cass_hosts = self.config.get_host_list(DeploymentService::Storage);
-        let cass_config = self.config.load_cassandra_config_template()?;
+        let cass_config = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
         let client_transport_port = cass_config
             .get("native_transport_port")
             .unwrap()
