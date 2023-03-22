@@ -269,8 +269,114 @@
       },
       "id": 123129,
       "panels": [],
-      "title": "Tx Latency",
+      "title": "Latency",
       "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 123127,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(run_one_round_duration_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
+          "hide": false,
+          "legendFormat": "p99, node: {{node_id}}  core: {{core_id}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.90, rate(run_one_round_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
+          "hide": false,
+          "legendFormat": "p90, node: {{node_id}}  core: {{core_id}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Run One Round Latency",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -337,7 +443,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 10
+        "y": 19
       },
       "id": 123133,
       "options": {
@@ -359,7 +465,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(tx_execution_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
+          "expr": "histogram_quantile(0.99, rate(tx_execution_duration_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
           "legendFormat": "p99, node: {{node_id}}  core: {{core_id}}",
           "range": true,
           "refId": "A"
@@ -370,7 +476,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.90, rate(tx_execution_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
+          "expr": "histogram_quantile(0.90, rate(tx_execution_duration_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
           "hide": false,
           "legendFormat": "p90, node: {{node_id}}  core: {{core_id}}",
           "range": true,
@@ -378,6 +484,114 @@
         }
       ],
       "title": "Tx Execution Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 123139,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(tx_latency_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
+          "legendFormat": "p99, node: {{node_id}}  core: {{core_id}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.90, rate(tx_latency_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
+          "hide": false,
+          "legendFormat": "p90, node: {{node_id}}  core: {{core_id}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Tx Latency",
       "type": "timeseries"
     },
     {
@@ -442,7 +656,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 27
       },
       "id": 123134,
       "options": {
@@ -464,7 +678,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(process_cc_request_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
+          "expr": "histogram_quantile(0.99, rate(process_cc_request_duration_bucket{core_id=~\"$core_id\", node_id=~\"$node_id\"}[$__rate_interval]))",
           "legendFormat": "p99, node: {{node_id}}  core: {{core_id}}",
           "range": true,
           "refId": "A"
@@ -483,111 +697,6 @@
         }
       ],
       "title": "Process CC Requests Latency",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green"
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 26
-      },
-      "id": 123127,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(run_one_round_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
-          "hide": false,
-          "legendFormat": "p99, node: {{node_id}}  core: {{core_id}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.90, rate(run_one_round_duration_bucket{core_id=~\"$core_id\", node_id=\"$node_id\"}[$__rate_interval]))",
-          "hide": false,
-          "legendFormat": "p90, node: {{node_id}}  core: {{core_id}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Run One Round Latency",
       "type": "timeseries"
     }
   ],
@@ -679,6 +788,6 @@
   "timezone": "browser",
   "title": "tx_service",
   "uid": "aNdjtL-4z",
-  "version": 19,
+  "version": 22,
   "weekStart": ""
 }
