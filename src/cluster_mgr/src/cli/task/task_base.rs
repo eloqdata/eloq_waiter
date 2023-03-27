@@ -109,7 +109,7 @@ macro_rules! task_return_value {
         let status_code = TaskArgValue::into_inner_value::<usize>(task_status.clone());
         if status_code != 0 {
             let cmd_err = $task_err_closure(status_code);
-            println!("{:?}", cmd_err);
+            println!("{:?} {:?}", $task_name, cmd_err);
             return Err(anyhow::anyhow!(cmd_err));
         } else {
             return Ok(Some(task_rs));
