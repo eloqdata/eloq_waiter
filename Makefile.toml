@@ -1,3 +1,8 @@
+[tasks.rustc-version-nightly]
+toolchain = "nightly-2022-12-12"
+command = "rustc"
+args = [ "--version" ]
+
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 CARGO_MAKE_CRATE_IS_WORKSPACE = true
