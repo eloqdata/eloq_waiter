@@ -88,7 +88,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -140,7 +140,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[5s]) or irate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[5s]))",
@@ -155,7 +155,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -203,7 +203,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(mysql_global_status_queries{instance=~\"$host\"}[5s]) or irate(mysql_global_status_queries{instance=\"$host\"}[5s]))",
@@ -218,7 +218,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -267,7 +267,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -281,7 +281,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -312,7 +312,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -391,7 +391,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(tx_processed_total{node_id=~\"$node_id\"}[$__rate_interval]))",
@@ -406,7 +406,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -484,7 +484,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(tx_processed_total{node_id=~\"$node_id\"}[$__rate_interval])) by (node_id)",
@@ -495,7 +495,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "",
@@ -511,7 +511,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -589,7 +589,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[$__interval]) or irate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[$__interval]))",
@@ -604,7 +604,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -682,7 +682,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum by (instance) (rate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[$__interval]) or irate(mysql_global_status_handlers_total{instance=~\"$host\", handler=~\"commit|rollback\"}[$__interval]))",
@@ -710,7 +710,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -765,7 +765,32 @@
           },
           "unit": "µs"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "p99"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -790,7 +815,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(tx_duration_bucket{node_id=~\"$node_id\"}[$__rate_interval])) by (le))",
@@ -805,7 +830,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -885,7 +910,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(tx_duration_bucket{node_id=~\"$node_id\"}[$__rate_interval])) by (le, node_id))",
@@ -913,7 +938,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -993,7 +1018,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "(1 + sum(memory_usage{node_id=~\"$node_id\"})) / (1 + sum(memory_usage{node_id=~\"$node_id\"}))",
@@ -1008,7 +1033,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -1113,7 +1138,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "(1 + sum by (node_id)(memory_usage{node_id=~\"$node_id\"})) / (1 + sum by (node_id) (memory_limit{node_id=~\"$node_id\"}))",
@@ -1128,7 +1153,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -1233,7 +1258,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "(1 + sum(delta(cache_hits[$__interval]))) / (1 + sum(delta(cache_hits[$__interval])) + sum(delta(cache_miss[$__interval])))",
@@ -1248,7 +1273,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "my_prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "description": "",
       "fieldConfig": {
@@ -1328,7 +1353,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "(1 + sum by(node_id)(delta(cache_hits[$__interval]))) / (1 + sum by(node_id)(delta(cache_hits[$__interval])) + sum by(node_id)(delta(cache_miss[$__interval])))",
@@ -1353,7 +1378,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "fieldConfig": {
             "defaults": {
@@ -1433,7 +1458,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "my_prometheus"
+                "uid": "${DS_PROMETHEUS}"
               },
               "editorMode": "code",
               "expr": "histogram_quantile(0.99, sum by (le, node_id)(rate(process_tx_requests_duration_bucket[$__rate_interval])))",
@@ -1448,7 +1473,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "fieldConfig": {
             "defaults": {
@@ -1525,7 +1550,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "my_prometheus"
+                "uid": "${DS_PROMETHEUS}"
               },
               "editorMode": "code",
               "expr": "histogram_quantile(0.99, sum by (le, node_id)(rate(process_cc_requests_duration_bucket{node_id=~\"$node_id\"}[$__rate_interval])))",
@@ -1540,7 +1565,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "my_prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "description": "",
           "fieldConfig": {
@@ -1617,7 +1642,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "my_prometheus"
+                "uid": "${DS_PROMETHEUS}"
               },
               "editorMode": "code",
               "expr": "avg(cc_queue_length{node_id=~\"$node_id\"}) by (node_id)",
@@ -1662,7 +1687,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "my_prometheus"
+          "uid": "${DS_PROMETHEUS}"
         },
         "definition": "label_values({node_id=~\".+\"}, node_id)",
         "hide": 0,
@@ -1684,7 +1709,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "my_prometheus"
+          "uid": "${DS_PROMETHEUS}"
         },
         "definition": "label_values(mysql_up, instance)",
         "description": "",
@@ -1739,7 +1764,7 @@
   },
   "timezone": "browser",
   "title": "Overview",
-  "uid": "overview",
-  "version": 5,
+  "uid": "overview-new",
+  "version": 6,
   "weekStart": ""
 }
