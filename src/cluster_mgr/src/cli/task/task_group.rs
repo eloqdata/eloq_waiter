@@ -240,7 +240,8 @@ impl TaskGroup for InstallDBTaskGroup {
                 "InstallDBTaskGroup MonographDB multiple installation hosts are configured {:?}",
                 dest_hosts
             );
-            let upload_task = UploadTask::build_upload_data_dir_tasks(&config, dest_hosts);
+            let upload_task =
+                UploadTask::build_upload_datafarm_tasks(&config, install_db_host_string.clone(), dest_hosts);
 
             barrier.push(upload_task.len());
             executable.extend(upload_task.into_iter());
