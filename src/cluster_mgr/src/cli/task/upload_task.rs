@@ -19,6 +19,7 @@ use tracing::info;
 
 pub(crate) const SOURCE_PATH: &str = "source_file";
 pub(crate) const DEST_PATH: &str = "dest_file";
+pub(crate) const SOURCE_HOST: &str = "source_host";
 pub(crate) const COPY_DIR: &str = "copy_dir";
 pub(crate) const DB_CONFIG_UPLOAD_TASK: &str = "db_config_upload";
 pub(crate) const INSTALL_MONOGRAPH_UPLOAD_TASK: &str = "install_monograph_script_upload";
@@ -197,8 +198,9 @@ impl UploadTask {
     }
 
     /// Upload the MonographDB data_dir to the remote host.
-    pub fn build_upload_data_dir_tasks(
+    pub fn build_upload_datafarm_tasks(
         config: &DeploymentConfig,
+        source_task: String,
         dest_hosts: Vec<TaskHost>,
     ) -> IndexMap<TaskId, TaskInstance> {
         let datafarm = format!("{}/datafarm", config.install_dir());
@@ -217,6 +219,10 @@ impl UploadTask {
                         task_input: HashMap::from([
                             (SOURCE_PATH.to_string(), TaskArgValue::Str(datafarm.clone())),
                             (COPY_DIR.to_string(), TaskArgValue::Str("-r".to_string())),
+                            (
+                                SOURCE_HOST.to_string(),
+                                TaskArgValue::Str(source_task.clone()),
+                            ),
                         ]),
                         task: Box::new(UploadTask::new(config.clone(), task_id)),
                         task_host: dest_host.clone(),
@@ -527,8 +533,12 @@ impl TaskExecutor for UploadTask {
         self.create_remote_directory(remote_task_host.clone())
             .await?;
 
-        let source_ip_rs = local_ip_address::local_ip()?;
-        let local_ip_addr = source_ip_rs.to_string();
+        let local_ip_addr = if let Some(source_host_value) = task_input.get(SOURCE_HOST) {
+            source_host_value.clone().into_inner_value()
+        } else {
+            let source_ip_rs = local_ip_address::local_ip()?;
+            source_ip_rs.to_string()
+        };
         let ssh_port = self.config.connection.ssh_port();
         let ssh_user = self.config.connection.clone().username;
         let source_task_host = TaskHost::Remote {
