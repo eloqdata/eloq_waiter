@@ -60,7 +60,7 @@ pub fn ctrl_cluster(
     cmd: &str,
     global_handler: web::Data<GlobalCommandHandler>,
     post_deployment: web::Json<DeploymentConfig>,
-)  {
+) {
     let deploy_without_topology_file = build_command_from_str(cmd, None);
     global_handler.submit(RequestPayload {
         command: Some(deploy_without_topology_file),
