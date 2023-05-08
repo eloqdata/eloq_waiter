@@ -303,7 +303,11 @@ impl TaskExecutor for MonographCtlTask {
                     task_arg.get(MONO_DB_PWD).unwrap().clone(),
                 );
                 let mysql_port = self.config.deployment.port.mysql_port;
-                if !db_user.eq("_NONE") && db_pwd.eq("_NONE") {
+                if !db_user.eq("_NONE") && !db_pwd.eq("_NONE") {
+                    println!(
+                        "MonographCtlTask The status commands passed in user and password will \
+                        probe the connection status of the MonographDB."
+                    );
                     let db_detector =
                         MonographDetector::new(host_value, mysql_port, db_user, db_pwd);
                     db_detector.detect().await

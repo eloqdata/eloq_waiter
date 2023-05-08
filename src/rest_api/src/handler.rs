@@ -156,10 +156,6 @@ pub async fn check_cmd_status(
                 failure.push(task_id_with_time);
             }
         });
-
-        let tmp_task_id_len = task_ids.len();
-        let complete_task_len = completed_task_vec.len();
-        println!("#### complete_task_len={complete_task_len:?},task_id.len={tmp_task_id_len:?}");
         // info!("/status/cluster/command all_task_id = {:#?}", task_ids);
         let status = if !failure.is_empty() {
             "failure"
