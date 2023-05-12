@@ -2,7 +2,7 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::{DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR};
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -11,13 +11,14 @@ use tracing::info;
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
-pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 6] = [
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 7] = [
     "apache-cassandra",
     "prometheus",
     "grafana",
     "node_exporter",
     "mysqld_exporter",
     "datastax-mcac-agent",
+    "monograph-logserver",
 ];
 
 #[derive(Debug, Clone)]
@@ -50,11 +51,12 @@ impl UnpackFileTask {
             .map(|entry| {
                 let packed_file = entry.0;
                 let hosts = entry.1;
-                let unpacked_file = if packed_file.contains("monograph") {
-                    "monographdb-release".to_string()
-                } else {
-                    extract_unpacked_name(packed_file.as_str())
-                };
+                let unpacked_file =
+                    if packed_file.contains("monograph") || packed_file.contains("txservice") {
+                        MONOGRAPH_TX_SERVICE_DIR.to_string()
+                    } else {
+                        extract_unpacked_name(packed_file.as_str())
+                    };
                 hosts
                     .into_iter()
                     .map(|remote_host| {

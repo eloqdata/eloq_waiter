@@ -7,7 +7,6 @@ use cluster_mgr::cli::CommandArgs;
 use cluster_mgr::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-// use tracing::info;
 
 const SUPPORT_CTL_CMD: &[&str; 5] = &["start", "stop", "install", "start_monitor", "stop_monitor"];
 const SUPPORT_CTL_STATUS_CMD: &[&str; 8] = &[
@@ -148,7 +147,6 @@ pub async fn check_cmd_status(
 
         let task_ids = task_context.list_task_ids();
         let cmd_vec = vec![task_context.task_group];
-        println!("#### task_group={cmd_vec:#?}");
         let completed_task_vec = cmd_executor
             .state_mgr()
             .load_task_status_from_state(cluster, None, Some(cmd_vec))

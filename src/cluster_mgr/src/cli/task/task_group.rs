@@ -3,15 +3,15 @@ use crate::cli::task::download_task::DownloadFromRemoteTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::local_copy_task::LocalCopyTask;
 use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
-use crate::cli::task::monograph_ctl_task::MonographCtlTask;
-use crate::cli::task::monograph_install_task::MonographInstall;
+use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
+use crate::cli::task::monograph_bootstrap_task::MonographInstall;
 use crate::cli::task::runtime_deps_install::RuntimeDepsInstallation;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
-use crate::cli::task::upload_task::UploadTask;
+use crate::cli::task::upload::upload_task_builder::*;
 use crate::cli::CommandArgs;
 use crate::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
-use crate::config::{DeploymentService, StorageProvider};
+use crate::config::{DeploymentPackage, StorageProvider};
 use crate::state::state_mgr::STATE_MGR;
 use dyn_clone::DynClone;
 use indexmap::IndexMap;
@@ -127,7 +127,7 @@ impl TaskGroup for DeploymentTaskGroup {
         let (upload_task, unpack_task) = if need_skip_success_task {
             (
                 DeploymentTaskGroup::skip_success_task_execution(
-                    &UploadTask::from_config(&config)?,
+                    &upload_tasks(UploadTaskBuilderType::InstallTar, &config),
                     &success_task_vec,
                 ),
                 DeploymentTaskGroup::skip_success_task_execution(
@@ -137,13 +137,14 @@ impl TaskGroup for DeploymentTaskGroup {
             )
         } else {
             (
-                UploadTask::from_config(&config)?,
+                upload_tasks(UploadTaskBuilderType::InstallTar, &config),
                 UnpackFileTask::from_config(&config)?,
             )
         };
 
-        let mut upload_monitor_tasks = UploadTask::build_upload_monitor_config_tasks(&config)?;
-        let upload_mysql_exporter_tasks = UploadTask::build_upload_mysql_exporter_tasks(&config)?;
+        let mut upload_monitor_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, &config);
+        let upload_mysql_exporter_tasks =
+            upload_tasks(UploadTaskBuilderType::MySQLExporter, &config);
         upload_monitor_tasks.extend(upload_mysql_exporter_tasks.into_iter());
         let barrier = Some(vec![
             copy_or_download_task_instances.len(),
@@ -171,20 +172,17 @@ impl TaskGroup for InstallDBTaskGroup {
         cmd_args: CommandArgs,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
-        let monograph_hosts_len = monograph_hosts.len();
-        assert!(monograph_hosts_len >= 1);
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
-        let install_db_host_string = monograph_hosts.first().unwrap();
+        let install_db_host_string = config.deployment.bootstrap_host();
         let install_db_host = TaskHost::Remote {
             user: conn_user.clone(),
             port: ssh_port as usize,
-            hosts: install_db_host_string.clone(),
+            hosts: install_db_host_string,
         };
         info!(
-            "InstallDBTaskGroup The list of MonographDB node is: {:?}, install_db_host={:?}",
-            monograph_hosts, install_db_host
+            "InstallDBTaskGroup The bootstrap node is ={:?}",
+            install_db_host
         );
         let install_cmd = CommandArgs::Install {
             cluster: config.clone().deployment.cluster_name,
@@ -193,7 +191,10 @@ impl TaskGroup for InstallDBTaskGroup {
 
         let mut execution_context_tuple = match storage_provider {
             StorageProvider::Cassandra => {
-                let upload_cass_config_task = UploadTask::build_upload_cass_conf_task(&config)?;
+                // build_upload_tasks!();
+                let upload_cass_config_task =
+                    upload_tasks(UploadTaskBuilderType::CassConf, &config); //build_upload_tasks!(CassConfUploadBuilder, &config);
+                                                                            // let upload_cass_config_task = UploadTask::build_upload_cass_conf_task(&config)?;
                 let mut barrier = vec![upload_cass_config_task.len()];
                 let mut executable = IndexMap::new();
                 executable.extend(upload_cass_config_task.into_iter());
@@ -201,7 +202,7 @@ impl TaskGroup for InstallDBTaskGroup {
                     if let Some(mcac_collector) = &monitor.cassandra_collector {
                         let install_dir = config.install_dir();
                         let update_http_port_cmd = mcac_collector.update_http_port_cmd(install_dir);
-                        let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
+                        let cassandra_hosts = config.get_host_list(DeploymentPackage::Storage);
                         let update_http_port_task = ExecCustomCommand::build_task_by_host(
                             update_http_port_cmd,
                             &config,
@@ -227,7 +228,8 @@ impl TaskGroup for InstallDBTaskGroup {
                 }
             }
             _ => {
-                let monograph_is_multi_node = monograph_hosts.len() > 1;
+                let monograph_is_multi_node =
+                    config.get_host_list(DeploymentPackage::MonographTx).len() > 1;
                 let monograph_install = MonographInstall::from_config(&config, install_db_host);
                 TaskExecutionContext {
                     task_group: cmd_args.as_ref().to_string(),
@@ -242,32 +244,15 @@ impl TaskGroup for InstallDBTaskGroup {
         };
         let mut barrier = execution_context_tuple.clone().barrier.unwrap();
         let mut executable = execution_context_tuple.executable;
-        if monograph_hosts.len() > 1 {
-            let dest_hosts = monograph_hosts[1..=monograph_hosts_len - 1]
-                .iter()
-                .map(|host| TaskHost::Remote {
-                    user: conn_user.clone(),
-                    port: ssh_port as usize,
-                    hosts: host.to_string(),
-                })
-                .collect_vec();
-            info!(
-                "InstallDBTaskGroup MonographDB multiple installation hosts are configured {:?}",
-                dest_hosts
-            );
-            let upload_task = UploadTask::build_upload_datafarm_tasks(
-                &config,
-                install_db_host_string.clone(),
-                dest_hosts,
-            );
 
-            barrier.push(upload_task.len());
-            executable.extend(upload_task.into_iter());
+        let upload_data_dir_task = upload_tasks(UploadTaskBuilderType::DataDir, &config);
+        if !upload_data_dir_task.is_empty() {
+            barrier.push(upload_data_dir_task.len());
+            executable.extend(upload_data_dir_task.into_iter());
 
             execution_context_tuple.barrier = Some(barrier.clone());
             execution_context_tuple.executable = executable.clone();
         }
-
         // rm -rf cc_ng/ tx_log/
         let remote_install_dir = config.install_dir();
         let rm_log_data_cmd = format!(
@@ -279,7 +264,6 @@ impl TaskGroup for InstallDBTaskGroup {
         executable.extend(rm_log_data_task_instance.into_iter());
         execution_context_tuple.barrier = Some(barrier);
         execution_context_tuple.executable = executable;
-
         Ok(execution_context_tuple)
     }
 }
@@ -329,7 +313,7 @@ impl TaskGroup for CtrlDBTaskGroup {
         };
 
         for cmd in batch_cmd {
-            let crl_task_instance = MonographCtlTask::from_config(cmd.clone(), &config);
+            let crl_task_instance = MonographTxCtlTask::from_config(cmd.clone(), &config);
             barrier.push(crl_task_instance.len());
             mut_executable.extend(crl_task_instance.into_iter());
         }
@@ -415,7 +399,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
             let create_monitor_user_cmd =
                 monitor.create_monitor_user_cmd(install_dir.clone(), mysql_port);
 
-            let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+            let monograph_hosts = config.get_host_list(DeploymentPackage::MonographTx);
             let pick_mono_instance = monograph_hosts.first().unwrap();
 
             let create_user_task = ExecCustomCommand::build_task_by_host(

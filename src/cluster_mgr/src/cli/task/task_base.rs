@@ -151,7 +151,7 @@ pub enum CmdErr {
     MonitorCtlCmdErr(String, String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum TaskArgValue {
     Str(String),
     Number(usize),

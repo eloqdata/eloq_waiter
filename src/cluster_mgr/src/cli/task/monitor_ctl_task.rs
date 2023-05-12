@@ -4,16 +4,14 @@ use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::task::task_utils::{
-    check_process_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
-};
+use crate::cli::task::task_utils::{check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID};
 use crate::cli::CommandArgs;
 use crate::config::config_base::{
     DeploymentConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,
     PROMETHEUS_FILE_KEY,
 };
 use crate::config::monitor::Monitor;
-use crate::config::DeploymentService;
+use crate::config::DeploymentPackage;
 use crate::{task_return_value, wait_command_complete};
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -188,7 +186,7 @@ impl MonitorCtlTask {
         let install_dir = config.install_dir();
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
-        let monograph_hosts = config.get_host_list(DeploymentService::Monograph);
+        let monograph_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         monograph_hosts
             .iter()
             .map(|monograph_host| {
@@ -257,7 +255,7 @@ impl TaskExecutor for MonitorCtlTask {
             _ => unreachable!(),
         };
         let process_info_cmd = self.monitor_ctl.process_info();
-        let process_rs = check_process_pid(
+        let process_rs = check_pid(
             process_info_cmd.clone(),
             ssh_session.clone(),
             parse_process_pid,

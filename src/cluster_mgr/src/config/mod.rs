@@ -19,8 +19,12 @@ pub mod storage_service_config;
 
 pub const MONOGRAPH_CONF_TEMPLATE: &str = "my_template.cnf";
 pub const MONOGRAPH_CONF_DYNAMO_TEMPLATE: &str = "my_template_dynamo.cnf";
+
 pub const START_MONOGRAPH_SCRIPT: &str = "start_monographdb.bash";
 pub const START_MONOGRAPH_TEMPLATE: &str = "start_monographdb.template";
+
+pub const START_LOG_TEMPLATE: &str = "start_log.template";
+
 pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
@@ -134,15 +138,17 @@ impl DownloadUrl {
 }
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr)]
-pub enum DeploymentService {
+pub enum DeploymentPackage {
     #[strum(serialize = "monograph")]
-    Monograph,
+    MonographTx,
     #[strum(serialize = "storage")]
     Storage,
     #[strum(serialize = "prometheus")]
     Prometheus,
     #[strum(serialize = "grafana")]
     Grafana,
+    #[strum(serialize = "monograph_log")]
+    MonographLog,
 }
 
 pub fn config_path_string(path: Option<String>) -> anyhow::Result<String> {

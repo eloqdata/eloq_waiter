@@ -1,12 +1,12 @@
 use crate::cli::download_dir;
 
 use crate::config::connection::Connection;
-use crate::config::deployment::Deployment;
+use crate::config::deployment::{Deployment, LogProcessKey};
 use crate::config::monitor::Monitor;
 use crate::config::{
-    config_path_string, config_template, DeploymentService, StorageProvider,
+    config_path_string, config_template, DeploymentPackage, StorageProvider,
     CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE,
-    START_MONOGRAPH_SCRIPT, START_MONOGRAPH_TEMPLATE,
+    START_LOG_TEMPLATE, START_MONOGRAPH_SCRIPT, START_MONOGRAPH_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
@@ -22,7 +22,11 @@ use std::path::{Path, PathBuf};
 use sysinfo::SystemExt;
 use tracing::{error, info};
 
-pub const MONOGRAPH_FILE_KEY: &str = "monograph";
+pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
+pub const MONOGRAPH_LOG_SERVICE_DIR: &str = "monograph-log-service-release";
+
+pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
+pub const MONOGRAPH_LOG_FILE_KEY: &str = "monograph_log";
 pub const CASSANDRA_FILE_KEY: &str = "cassandra";
 pub const PROMETHEUS_FILE_KEY: &str = "prometheus";
 pub const GRAFANA_FILE_KEY: &str = "grafana";
@@ -72,13 +76,15 @@ impl DeploymentConfig {
         let all_hosts = self.get_host_as_map();
         let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
         let monitor_opt = self.deployment.monitor.as_ref();
-        let install_image = &self.deployment.install_image;
+        let tx_image = &self.deployment.tx_image;
+        let log_image = &self.deployment.log_image;
+        // let log_srv_opt = self.deployment.log_service.as_ref();
         let mut unpack_files = HashMap::new();
         all_hosts.iter().for_each(|entry| {
             let hosts = entry.1;
             let service = entry.0;
             match service {
-                DeploymentService::Storage => {
+                DeploymentPackage::Storage => {
                     if let Some(cassandra) = cassandra_opt {
                         let file_name = DownloadUrl::from_url_str(cassandra.download_url.as_str())
                             .unwrap()
@@ -98,14 +104,20 @@ impl DeploymentConfig {
                         );
                     }
                 }
-                DeploymentService::Monograph => {
-                    let monograph_file_name = DownloadUrl::from_url_str(install_image.as_str())
+                DeploymentPackage::MonographLog => {
+                    if let Some(log_install_file) = log_image {
+                        let log_file_name = DownloadUrl::from_url_str(log_install_file.as_str())
+                            .unwrap()
+                            .file_name();
+                        unpack_files.insert(log_file_name, hosts.clone());
+                    }
+                }
+                DeploymentPackage::MonographTx => {
+                    let tx_file_name = DownloadUrl::from_url_str(tx_image.as_str())
                         .unwrap()
                         .file_name();
-                    if monograph_file_name.contains("tar.gz") {
-                        unpack_files.insert(monograph_file_name, hosts.clone());
-                    }
 
+                    unpack_files.insert(tx_file_name, hosts.clone());
                     monitor_components_unpack_file!(
                         unpack_files,
                         hosts.clone(),
@@ -120,7 +132,7 @@ impl DeploymentConfig {
                         |monitor: &Monitor| -> String { monitor.mysql_exporter.clone() }
                     );
                 }
-                DeploymentService::Prometheus => {
+                DeploymentPackage::Prometheus => {
                     monitor_components_unpack_file!(
                         unpack_files,
                         hosts.clone(),
@@ -128,7 +140,7 @@ impl DeploymentConfig {
                         |monitor: &Monitor| -> String { monitor.prometheus.download_url.clone() }
                     );
                 }
-                DeploymentService::Grafana => {
+                DeploymentPackage::Grafana => {
                     monitor_components_unpack_file!(
                         unpack_files,
                         hosts.clone(),
@@ -141,7 +153,7 @@ impl DeploymentConfig {
         unpack_files
     }
 
-    pub fn gen_install_db_script(&self) -> anyhow::Result<PathBuf> {
+    pub fn gen_bootstrap_db_script(&self) -> anyhow::Result<PathBuf> {
         gen_db_misc_files!(
             self,
             build_install_monograph_script,
@@ -149,7 +161,35 @@ impl DeploymentConfig {
         )
     }
 
-    pub fn gen_db_start_script(&self) -> anyhow::Result<PathBuf> {
+    pub fn log_home_dir(&self) -> String {
+        let cluster_install_dir = self.install_dir();
+        format!("{cluster_install_dir}/logserver")
+    }
+
+    pub fn gen_log_start_script(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
+        let log_cmd_map_opt = self.build_log_start_script()?;
+        if let Some(log_scripts) = log_cmd_map_opt.as_ref() {
+            let log_cmd_locations = log_scripts
+                .iter()
+                .map(|(key, cmd)| {
+                    let host = &key.host;
+                    let port = key.port;
+                    let cmd_file_name = format!("start_log_{}.bash", format_args!("{host}_{port}"));
+                    let script_location = download_dir().join(cmd_file_name);
+                    if let Err(write_err) = fs::write(script_location.clone(), cmd) {
+                        error!("Failed gen Log start command. cause by {write_err:#?}");
+                        panic!("Failed gen Log start command");
+                    }
+                    script_location
+                })
+                .collect_vec();
+            Ok(Some(log_cmd_locations))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn gen_tx_start_script(&self) -> anyhow::Result<PathBuf> {
         gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
     }
 
@@ -178,14 +218,18 @@ impl DeploymentConfig {
     }
 
     // The names of all the files that need to be installed as images.
-    // monograph,cassandra,prometheus,grafana,node_exporter,mysql_exporter,cassandra_collector_agent
+    // tx_service,log_service,cassandra,prometheus,grafana,node_exporter,
+    // mysql_exporter,cassandra_collector_agent
     pub fn install_image_files(&self) -> anyhow::Result<HashMap<String, String>> {
         let deployment = &self.deployment;
         let mut files = HashMap::new();
-        let monograph_file =
-            DownloadUrl::from_url_str(deployment.install_image.as_str())?.file_name();
+        let tx_file = DownloadUrl::from_url_str(deployment.tx_image.as_str())?.file_name();
+        files.insert(MONOGRAPH_FILE_KEY.to_string(), tx_file);
 
-        files.insert(MONOGRAPH_FILE_KEY.to_string(), monograph_file);
+        if let Some(log_image_ref) = deployment.log_image.as_ref() {
+            let log_file = DownloadUrl::from_url_str(log_image_ref.as_str())?.file_name();
+            files.insert(MONOGRAPH_LOG_FILE_KEY.to_string(), log_file);
+        }
 
         if let Some(cassandra) = deployment.storage_service.cassandra.as_ref() {
             let cass_file_name =
@@ -214,7 +258,7 @@ impl DeploymentConfig {
             )
             .replace(
                 "_MONOGRAPH_DB_HOME",
-                format!("{}/{}/install", remote_install_dir, "monographdb-release").as_str(),
+                format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install",).as_str(),
             )
             .replace(
                 "_MY_CONF",
@@ -224,12 +268,47 @@ impl DeploymentConfig {
         Ok(final_script)
     }
 
+    pub fn build_log_start_script(&self) -> anyhow::Result<Option<HashMap<LogProcessKey, String>>> {
+        if let Some(log_srv) = self.deployment.log_service.as_ref() {
+            let log_start_template_path = config_template(START_LOG_TEMPLATE)?;
+            let log_start_template = fs::read_to_string(log_start_template_path.as_path())?;
+            let all_start_cmd_by_hosts = log_srv.log_start_cmd();
+            let cmd_scripts = all_start_cmd_by_hosts
+                .iter()
+                .flat_map(|(host, cmd_items)| {
+                    cmd_items
+                        .iter()
+                        .map(|cmd_items| {
+                            let curr_member = &cmd_items.log_member;
+                            let cmd_script = log_start_template
+                                .replace("_GROUP_MEMBERS", &cmd_items.group_members_config)
+                                .replace("_GROUP_ID", curr_member.group_id.to_string().as_str())
+                                .replace("_NODE_ID", curr_member.node_id.to_string().as_str())
+                                .replace("_STORAGE_DIR", curr_member.storage_path.as_str());
+
+                            (
+                                LogProcessKey {
+                                    host: host.clone(),
+                                    port: curr_member.port,
+                                },
+                                cmd_script,
+                            )
+                        })
+                        .collect::<HashMap<LogProcessKey, String>>()
+                })
+                .collect::<HashMap<LogProcessKey, String>>();
+            Ok(Some(cmd_scripts))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn build_start_monograph_script(&self) -> anyhow::Result<String> {
         let script_path = config_template(START_MONOGRAPH_TEMPLATE)?;
         let rs = fs::read_to_string(script_path.as_path())?;
         Ok(rs.replace(
             "_MY_INSTALL_DIR",
-            format!("{}/monographdb-release/install", self.install_dir()).as_str(),
+            format!("{}/{MONOGRAPH_TX_SERVICE_DIR}/install", self.install_dir()).as_str(),
         ))
     }
 
@@ -240,49 +319,60 @@ impl DeploymentConfig {
         Ok(deployment_config)
     }
 
-    pub fn get_host_as_map(&self) -> HashMap<DeploymentService, Vec<String>> {
+    pub fn get_host_as_map(&self) -> HashMap<DeploymentPackage, Vec<String>> {
         HashMap::from([
             (
-                DeploymentService::Monograph,
-                self.get_host_list(DeploymentService::Monograph),
+                DeploymentPackage::MonographTx,
+                self.get_host_list(DeploymentPackage::MonographTx),
             ),
             (
-                DeploymentService::Storage,
-                self.get_host_list(DeploymentService::Storage),
+                DeploymentPackage::MonographLog,
+                self.get_host_list(DeploymentPackage::MonographLog),
             ),
             (
-                DeploymentService::Prometheus,
-                self.get_host_list(DeploymentService::Prometheus),
+                DeploymentPackage::Storage,
+                self.get_host_list(DeploymentPackage::Storage),
             ),
             (
-                DeploymentService::Grafana,
-                self.get_host_list(DeploymentService::Grafana),
+                DeploymentPackage::Prometheus,
+                self.get_host_list(DeploymentPackage::Prometheus),
+            ),
+            (
+                DeploymentPackage::Grafana,
+                self.get_host_list(DeploymentPackage::Grafana),
             ),
         ])
     }
 
     pub fn get_unique_host_list(&self) -> Vec<String> {
-        let mut hosts_vec = self.get_host_list(DeploymentService::Monograph);
-        let storage_hosts = self.get_host_list(DeploymentService::Storage);
+        let mut hosts_vec = self.get_host_list(DeploymentPackage::MonographTx);
+        let storage_hosts = self.get_host_list(DeploymentPackage::Storage);
         hosts_vec.extend(storage_hosts.into_iter());
         hosts_vec.into_iter().unique().collect_vec()
     }
 
-    pub fn get_host_list(&self, service: DeploymentService) -> Vec<String> {
+    pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
         let deployment = &self.deployment;
         match service {
-            DeploymentService::Storage => {
+            DeploymentPackage::Storage => {
                 if let Some(cassandra) = &deployment.storage_service.cassandra {
                     cassandra.host.to_vec()
                 } else {
                     vec![]
                 }
             }
-            DeploymentService::Monograph => deployment.mono_service.host.to_vec(),
-            DeploymentService::Prometheus => {
+            DeploymentPackage::MonographLog => {
+                if let Some(ref log_srv) = deployment.log_service {
+                    log_srv.log_host_unique()
+                } else {
+                    vec![]
+                }
+            }
+            DeploymentPackage::MonographTx => deployment.tx_service.host.to_vec(),
+            DeploymentPackage::Prometheus => {
                 extract_monitor_host!(deployment, prometheus)
             }
-            DeploymentService::Grafana => {
+            DeploymentPackage::Grafana => {
                 extract_monitor_host!(deployment, grafana)
             }
         }
@@ -382,7 +472,7 @@ impl DeploymentConfig {
 #[cfg(test)]
 mod tests {
     use crate::config::config_base::DeploymentConfig;
-    use crate::config::{DeploymentService, CONFIG_PATH_DIR};
+    use crate::config::{DeploymentPackage, CONFIG_PATH_DIR};
     use std::path::PathBuf;
 
     fn set_config_path_env_and_get() -> String {
@@ -403,7 +493,7 @@ mod tests {
         let monitor = monitor_opt.as_ref();
         assert!(monitor.is_some());
 
-        let mono_host_list = config.get_host_list(DeploymentService::Monograph);
+        let mono_host_list = config.get_host_list(DeploymentPackage::MonographTx);
         let monitor = monitor.unwrap();
         let pro_rs = monitor.gen_prometheus_config(mono_host_list);
         println!("pro_rs={pro_rs:#?}")

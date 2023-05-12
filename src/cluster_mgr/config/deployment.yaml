@@ -4,7 +4,8 @@ connection:
   auth:
     keypair: "/home/$USER/.ssh/id_rsa"
 deployment:
-  install_image: "file:///home/ubuntu/monographdb-release.tar.gz"
+  tx_image: "file:///home/ubuntu/monographdb-release.tar.gz"
+  log_image: "file:///home/ubuntu/monographdb-tx-log-release.tar.gz"
   cluster_name: "mono-poc"
   install_dir: "/data1/opt"
   port:
@@ -12,6 +13,13 @@ deployment:
     monograph_port:
       start: 8100
       end: 8200
+  log_service:
+    nodes:
+      - host: localhost
+        port: 9800
+        data_dir:
+          - "/data"
+    replica: 3
   mono_service:
     host:
       - localhost

@@ -5,11 +5,11 @@ use crate::cli::task::task_base::{
     TaskInstance,
 };
 use crate::cli::task::task_utils::{
-    check_process_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
+    check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
-use crate::config::DeploymentService;
+use crate::config::config_base::{DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR};
+use crate::config::DeploymentPackage;
 use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -20,7 +20,7 @@ use strum_macros::AsRefStr;
 use tracing::{error, info};
 
 #[derive(Clone, Debug, Eq, PartialEq, AsRefStr)]
-pub enum MonographCtlCmd {
+pub enum TxCtlCmd {
     #[strum(serialize = "start")]
     Start(String),
     #[strum(serialize = "stop")]
@@ -31,26 +31,32 @@ pub enum MonographCtlCmd {
     Status(String),
 }
 
-get_ctl_cmd_string!(MonographCtlCmd, Start, Stop, ForceStop, Status);
+get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
 macro_rules! monograph_cmd {
     ($ctl_cmd:ty,$remote_install_home:expr $(, $cmd_arg:expr)? $(,)?) => {{
         let ctl_cmd = stringify!($ctl_cmd);
-        let mysqld_pid = format!(r#"ps uxwe | grep {}/monographdb-release/install/bin/mysqld | grep -v grep | "#, $remote_install_home);
+        let mysqld_pid = format!(r#"ps uxwe | grep {}/{}/install/bin/mysqld | grep -v grep | "#, MONOGRAPH_TX_SERVICE_DIR,$remote_install_home);
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
             $(
-            "MonographCtlCmd::Start" => MonographCtlCmd::Start(format!(r"mkdir -p {}/monographdb-release/logs && cd {}/monographdb-release/install &&  export LD_LIBRARY_PATH={}/monographdb-release/install/lib:$LD_LIBRARY_PATH; {}/monographdb-release/install/bin/mysqld --defaults-file={}/my_{}.cnf > {}/monographdb-release/logs/mysqld_start.log 2>&1 &",
+            "TxCtlCmd::Start" => TxCtlCmd::Start(format!(r"mkdir -p {}/{}/logs &&
+            cd {}/{}/install &&
+            export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH;
+            {}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf >
+            {}/{}/logs/mysqld_start.log 2>&1 &",
+               MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,
+               MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,
                $remote_install_home, $remote_install_home, $remote_install_home,
                $remote_install_home,$remote_install_home,$cmd_arg, $remote_install_home)),
             )*
-            "MonographCtlCmd::ForceStop" => MonographCtlCmd::ForceStop(format!("{} {} | xargs kill -9", mysqld_pid, output_pid)),
-            "MonographCtlCmd::Stop" => {
-               MonographCtlCmd::Stop(format!("{} {} | xargs kill", mysqld_pid, output_pid))
+            "TxCtlCmd::ForceStop" => TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", mysqld_pid, output_pid)),
+            "TxCtlCmd::Stop" => {
+               TxCtlCmd::Stop(format!("{} {} | xargs kill", mysqld_pid, output_pid))
             },
-            "MonographCtlCmd::Status" => {
+            "TxCtlCmd::Status" => {
                let ps_cmd = format!(r#"{} {} "#, mysqld_pid, output_pid);
-               MonographCtlCmd::Status(ps_cmd)
+               TxCtlCmd::Status(ps_cmd)
             },
             _=> {
                 unreachable!()
@@ -59,7 +65,7 @@ macro_rules! monograph_cmd {
     }};
 }
 
-macro_rules! monograph_ctl {
+macro_rules! tx_ctl {
     ($self:ident, $mono_process_status:expr, {$op:tt, $pid_check_expr:expr}, $ctl_func:expr) => {{
         if let Ok(ref process_info) = $mono_process_status {
             let pid = TaskArgValue::into_inner_value::<String>(
@@ -87,14 +93,14 @@ pub(crate) static MONO_DB_USER: &str = "mono_user";
 pub(crate) static MONO_DB_PWD: &str = "mono_pwd";
 
 #[derive(Clone, Debug)]
-pub struct MonographDetector {
+pub struct MySQLProbe {
     host: String,
     mysql_port: u16,
     user: String,
     password: String,
 }
 
-impl MonographDetector {
+impl MySQLProbe {
     pub fn new(host: String, mysql_port: u16, user: String, password: String) -> Self {
         Self {
             host,
@@ -104,12 +110,12 @@ impl MonographDetector {
         }
     }
 
-    pub async fn detect(&self) -> anyhow::Result<ExecutionValue> {
+    pub async fn probe(&self) -> anyhow::Result<ExecutionValue> {
         let user = &self.user;
         let pwd = &self.password;
         let host = &self.host;
         let port = self.mysql_port;
-        let mysql_conn_url = format!("mysql://{user}:{pwd}@{host}:{port}/test");
+        let mysql_conn_url = format!("mysql://{user}:{pwd}@{host}:{port}/mysql");
         let mono_conn_rs = sqlx::mysql::MySqlConnection::connect(mysql_conn_url.as_str()).await;
         if let Err(mono_conn_err) = mono_conn_rs {
             error!(
@@ -164,13 +170,13 @@ impl MonographDetector {
 }
 
 #[derive(Debug, Clone)]
-pub struct MonographCtlTask {
+pub struct MonographTxCtlTask {
     config: DeploymentConfig,
     task_id: TaskId,
-    ctl_cmd: MonographCtlCmd,
+    ctl_cmd: TxCtlCmd,
 }
 
-impl MonographCtlTask {
+impl MonographTxCtlTask {
     pub fn from_config(
         cmd_arg: CommandArgs,
         config: &DeploymentConfig,
@@ -178,7 +184,7 @@ impl MonographCtlTask {
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
         let remote_install_dir = config.install_dir();
-        let mono_hosts = config.get_host_list(DeploymentService::Monograph);
+        let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
 
         let mut db_user = "_NONE".to_string();
         let mut db_pwd = "_NONE".to_string();
@@ -213,11 +219,11 @@ impl MonographCtlTask {
                 };
                 let cmd_task_input_tuple = match cmd_str_ref {
                     "start" => (
-                        monograph_cmd!(MonographCtlCmd::Start, remote_install_dir, host.clone()),
+                        monograph_cmd!(TxCtlCmd::Start, remote_install_dir, host.clone()),
                         HashMap::default(),
                     ),
                     "status" => (
-                        monograph_cmd!(MonographCtlCmd::Status, remote_install_dir),
+                        monograph_cmd!(TxCtlCmd::Status, remote_install_dir),
                         HashMap::from([
                             (MONO_DB_USER.to_string(), TaskArgValue::Str(db_user.clone())),
                             (MONO_DB_PWD.to_string(), TaskArgValue::Str(db_pwd.clone())),
@@ -226,12 +232,12 @@ impl MonographCtlTask {
                     "stop" => {
                         if is_force_stop {
                             (
-                                monograph_cmd!(MonographCtlCmd::ForceStop, remote_install_dir),
+                                monograph_cmd!(TxCtlCmd::ForceStop, remote_install_dir),
                                 HashMap::default(),
                             )
                         } else {
                             (
-                                monograph_cmd!(MonographCtlCmd::Stop, remote_install_dir),
+                                monograph_cmd!(TxCtlCmd::Stop, remote_install_dir),
                                 HashMap::default(),
                             )
                         }
@@ -246,7 +252,7 @@ impl MonographCtlTask {
                     task_id.clone(),
                     TaskInstance {
                         task_input,
-                        task: Box::new(MonographCtlTask::new(config.clone(), task_id, ctl_cmd)),
+                        task: Box::new(MonographTxCtlTask::new(config.clone(), task_id, ctl_cmd)),
                         task_host: TaskHost::Remote {
                             user: conn_user.clone(),
                             port: ssh_port as usize,
@@ -258,7 +264,7 @@ impl MonographCtlTask {
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId, ctl_cmd: MonographCtlCmd) -> Self {
+    pub fn new(config: DeploymentConfig, task_id: TaskId, ctl_cmd: TxCtlCmd) -> Self {
         Self {
             config,
             task_id,
@@ -268,15 +274,16 @@ impl MonographCtlTask {
 
     async fn monograph_pid(&self, ssh_conn: SSHSession) -> anyhow::Result<ExecutionValue> {
         let remote_install_dir = self.config.install_dir();
-        let check_status = monograph_cmd!(MonographCtlCmd::Status, remote_install_dir);
+        let check_status = monograph_cmd!(TxCtlCmd::Status, remote_install_dir);
         let cmd_val = check_status.cmd_value();
         println!("MonographDB process_info pid = {cmd_val}");
-        check_process_pid(cmd_val, ssh_conn, parse_process_pid).await
+        check_pid(cmd_val, ssh_conn, parse_process_pid).await
+        // check_process_pid(cmd_val, ssh_conn, parse_process_pid).await
     }
 }
 
 #[async_trait]
-impl TaskExecutor for MonographCtlTask {
+impl TaskExecutor for MonographTxCtlTask {
     fn identifier(&self) -> TaskId {
         self.task_id.clone()
     }
@@ -293,8 +300,7 @@ impl TaskExecutor for MonographCtlTask {
         let remote_install_dir = self.config.install_dir();
         let (host_value, _) = ssh_session.ssh_conn_info();
 
-        let check_status_cmd =
-            monograph_cmd!(MonographCtlCmd::Status, remote_install_dir).cmd_value();
+        let check_status_cmd = monograph_cmd!(TxCtlCmd::Status, remote_install_dir).cmd_value();
         let check_process_status = self.monograph_pid(ssh_session.clone()).await;
         let ctl_cmd_ref = self.ctl_cmd.as_ref();
         let mono_ctl_rs = match ctl_cmd_ref {
@@ -311,22 +317,21 @@ impl TaskExecutor for MonographCtlTask {
                         "MonographCtlTask The status commands passed in user and password will \
                         probe the connection status of the MonographDB."
                     );
-                    let db_detector =
-                        MonographDetector::new(host_value, mysql_port, db_user, db_pwd);
-                    db_detector.detect().await
+                    let db_detector = MySQLProbe::new(host_value, mysql_port, db_user, db_pwd);
+                    db_detector.probe().await
                 } else {
                     check_process_status
                 }
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
-                monograph_ctl!(self, check_process_status, {!=, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
+                tx_ctl!(self, check_process_status, {!=, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                      wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
                 })
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
-                monograph_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
+                tx_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 })
             }

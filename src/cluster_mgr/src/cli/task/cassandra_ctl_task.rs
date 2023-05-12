@@ -5,10 +5,10 @@ use crate::cli::task::task_base::{
     CmdErr::CassandraCtlErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
     TaskInstance, REMOTE_ENV_PROPS,
 };
-use crate::cli::task::task_utils::{check_process_pid, PROCESS_PID};
+use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
 use crate::cli::{CommandArgs, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
-use crate::config::DeploymentService;
+use crate::config::DeploymentPackage;
 use crate::get_ctl_cmd_string;
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -164,7 +164,7 @@ impl CassandraCtlTask {
         let task_id = cassandra_task_ctrl_attr.1;
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
-        let cassandra_hosts = config.get_host_list(DeploymentService::Storage);
+        let cassandra_hosts = config.get_host_list(DeploymentPackage::Storage);
         cassandra_hosts
             .iter()
             .map(|host| {
@@ -210,7 +210,7 @@ impl CassandraCtlTask {
             cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, conn_user);
 
         let process_info = cassandra_process.cmd_value();
-        check_process_pid(process_info, ssh_conn, |output| -> Option<i32> {
+        check_pid(process_info, ssh_conn, |output| -> Option<i32> {
             let mut pid = None;
             for line in output.lines() {
                 let p_info_pair = line.split('+').collect_vec();
@@ -229,7 +229,7 @@ impl CassandraCtlTask {
                 if !collect_pid.is_empty() {
                     pid = Some(collect_pid[0].parse::<i32>().unwrap());
                     println!(
-                        "CassandraCtlTask found cassandra process is already running PID={pid:#?}"
+                        "CassandraCtlTask found cassandra process is already running PID={pid:?}"
                     );
                     break;
                 }

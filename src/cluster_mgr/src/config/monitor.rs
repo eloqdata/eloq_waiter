@@ -1,7 +1,7 @@
 use crate::cli::download_dir;
 use crate::config::config_base::{
-    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
-    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
+    MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::{
     config_template, load_yaml_config_template, DownloadUrl, CREATE_MONITOR_USER_SQL_FILE,
@@ -116,13 +116,13 @@ impl Monitor {
     }
 
     pub fn flush_privileges_for_create_user(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_bin = format!("{install_dir}/monographdb-release/install/bin/mysql");
+        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
         format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock -e  'FLUSH PRIVILEGES;'")
     }
 
     pub fn create_monitor_user_cmd(&self, install_dir: String, mysql_port: u16) -> String {
         let mysql_exporter_dir = monitor_component_config_dir!("mysql_exporter");
-        let mysql_bin = format!("{install_dir}/monographdb-release/install/bin/mysql");
+        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
         let script_path =
             format!("{install_dir}/{mysql_exporter_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
         format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock < {script_path}")

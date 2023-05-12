@@ -5,7 +5,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::{DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR};
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -98,9 +98,10 @@ impl TaskExecutor for MonographInstall {
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
+
         let remote_install_dir = self.config.install_dir();
         let install_db_script = format!(
-            r#"mkdir -p {}/monographdb-release/logs; export LD_LIBRARY_PATH={}/monographdb-release/install/lib:$LD_LIBRARY_PATH; /bin/bash {}/{} > {}/monographdb-release/logs/monograph_init.log 2>&1 "#,
+            r#"mkdir -p {}/{MONOGRAPH_TX_SERVICE_DIR}/logs; export LD_LIBRARY_PATH={}/{MONOGRAPH_TX_SERVICE_DIR}/install/lib:$LD_LIBRARY_PATH; /bin/bash {}/{} > {}/{MONOGRAPH_TX_SERVICE_DIR}/logs/monograph_init.log 2>&1 "#,
             remote_install_dir.as_str(),
             remote_install_dir.as_str(),
             remote_install_dir.as_str(),

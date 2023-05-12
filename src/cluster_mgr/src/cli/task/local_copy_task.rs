@@ -46,7 +46,7 @@ impl LocalCopyTask {
     pub fn form_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let mono_install_image = &config.deployment.install_image;
+        let mono_install_image = &config.deployment.tx_image;
         let mono_download_url = DownloadUrl::from_url_str(mono_install_image.as_str())?;
         let mut local_copy_task_instance = IndexMap::new();
 
