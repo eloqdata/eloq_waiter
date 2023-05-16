@@ -1,6 +1,6 @@
 use crate::cli::cmd_printer::{CmdPrinter, Printable};
+use crate::cli::task::group::TASK_GROUP;
 use crate::cli::task::task_controller::TaskController;
-use crate::cli::task::task_group::TASK_GROUP;
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::load_remote_env;
@@ -156,6 +156,16 @@ pub enum TaskArgValue {
     Str(String),
     Number(usize),
     List(Vec<String>),
+}
+
+impl ToString for TaskArgValue {
+    fn to_string(&self) -> String {
+        match self {
+            TaskArgValue::Str(string_value) => string_value.to_string(),
+            TaskArgValue::Number(num_value) => num_value.to_string(),
+            TaskArgValue::List(list_value) => list_value.join(","),
+        }
+    }
 }
 
 impl TaskArgValue {

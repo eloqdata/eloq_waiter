@@ -44,6 +44,7 @@ pub struct LogGroupMember {
     pub member_host: String,
     pub port: u16,
     pub storage_path: String,
+    pub check_health_url: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -128,14 +129,14 @@ impl LogService {
             .collect_vec()
     }
 
-    fn group_members(&self) -> Vec<LogGroupMember> {
+    pub fn group_members(&self) -> HashMap<usize, Vec<LogGroupMember>> {
         let group = self.group();
         let replica = self.log_replica();
         let mut start = 0;
         let mut port_usage = HashMap::new();
         (0..group)
             .into_iter()
-            .flat_map(|group_id| {
+            .map(|group_id| {
                 let node_ids = self.gen_log_node_ids(start);
                 // println!("node_ids={node_ids:?}");
                 let members = node_ids
@@ -156,19 +157,21 @@ impl LogService {
                         } else {
                             node.data_dir.get(*id).unwrap()
                         };
+                        let node_host = node.host.clone();
                         LogGroupMember {
                             node_id: idx,
                             group_id,
-                            member_host: node.host.clone(),
+                            member_host: node_host.clone(),
                             port,
                             storage_path: format!("{data_dir}/group_{group_id}_node_{idx}"),
+                            check_health_url: format!("{node_host}:{port}/healthz"),
                         }
                     })
                     .collect_vec();
                 start += replica;
-                members
+                (group_id, members)
             })
-            .collect_vec()
+            .collect::<HashMap<usize, Vec<LogGroupMember>>>()
     }
 
     fn log_replica(&self) -> usize {
@@ -210,11 +213,19 @@ impl LogService {
             .collect()
     }
 
+    fn group_member_as_vec(&self) -> Vec<LogGroupMember> {
+        self.group_members()
+            .values()
+            .flat_map(|val| val.iter().cloned().collect_vec())
+            .collect_vec()
+    }
+
     /// log startup command, with host as granularity, key is hostname value is start command.
     pub fn log_start_cmd(&self) -> HashMap<String, Vec<LogCmdItems>> {
-        let all_members = self.group_members();
-        let group_member_config = self.group_member_config(all_members.as_slice());
-        let host_members_lookup = self.host_members(all_members.as_slice());
+        let all_member_vec = self.group_member_as_vec(); //self.group_members();
+        let all_member_as_slice = all_member_vec.as_slice();
+        let group_member_config = self.group_member_config(all_member_as_slice);
+        let host_members_lookup = self.host_members(all_member_as_slice);
 
         host_members_lookup
             .iter()
@@ -240,8 +251,8 @@ impl Deployment {
     fn build_log_config(&self) -> Option<HashMap<String, String>> {
         if let Some(ref log_srv) = self.log_service {
             let replica_num = log_srv.log_replica();
-            let all_members = log_srv.group_members();
-            let group_member_map = log_srv.group_member_config(&all_members);
+            let all_members = log_srv.group_member_as_vec();
+            let group_member_map = log_srv.group_member_config(all_members.as_slice());
             let node_group = Vec::from_iter(group_member_map.values())
                 .into_iter()
                 .join(",");
@@ -442,7 +453,7 @@ mod tests {
         println!("log_members={members:#?}");
         let groups = members
             .iter()
-            .map(|member| member.group_id)
+            .flat_map(|(_, member)| member.iter().map(|inner_member| inner_member.group_id))
             .unique()
             .count();
         println!("groups={groups}");
@@ -462,8 +473,9 @@ mod tests {
     #[test]
     pub fn test_group_member_config() {
         let log_srv = &mock_log_service(4, 3);
-        let all_members = log_srv.group_members();
-        let group_member_config = log_srv.group_member_config(&all_members);
+        let binding = log_srv.group_member_as_vec();
+        let all_members = binding.as_slice();
+        let group_member_config = log_srv.group_member_config(all_members);
         println!("{group_member_config:#?}");
         assert_eq!(2, group_member_config.len());
         let all_config = Vec::from_iter(group_member_config.values())

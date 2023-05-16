@@ -42,14 +42,14 @@ pub enum CommandArgs {
         cluster: String,
     },
     #[strum(serialize = "start")]
-    /// Start the MonographDB cluster with the specified cluster name.
+    /// Start the MonographDB cluster(TxService LogService Storage). with the specified cluster name
     /// For example: ./cluster_mgr start  --cluster $CLUSTER_NAME
     Start {
         #[arg(short = 'l', long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
     #[strum(serialize = "stop")]
-    /// Stop the MonographDB cluster with the specified cluster name.
+    /// Stop the MonographDB cluster(TxService LogService Storage). with the specified cluster name.
     /// For example: ./cluster_mgr stop --cluster $CLUSTER_NAME --force true/false
     Stop {
         #[arg(long, value_name = "CLUSTER NAME")]
@@ -93,11 +93,20 @@ pub enum CommandArgs {
     },
     #[strum(serialize = "monitor")]
     /// Start or stop monitoring components,including prometheus,grafana,node_exporter,mysql_exporter
-    /// For example: ./cluster_mgr monitor --cluster $CLUSTER_NAME --command start/stop
+    /// For example: ./cluster_mgr monitor --cluster $CLUSTER_NAME --command start | stop
     Monitor {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
         #[arg(long, value_name = "MONITOR START/STOP COMMAND")]
+        command: String,
+    },
+    #[strum(serialize = "log-srv")]
+    /// Start or stop LogService This command is only available if LogService is deployed standalone
+    /// For example: ./cluster_mgr log-srv --cluster $CLUSTER_NAME --command start | stop
+    LogService {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
+        #[arg(long, value_name = "LogService START/STOP COMMAND")]
         command: String,
     },
 }

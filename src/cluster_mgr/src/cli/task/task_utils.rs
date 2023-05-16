@@ -31,6 +31,7 @@ macro_rules! wait_command_complete {
 pub(crate) const PROCESS_PID: &str = "_process_pid_";
 pub(crate) const PROCESS_PID_LIST: &str = "_process_pid_list_";
 
+#[allow(dead_code)]
 pub fn parse_process_pid_as_list(process_info: String) -> Option<Vec<i32>> {
     if process_info.is_empty() {
         None
@@ -116,6 +117,12 @@ where
         } else {
             unreachable!()
         };
+    } else {
+        cmd_exec_rs.insert(
+            PROCESS_PID.to_string(),
+            TaskArgValue::Str("NONE".to_string()),
+        );
+        cmd_exec_rs.insert(PROCESS_PID_LIST.to_string(), TaskArgValue::List(vec![]));
     }
     Ok(cmd_exec_rs)
 }

@@ -4,7 +4,9 @@ use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::task::task_utils::{check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID};
+use crate::cli::task::task_utils::{
+    check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
+};
 use crate::cli::CommandArgs;
 use crate::config::config_base::{
     DeploymentConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,

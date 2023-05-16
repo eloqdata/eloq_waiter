@@ -49,7 +49,6 @@ macro_rules! simple_upload_task_execution {
     };
 }
 
-
 #[macro_export]
 macro_rules! monograph_config_task_execution {
     ( $({$execution_vec:expr, $task_name:expr, $config:expr, $task_host:expr, $source_path:expr $(,$dest_path:expr)?}),*) => {
@@ -136,6 +135,7 @@ impl MonographUploadBuilder {
                         upload_cass_tasks
                     }
                     DeploymentPackage::MonographLog => {
+                        info!("UploadTask upload LogService to remote={:?}", task_host);
                         let log_install_file = install_image_files.get(MONOGRAPH_LOG_FILE_KEY).unwrap();
                         let log_install_file_path =  download_dir().
                             join(log_install_file).to_str().
@@ -157,12 +157,12 @@ impl MonographUploadBuilder {
                             }
                         });
                         monograph_config_task_execution! {
-                            {upload_log_tasks, LOG_INSTALL_UPLOAD_TASK.to_string(), config, task_host, log_install_file_path, log_home_dir.clone()}
+                            {upload_log_tasks, LOG_INSTALL_UPLOAD_TASK.to_string(), config, task_host, log_install_file_path, log_home_dir}
                         }
                         upload_log_tasks
                     }
                     DeploymentPackage::MonographTx => {
-                        info!("UploadTask upload TxService file to remote={:?}", task_host);
+                        info!("UploadTask upload TxService to remote={:?}", task_host);
                         let mut upload_tx_tasks = IndexMap::new();
                         let db_config_path =
                             config.deployment.gen_monograph_config(Some(remote_host.clone()), install_dir.clone()).unwrap();
