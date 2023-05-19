@@ -19,10 +19,10 @@ impl TaskGroup for CtrlDBTaskGroup {
         let cmd_ref = cmd_arg.as_ref();
         let storage_provider = config.get_monograph_storage()?;
 
-        let start_cass_if_need = (cmd_ref == "start" || cmd_ref == "restart")
+        let is_start_cmd = (cmd_ref == "start" || cmd_ref == "restart")
             && storage_provider == StorageProvider::Cassandra;
 
-        let mut mut_executable = if start_cass_if_need {
+        let mut mut_executable = if is_start_cmd {
             CassandraCtlTask::from_config(cmd_arg.clone(), &config)
         } else {
             IndexMap::new()
@@ -54,23 +54,28 @@ impl TaskGroup for CtrlDBTaskGroup {
         };
 
         for cmd in batch_cmd {
+            let curr_cmd_ref = cmd.as_ref();
             let log_srv_tasks = MonographLogCtlTask::from_config(cmd.clone(), &config);
-            let log_probe_tasks = MonographLogProbeTask::from_config(&config);
+            let log_probe_tasks = if curr_cmd_ref.eq("status") || curr_cmd_ref.eq("start") {
+                MonographLogProbeTask::from_config(&config)
+            } else {
+                IndexMap::new()
+            };
             let tx_srv_tasks = MonographTxCtlTask::from_config(cmd.clone(), &config);
             barrier.push(log_srv_tasks.len());
-            barrier.push(log_probe_tasks.len());
+            if !log_probe_tasks.is_empty() {
+                barrier.push(log_probe_tasks.len());
+            }
             barrier.push(tx_srv_tasks.len());
 
             mut_executable.extend(log_srv_tasks.into_iter());
-            mut_executable.extend(log_probe_tasks.into_iter());
+            if !log_probe_tasks.is_empty() {
+                mut_executable.extend(log_probe_tasks.into_iter());
+            }
             mut_executable.extend(tx_srv_tasks.into_iter());
         }
 
-        let final_barrier = if start_cass_if_need {
-            Some(barrier)
-        } else {
-            None
-        };
+        let final_barrier = if is_start_cmd { Some(barrier) } else { None };
         Ok(TaskExecutionContext {
             task_group: format!("cluster-control-{cmd_ref}"),
             barrier: final_barrier,

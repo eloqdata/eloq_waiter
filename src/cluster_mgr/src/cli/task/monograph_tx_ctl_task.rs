@@ -36,19 +36,19 @@ get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 macro_rules! monograph_cmd {
     ($ctl_cmd:ty,$remote_install_home:expr $(, $cmd_arg:expr)? $(,)?) => {{
         let ctl_cmd = stringify!($ctl_cmd);
-        let mysqld_pid = format!(r#"ps uxwe | grep {}/{}/install/bin/mysqld | grep -v grep | "#, MONOGRAPH_TX_SERVICE_DIR,$remote_install_home);
+        let mysqld_pid = format!(r#"ps uxwe | grep {}/{}/install/bin/mysqld | grep -v grep | "#, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR);
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
             $(
-            "TxCtlCmd::Start" => TxCtlCmd::Start(format!(r"mkdir -p {}/{}/logs &&
-            cd {}/{}/install &&
-            export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH;
-            {}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf >
-            {}/{}/logs/mysqld_start.log 2>&1 &",
-               MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,
-               MONOGRAPH_TX_SERVICE_DIR,MONOGRAPH_TX_SERVICE_DIR,
-               $remote_install_home, $remote_install_home, $remote_install_home,
-               $remote_install_home,$remote_install_home,$cmd_arg, $remote_install_home)),
+            "TxCtlCmd::Start" => TxCtlCmd::Start(format!(r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
+export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
+{}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf > {}/{}/logs/mysqld_start.log 2>&1 &"#,
+               $remote_install_home,MONOGRAPH_TX_SERVICE_DIR,
+               $remote_install_home,MONOGRAPH_TX_SERVICE_DIR,
+               $remote_install_home,MONOGRAPH_TX_SERVICE_DIR,
+               $remote_install_home,MONOGRAPH_TX_SERVICE_DIR,
+               $remote_install_home, $cmd_arg,
+               $remote_install_home, MONOGRAPH_TX_SERVICE_DIR)),
             )*
             "TxCtlCmd::ForceStop" => TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", mysqld_pid, output_pid)),
             "TxCtlCmd::Stop" => {
@@ -68,6 +68,7 @@ macro_rules! monograph_cmd {
 macro_rules! tx_ctl {
     ($self:ident, $mono_process_status:expr, {$op:tt, $pid_check_expr:expr}, $ctl_func:expr) => {{
         if let Ok(ref process_info) = $mono_process_status {
+            println!("tx_ctl process_info={process_info:#?}");
             let pid = TaskArgValue::into_inner_value::<String>(
                 process_info.get(PROCESS_PID).unwrap().clone(),
             );
@@ -276,7 +277,6 @@ impl MonographTxCtlTask {
         let remote_install_dir = self.config.install_dir();
         let check_status = monograph_cmd!(TxCtlCmd::Status, remote_install_dir);
         let cmd_val = check_status.cmd_value();
-        println!("MonographDB process_info pid = {cmd_val}");
         check_pid(cmd_val, ssh_conn, parse_process_pid).await
         // check_process_pid(cmd_val, ssh_conn, parse_process_pid).await
     }
@@ -325,12 +325,14 @@ impl TaskExecutor for MonographTxCtlTask {
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
+                println!("MonographCtlTask send stop_cmd={stop_cmd}");
                 tx_ctl!(self, check_process_status, {!=, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                      wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
                 })
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
+                println!("MonographCtlTask send start_cmd={start_cmd}");
                 tx_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 })

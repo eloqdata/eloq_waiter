@@ -140,10 +140,10 @@ impl TaskExecutor for UnpackFileTask {
             )
         };
         let unpack_cmd = unpack_pair.0;
-        let unpack_and_remove_raw_file = format!("{unpack_cmd};rm -rf {remote_tar}");
-        info!("UnpackFileTask cmd={}", unpack_and_remove_raw_file);
+        // let unpack_and_remove_raw_file = format!("{unpack_cmd};rm -rf {remote_tar}");
+        info!("UnpackFileTask cmd={unpack_cmd}");
         let task_rs = ssh_session
-            .command(unpack_and_remove_raw_file.as_str(), SSHCommandOption::None)
+            .command(unpack_cmd.as_str(), SSHCommandOption::None)
             .await?;
 
         ssh_session.close().await?;

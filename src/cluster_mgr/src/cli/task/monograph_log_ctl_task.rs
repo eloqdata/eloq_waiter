@@ -18,7 +18,7 @@ use std::future::Future;
 use tracing::info;
 
 const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
-const FIND_LOG_PROCESS_CMD: &str = r#"ps uxwe -u _USER | grep -E 'conf=_MEMBER_CONF|_LOG_BIN_CMD' \
+const FIND_LOG_PROCESS_CMD: &str = r#"ps uxwe -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' \
 | grep -v grep | awk '{print _COLUMN}'"#;
 
 // const AWK_PRINT_PID: &str =
@@ -79,11 +79,13 @@ impl LogCtlCmd {
 
                 let ps_cmd_part = FIND_LOG_PROCESS_CMD
                     .replace("_USER", user)
-                    .replace("_MEMBER_CONF", cmd_items.group_members_config.as_str())
                     .replace("_LOG_BIN_CMD", format!("{log_home}/bin/launch_sv").as_str())
+                    .replace("_STORAGE_PATH", cmd_items.log_member.storage_path.as_str())
                     .replace("_COLUMN", "$2");
-                let log_start_cmd =
-                    format!("export LD_LIBRARY_PATH={log_home}/lib:$LD_LIBRARY_PATH; /bin/bash {home_dir}/start_tx_log_{host}_{log_port}.bash");
+                let log_start_cmd = format!(
+                    "export LD_LIBRARY_PATH={log_home}/lib:$LD_LIBRARY_PATH;\
+                    /bin/bash {home_dir}/start_tx_log_{host}_{log_port}.bash"
+                );
                 let log_cmd = match &cmd_arg {
                     CommandArgs::Start { cluster: _ } => LogCtlCmd::Start(log_start_cmd),
                     CommandArgs::Status {
@@ -106,7 +108,6 @@ impl LogCtlCmd {
                         command: log_cmd,
                     } => {
                         let log_cmd_str = log_cmd.as_str();
-                        println!("log_cmd={log_cmd_str}");
                         if log_cmd_str.is_empty() {
                             panic!("LogService command only support start | stop");
                         }
@@ -183,7 +184,7 @@ impl MonographLogCtlTask {
                     hosts: host.to_string(),
                 };
                 let task_id = TaskId {
-                    cmd: "monograph_log_ctl".to_string(),
+                    cmd: format!("monograph_log_{cluster_arg_ref}"),
                     task: cmd_arg.as_ref().to_string(),
                     host,
                 };
@@ -266,7 +267,7 @@ impl MonographLogCtlTask {
             .collect::<HashMap<LogProcessKey, ExecutionValue>>()
     }
 
-    async fn log_pid(
+    async fn log_service_pid(
         &self,
         ssh_session: &SSHSession,
     ) -> anyhow::Result<HashMap<LogProcessKey, ExecutionValue>> {
@@ -318,15 +319,10 @@ impl TaskExecutor for MonographLogCtlTask {
         let cluster_mgr_cmd = task_arg.get(CLUSTER_COMMAND_STR).unwrap();
         let cluster_cmd_string = cluster_mgr_cmd.clone().into_inner_value::<String>();
         println!("{} execute.\n", self.task_id.pretty_string());
-
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
-        let pid_cmd_value = self.log_pid(&ssh_session).await?;
-        println!(
-            "MonographLogCtlTask curr log_ctl_cmd = {:#?} log_pid={pid_cmd_value:#?}",
-            self.log_cmd
-        );
+        let pid_cmd_value = self.log_service_pid(&ssh_session).await?;
         let cmd_execution_result = if cluster_cmd_string.eq("status") {
             self.merge_execution_value(pid_cmd_value)
         } else {
@@ -337,6 +333,9 @@ impl TaskExecutor for MonographLogCtlTask {
                     let execution_value = pid_cmd_value.get(key).unwrap();
                     let pid = TaskArgValue::into_inner_value::<String>(
                         execution_value.get(PROCESS_PID).unwrap().clone(),
+                    );
+                    println!(
+                        "MonographLogCtlTask found pid={pid}, command={cluster_cmd_string} {key:#?}"
                     );
                     if cluster_cmd_string.eq("stop") {
                         //stop and There are still log process alive
@@ -351,20 +350,24 @@ impl TaskExecutor for MonographLogCtlTask {
                 .map(|(key, ctl_cmd)| (key.clone(), ctl_cmd.clone()))
                 .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
 
-            info!("MonographLogCtlTask receive cluster_cmd={cluster_cmd_string:?}, log_ctl_cmd_list={execution_cmd_vec:?}");
-            let cmd_result = execution_cmd_vec
-                .iter()
-                .map(|(key, ctl_cmd)| async {
-                    let cmd_result = ssh_session
-                        .command(ctl_cmd.cmd_value().as_str(), CollectOutput)
-                        .await;
+            if execution_cmd_vec.is_empty() {
+                self.merge_execution_value(pid_cmd_value)
+            } else {
+                let cmd_result = execution_cmd_vec
+                    .iter()
+                    .map(|(key, ctl_cmd)| async {
+                        let cmd_value_string = ctl_cmd.cmd_value();
+                        println!("MonographLogCtlTask send command={cmd_value_string}");
+                        let cmd_result = ssh_session
+                            .command(cmd_value_string.as_str(), CollectOutput)
+                            .await;
 
-                    (key.clone(), cmd_result)
-                })
-                .collect_vec();
-            let all_cmd_result = MonographLogCtlTask::join_all_command_result(cmd_result).await;
-            println!("MonographLogCtlTask command execution complete. {all_cmd_result:#?}");
-            self.merge_execution_value(all_cmd_result)
+                        (key.clone(), cmd_result)
+                    })
+                    .collect_vec();
+                let all_cmd_result = MonographLogCtlTask::join_all_command_result(cmd_result).await;
+                self.merge_execution_value(all_cmd_result)
+            }
         };
         ssh_session.close().await?;
         task_return_value!(

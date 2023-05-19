@@ -1,22 +1,10 @@
 use crate::cli::task::group::{LogServiceCtlTaskGroup, TaskGroup};
 use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
-use crate::cli::task::task_base::{TaskExecutionContext, TaskId, TaskInstance};
+use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use indexmap::IndexMap;
-
-impl LogServiceCtlTaskGroup {
-    pub(crate) fn log_ctl_tasks(
-        cmd_arg: CommandArgs,
-        config: DeploymentConfig,
-    ) -> IndexMap<TaskId, TaskInstance> {
-        let mut log_ctl_executable = IndexMap::new();
-        log_ctl_executable.extend(MonographLogCtlTask::from_config(cmd_arg, &config).into_iter());
-        log_ctl_executable.extend(MonographLogProbeTask::from_config(&config).into_iter());
-        log_ctl_executable
-    }
-}
 
 #[async_trait::async_trait]
 impl TaskGroup for LogServiceCtlTaskGroup {
@@ -32,11 +20,21 @@ impl TaskGroup for LogServiceCtlTaskGroup {
             } => log_ctl_cmd,
             _ => unreachable!(),
         };
-
-        let log_ctl_executable = LogServiceCtlTaskGroup::log_ctl_tasks(cmd_arg, config);
+        let is_start_cmd = log_ctl_cmd_name.to_lowercase().eq("start")
+            || log_ctl_cmd_name.to_lowercase().eq("status");
+        let mut log_ctl_executable = IndexMap::new();
+        let mut barrier = vec![];
+        log_ctl_executable.extend(MonographLogCtlTask::from_config(cmd_arg, &config).into_iter());
+        barrier.push(log_ctl_executable.len());
+        if is_start_cmd {
+            let probe_task = MonographLogProbeTask::from_config(&config);
+            barrier.push(probe_task.len());
+            log_ctl_executable.extend(probe_task.into_iter());
+        }
+        let barrier = if is_start_cmd { Some(barrier) } else { None };
         Ok(TaskExecutionContext {
             task_group: format!("log-srv-{log_ctl_cmd_name}"),
-            barrier: None,
+            barrier,
             executable: log_ctl_executable,
         })
     }

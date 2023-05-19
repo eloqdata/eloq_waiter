@@ -164,6 +164,24 @@ impl DeploymentConfig {
         unpack_files
     }
 
+    pub fn gen_all_monograph_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
+        let install_dir = self.install_dir();
+        let mut path_vec = vec![self
+            .deployment
+            .gen_monograph_config_by_host(None, install_dir.clone())?];
+        let db_hosts = &self.deployment.tx_service.host;
+        let all_config_path = db_hosts
+            .iter()
+            .map(|host| {
+                self.deployment
+                    .gen_monograph_config_by_host(Some(host.to_string()), install_dir.clone())
+                    .unwrap()
+            })
+            .collect_vec();
+        path_vec.extend(all_config_path.into_iter());
+        Ok(path_vec)
+    }
+
     pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let deployment_ref = &self.deployment;
         if let Some(monitor) = deployment_ref.monitor.as_ref() {

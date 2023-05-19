@@ -17,6 +17,22 @@ use tracing::warn;
 // The timeout time of the probe, in seconds.
 const TIMEOUT: u64 = 60 * 5;
 
+#[derive(Clone, Debug)]
+struct MemberLeaderInfo {
+    group_id: usize,
+    leader_count: usize,
+    check_health: String,
+}
+
+impl ToString for MemberLeaderInfo {
+    fn to_string(&self) -> String {
+        format!(
+            "group_id={},leader_count={},addr={}",
+            self.group_id, self.leader_count, &self.check_health
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct LogGroupState {
     pub log_group: String,
@@ -107,12 +123,8 @@ impl MonographLogProbeTask {
             return http_client_init_err;
         }
         let expect_leader_count = self.check_health_url.len();
-        println!(
-            "MonographLogProbeTask current check_heal_url={:#?}",
-            self.check_health_url
-        );
         let http_client = client_rs.unwrap();
-        let mut interval = tokio::time::interval(Duration::from_millis(200));
+        let mut interval = tokio::time::interval(Duration::from_millis(300));
         loop {
             let probe_result_fut = self
                 .check_health_url
@@ -126,56 +138,76 @@ impl MonographLogProbeTask {
                         .collect_vec()
                 })
                 .collect_vec();
-
             let probe_rs = future::join_all(probe_result_fut).await;
-
             let leader_count_fut = probe_rs
                 .into_iter()
                 .map(|(group_id, response_rs)| async move {
-                    println!("MonographLogProbeTask retrieve response={response_rs:#?}");
                     let my_leader = if let Ok(response) = response_rs {
                         let status_code = response.status();
+                        let request_url = response.remote_addr().unwrap().to_string();
                         if !status_code.is_success() {
-                            let request_url = response.url();
-                            warn!("MonographLogProbeTask get response not_ok {status_code:?}, url = {request_url:#?}");
-                            (group_id, 0_usize)
+                            warn!("MonographLogProbeTask get response not_ok {status_code:?},url={request_url:#?}");
+                            (group_id, Ok(MemberLeaderInfo {
+                                group_id,
+                                leader_count: 0,
+                                check_health: request_url,
+                            }))
                         } else {
                             let check_health_rs = response.json::<CheckHealthResponse>().await;
                             let check_health_rsp = check_health_rs.unwrap();
                             let raft_stat = check_health_rsp.raft_stat;
                             assert!(!raft_stat.is_empty());
                             let group_state = raft_stat.first().unwrap();
-                            println!("MonographLogProbeTask retrieve group_id={group_id:?},member_role={group_state:#?}");
+                            println!("MonographLogProbeTask retrieve from {request_url:#?} group_id={group_id:?},member_role={group_state:#?}");
                             if group_state.state.to_uppercase().eq("LEADER") {
-                                (group_id, 1_usize)
+                                (group_id, Ok(MemberLeaderInfo {
+                                    group_id,
+                                    leader_count: 1,
+                                    check_health: request_url,
+                                }))
                             } else {
-                                (group_id, 0_usize)
+                                (group_id, Ok(MemberLeaderInfo {
+                                    group_id,
+                                    leader_count: 0,
+                                    check_health: request_url,
+                                }))
                             }
                         }
                     } else {
-                        (group_id, 0_usize)
+                        let rsp_err = response_rs.err().unwrap();
+                        println!("{rsp_err:#?}");
+                        warn!("MonographLogProbeTask Failed to request group_id={group_id}, error={rsp_err:#?}");
+                        (group_id, Err(rsp_err))
                     };
                     my_leader
                 }).collect_vec();
 
             let all_group_leaders = future::join_all(leader_count_fut).await;
-            let total_leader = all_group_leaders
-                .iter()
-                .map(|(_group, leader_count)| *leader_count)
-                .sum::<usize>();
 
+            let mut total_leader = 0;
+            for (_group, leader_count_rs) in &all_group_leaders {
+                if let Ok(member_leader_info) = leader_count_rs.as_ref() {
+                    total_leader += member_leader_info.clone().leader_count;
+                } else {
+                    total_leader += 0;
+                }
+            }
             if total_leader == expect_leader_count {
                 let execution_success = self.build_command_result(
                     0,
                     all_group_leaders
                         .iter()
-                        .map(|(group, leader_count)| {
-                            format!("group={group},leader_count={leader_count}")
+                        .map(|(_group, member_leader_info)| {
+                            let member = member_leader_info.as_ref().unwrap();
+                            member.to_string()
                         })
-                        .join(";"),
+                        .unique()
+                        .join("\n"),
                 );
                 return execution_success;
             }
+            println!("MonographLogProbeTask found current leader count={total_leader:#?} != {expect_leader_count}.\
+             next round 300ms after");
             interval.tick().await;
         }
     }

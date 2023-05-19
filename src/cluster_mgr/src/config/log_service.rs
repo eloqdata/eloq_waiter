@@ -19,13 +19,13 @@ impl ToString for LogProcessKey {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct LogCmdItems {
     pub group_members_config: String,
     pub log_member: LogGroupMember,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct LogGroupMember {
     pub node_id: usize,
     pub group_id: usize,
@@ -122,7 +122,7 @@ impl LogService {
                             member_host: node_host.clone(),
                             port,
                             storage_path: format!("{data_dir}/group_{group_id}_node_{idx}"),
-                            check_health_url: format!("{node_host}:{port}/healthz"),
+                            check_health_url: format!("http://{node_host}:{port}/healthz"),
                         }
                     })
                     .collect_vec();

@@ -54,14 +54,12 @@ impl MonographUploadBuilder {
     }
 
     fn build_monograph_misc_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
-        let deployment = &config.deployment;
         let log_start_path_opt = config.gen_log_start_script().unwrap();
-
         let mut all_files_path = vec![
             config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
         ];
-        let my_cnf_path = deployment.gen_all_monograph_configs().unwrap();
+        let my_cnf_path = config.gen_all_monograph_configs().unwrap();
         all_files_path.extend(my_cnf_path.into_iter());
         if let Some(log_start_path) = log_start_path_opt {
             all_files_path.extend(log_start_path.into_iter());

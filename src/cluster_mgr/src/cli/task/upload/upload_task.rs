@@ -2,10 +2,10 @@ use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
+use crate::cli::task::upload::upload_task_builder::SCP_COMMAND;
 use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use std::collections::HashMap;
-use crate::cli::task::upload::upload_task_builder::SCP_COMMAND;
 
 #[derive(Debug, Clone)]
 pub struct UploadTask {
