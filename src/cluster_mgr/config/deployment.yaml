@@ -1,11 +1,11 @@
 connection:
-  username: "mono"
+  username: "ubuntu"
   auth_type: "keypair"
   auth:
-    keypair: "/home/_USER/.ssh/id_rsa"
+    keypair: "/home/ubuntu/.ssh/ed25519"
 deployment:
-  tx_image: "file:///home/ubuntu/monographdb-release.tar.gz"
-  log_image: "file:///home/ubuntu/monographdb-tx-log-release.tar.gz"
+  tx_image: "file:///home/ubuntu/monograph-tx-ubuntu20-release-bin.tar.gz"
+  log_image: "file:///home/ubuntu/monograph-log-ubuntu20-release-bin.tar.gz"
   cluster_name: "mono-poc"
   install_dir: "/data1/opt"
   port:
@@ -18,14 +18,14 @@ deployment:
       - host: localhost
         port: 9400
         data_dir:
-          - "/data"
+          - "/data1/opt/log_data"
     replica: 3
-  mono_service:
+  tx_service:
     host:
       - localhost
   storage_service:
     cassandra:
-      download_url: "https://archive.apache.org/dist/cassandra/4.1.0/apache-cassandra-4.1.0-bin.tar.gz"
+      download_url: "https://dlcdn.apache.org/cassandra/4.1.1/apache-cassandra-4.1.1-bin.tar.gz"
       storage_cluster: "mono-cass-cluster"
       host:
         - localhost
@@ -36,7 +36,7 @@ deployment:
       port: 18081
     prometheus:
       download_url: "https://github.com/prometheus/prometheus/releases/download/v2.42.0/prometheus-2.42.0.linux-amd64.tar.gz"
-      port: 9090
+      port: 9500
       host: "localhost"
     grafana:
       download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
