@@ -112,10 +112,8 @@ impl Monitor {
     }
 
     pub fn create_monitor_user_cmd(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_exporter_dir = monitor_component_config_dir!("mysql_exporter");
         let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
-        let script_path =
-            format!("{install_dir}/{mysql_exporter_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
+        let script_path = format!("{install_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
         format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock < {script_path}")
     }
 

@@ -278,7 +278,7 @@ impl CassandraCtlTask {
                 .await?
                 .unwrap();
             let status_value = op_status.get(CMD_STATUS).unwrap();
-            let status_code = TaskArgValue::into_inner_value::<usize>(status_value.clone());
+            let status_code = TaskArgValue::into_inner_value::<i32>(status_value.clone());
             if status_code == 0 {
                 println!("Cassandra Cluster UP now");
                 break;

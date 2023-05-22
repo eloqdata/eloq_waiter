@@ -128,7 +128,7 @@ impl MySQLProbe {
                     CMD.to_string(),
                     TaskArgValue::Str(format!("Dial MonographDB={mysql_conn_url}")),
                 ),
-                (CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX)),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(-1)),
                 (
                     CMD_OUTPUT.to_string(),
                     TaskArgValue::Str(mono_conn_err.to_string()),
@@ -163,7 +163,7 @@ impl MySQLProbe {
             ])),
             Err(err) => Ok(HashMap::from([
                 (CMD.to_string(), TaskArgValue::Str(query_cmd.to_string())),
-                (CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX)),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(-1)),
                 (CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string())),
             ])),
         }
@@ -351,7 +351,7 @@ impl TaskExecutor for MonographTxCtlTask {
         };
         task_return_value!(
             ctl_rtn_value,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::MonographCtlErr(exec_cmd, status_code.to_string())
             },
             "MonographCtlTask"

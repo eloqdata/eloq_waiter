@@ -2,7 +2,7 @@ use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
-use crate::cli::task::upload::upload_task_builder::SCP_COMMAND;
+use crate::cli::task::upload::upload_task_builder::{SCP_COMMAND, SOURCE_IP};
 use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ impl TaskExecutor for UploadTask {
 
     async fn execute(
         &self,
-        task_host: TaskHost,
+        _task_host: TaskHost,
         task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         println!("{} execute.\n", self.task_id.pretty_string());
@@ -39,18 +39,32 @@ impl TaskExecutor for UploadTask {
         let remote_install_dir = self.config.install_dir();
         let mkdir = format!("mkdir -p {remote_install_dir}");
 
+        let conn_ref = &self.config.connection;
+        let user = &conn_ref.username;
+        let port = conn_ref.ssh_port() as usize;
+
+        let source_ip_opt = task_arg.get(SOURCE_IP).unwrap();
+        let source_host = source_ip_opt.clone().into_inner_value::<String>();
+
+        let source_task_host = TaskHost::Remote {
+            user: user.to_string(),
+            port,
+            hosts: source_host,
+        };
+        let ssh_session = SSHSession::from_task_host(
+            source_task_host,
+            self.config.connection.ssh_auth_key().unwrap(),
+        )
+        .await?;
         let remote_cmd = format!("{mkdir};{scp}");
-        println!("UploadTask remote command {remote_cmd}\n");
-        let ssh_session =
-            SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
-                .await?;
+        println!("UploadTask command={remote_cmd}");
         let upload_task_result = ssh_session
             .command(remote_cmd.as_str(), CollectOutput)
             .await?;
         ssh_session.close().await?;
         task_return_value!(
             upload_task_result,
-            |status_code: usize| -> CmdErr { CmdErr::UploadErr(scp, status_code.to_string()) },
+            |status_code: i32| -> CmdErr { CmdErr::UploadErr(remote_cmd, status_code.to_string()) },
             "UploadTask"
         )
     }

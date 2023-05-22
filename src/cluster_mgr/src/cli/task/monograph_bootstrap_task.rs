@@ -115,7 +115,7 @@ impl TaskExecutor for MonographInstall {
         ssh_session.close().await?;
         task_return_value!(
             install_rs,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::MonographInstallErr(install_db_script, status_code.to_string())
             },
             "MonographInstall",

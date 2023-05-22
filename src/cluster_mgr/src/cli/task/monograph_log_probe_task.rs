@@ -85,7 +85,7 @@ impl MonographLogProbeTask {
         }
     }
 
-    fn build_command_result(&self, status: usize, output: String) -> ExecutionValue {
+    fn build_command_result(&self, status: i32, output: String) -> ExecutionValue {
         HashMap::from([
             (
                 CMD.to_string(),
@@ -119,7 +119,7 @@ impl MonographLogProbeTask {
             .build();
         if let Err(client_build_err) = client_rs {
             let err_msg = client_build_err.to_string();
-            let http_client_init_err = self.build_command_result(usize::MAX, err_msg);
+            let http_client_init_err = self.build_command_result(-1, err_msg);
             return http_client_init_err;
         }
         let expect_leader_count = self.check_health_url.len();
@@ -231,14 +231,14 @@ impl TaskExecutor for MonographLogProbeTask {
             exec_rs
         } else {
             let timeout_elapsed = action_result.err().unwrap();
-            self.build_command_result(usize::MAX,
+            self.build_command_result(-1,
                                       format!("MonographLogProbeTask \
                                       timeout elapsed={timeout_elapsed:?} secs,timeout={TIMEOUT} secs"))
         };
         let probe_cmd = self.check_health_string();
         task_return_value!(
             probe_result,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::ExecUserCmdErr(probe_cmd, status_code.to_string())
             },
             "MonographLogProbeTask"

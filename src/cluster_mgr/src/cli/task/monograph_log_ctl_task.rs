@@ -233,8 +233,8 @@ impl MonographLogCtlTask {
                     CMD_STATUS => {
                         let status_acc = record
                             .into_iter()
-                            .map(|(_key, task_val)| task_val.into_inner_value::<usize>())
-                            .sum::<usize>();
+                            .map(|(_key, task_val)| task_val.into_inner_value::<i32>())
+                            .sum::<i32>();
                         //.fold(0_usize, |acc, x| acc + x);
                         TaskArgValue::Number(status_acc)
                     }
@@ -372,7 +372,7 @@ impl TaskExecutor for MonographLogCtlTask {
         ssh_session.close().await?;
         task_return_value!(
             cmd_execution_result,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::ExecUserCmdErr(cluster_cmd_string.clone(), status_code.to_string())
             },
             "MonographLogCtlTask"

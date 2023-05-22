@@ -80,7 +80,7 @@ where
         .command(find_ps_cmd.as_str(), CollectOutput)
         .await?;
     let cmd_status = cmd_exec_rs.get(CMD_STATUS).unwrap();
-    if 0 != TaskArgValue::into_inner_value::<usize>(cmd_status.clone()) {
+    if 0 != TaskArgValue::into_inner_value::<i32>(cmd_status.clone()) {
         error!("check_process_pid fails status={:?}", cmd_status);
         return Err(anyhow!("Cmd {} execution fails", find_ps_cmd));
     }

@@ -304,7 +304,7 @@ impl TaskExecutor for MonitorCtlTask {
         let ctl_rtn_value = monitor_ctl_cmd_result?;
         task_return_value!(
             ctl_rtn_value,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::MonitorCtlCmdErr(self.task_id.format_string(), status_code.to_string())
             },
             "MonitorCtlTask"

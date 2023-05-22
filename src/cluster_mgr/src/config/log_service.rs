@@ -216,7 +216,7 @@ mod tests {
             .map(|idx| LogServiceNode {
                 host: format!("127.0.0.{idx}"),
                 data_dir: vec!["/data/opt/log_srv".to_string()],
-                port: 9800,
+                port: 9400,
             })
             .collect_vec();
         LogService {

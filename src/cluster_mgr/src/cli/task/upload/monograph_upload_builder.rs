@@ -1,7 +1,7 @@
 use crate::cli::download_dir;
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
-    build_task_instance, create_temp_dir, UploadTaskBuilder,
+    build_task_instance, get_source_host, list_files_by_host, UploadTaskBuilder,
 };
 use crate::config::config_base::{
     DeploymentConfig, UploadFile, CASSANDRA_FILE_KEY, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
@@ -54,13 +54,12 @@ impl MonographUploadBuilder {
     }
 
     fn build_monograph_misc_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
-        let log_start_path_opt = config.gen_log_start_script().unwrap();
         let mut all_files_path = vec![
             config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
         ];
-        let my_cnf_path = config.gen_all_monograph_configs().unwrap();
-        all_files_path.extend(my_cnf_path.into_iter());
+        all_files_path.extend(config.gen_all_monograph_configs().unwrap().into_iter());
+        let log_start_path_opt = config.gen_log_start_script().unwrap();
         if let Some(log_start_path) = log_start_path_opt {
             all_files_path.extend(log_start_path.into_iter());
         }
@@ -70,18 +69,6 @@ impl MonographUploadBuilder {
             all_files_path.extend(mysql_exporter_conf.into_iter());
         }
 
-        let conf_tmp_dir = create_temp_dir("monograph_conf_misc", "/tmp").unwrap();
-        let conf_tmp_path = conf_tmp_dir.as_path();
-        all_files_path.iter().for_each(move |file| {
-            println!("Upload task curr config file= {file:#?}");
-            let file_name = file.file_name().unwrap().to_str().unwrap();
-            let dest_file = conf_tmp_path.join(file_name);
-            let copy_rs = std::fs::copy(file, dest_file.as_path());
-            if let Err(copy_err) = copy_rs {
-                panic!("Failed Upload db_config files error cause by {copy_err}")
-            }
-        });
-
         let all_db_host = config.get_host_as_map();
         let tx_hosts = all_db_host.get(&DeploymentPackage::MonographTx).unwrap();
 
@@ -89,18 +76,18 @@ impl MonographUploadBuilder {
         if let Some(log_host) = all_db_host.get(&DeploymentPackage::MonographLog) {
             tx_hosts_cloned.extend(log_host.clone().into_iter());
         }
-
-        let tmp_files_string = conf_tmp_dir.to_str().unwrap();
         let dest_file = config.install_dir();
-
         tx_hosts_cloned
             .iter()
-            .map(|host| UploadFile {
-                source: format!("{tmp_files_string}/*.*"),
-                dest: dest_file.clone(),
-                extension: "bash,cnf".to_string(),
-                host: host.to_string(),
-                copy_dir: false,
+            .map(|host| {
+                let source_files = list_files_by_host(host).join(" ");
+                UploadFile {
+                    source: source_files,
+                    dest: dest_file.clone(),
+                    extension: "bash,cnf".to_string(),
+                    host: host.to_string(),
+                    copy_dir: false,
+                }
             })
             .collect_vec()
     }
@@ -113,12 +100,19 @@ impl UploadTaskBuilder for MonographUploadBuilder {
         let mut upload_files = self.build_monograph_misc_upload_file(config);
         let upload_tar_files = self.monograph_tar_upload_file(config);
         upload_files.extend(upload_tar_files.into_iter());
+        let source_host = get_source_host(None);
         upload_files
             .iter()
             .map(|upload_file| {
                 let extension = &upload_file.extension;
                 let task_name = format!("deploy_monograph_{extension}");
-                build_task_instance(upload_file.clone(), config, "deploy", task_name.as_str())
+                build_task_instance(
+                    source_host.clone(),
+                    upload_file.clone(),
+                    config,
+                    "deploy",
+                    task_name.as_str(),
+                )
             })
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }

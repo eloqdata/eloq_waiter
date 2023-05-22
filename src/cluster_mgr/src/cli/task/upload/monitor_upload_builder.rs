@@ -1,6 +1,6 @@
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
-    build_task_instance, create_temp_dir, UploadTaskBuilder,
+    build_task_instance, create_temp_dir, get_source_host, UploadTaskBuilder,
 };
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use crate::config::monitor::{
@@ -129,6 +129,7 @@ impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
     fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
         let monitor_opt = config.deployment.monitor.as_ref();
 
+        let source_host = get_source_host(None);
         if let Some(monitor) = monitor_opt {
             let all_monitor_config = self.gen_monitor_config(monitor, config);
             let all_upload_files = self.monitor_upload_files(all_monitor_config);
@@ -136,6 +137,7 @@ impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
                 .iter()
                 .map(|upload_file| {
                     build_task_instance(
+                        source_host.clone(),
                         upload_file.clone(),
                         config,
                         "deploy",

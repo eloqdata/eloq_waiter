@@ -149,9 +149,7 @@ impl TaskExecutor for UnpackFileTask {
         ssh_session.close().await?;
         task_return_value!(
             task_rs,
-            |status_code: usize| -> CmdErr {
-                CmdErr::UnpackErr(unpack_cmd, status_code.to_string())
-            },
+            |status_code: i32| -> CmdErr { CmdErr::UnpackErr(unpack_cmd, status_code.to_string()) },
             "UnpackFileTask",
             HashMap::from([(
                 "UNPACK_TARGET_DIR".to_string(),

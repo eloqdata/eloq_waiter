@@ -30,7 +30,13 @@ impl UploadTaskBuilder for DataDirUploadBuilder {
                 copy_dir: true,
             })
             .map(|upload_file| {
-                build_task_instance(upload_file, config, "install", "upload_datafarm")
+                build_task_instance(
+                    bootstrap_host.clone(),
+                    upload_file,
+                    config,
+                    "install",
+                    "upload_datafarm",
+                )
             })
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }

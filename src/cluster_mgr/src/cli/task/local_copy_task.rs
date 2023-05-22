@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use tracing::error;
 
 const SOURCE_DIR: &str = "_source_dir";
@@ -89,43 +88,28 @@ impl TaskExecutor for LocalCopyTask {
             Err(anyhow!(CmdErr::CopyTaskErr(source_dir_string)))
         } else {
             let download_dir = download_dir();
-
             let dest_file =
                 TaskArgValue::into_inner_value::<String>(task_arg.get(DEST_DIR).unwrap().clone());
-            let dest_file_path = download_dir.join(dest_file).to_str().unwrap().to_string();
-            let mut copy_cmd = Command::new("cp");
-            let copy_cmd_args = if source_path.is_dir() {
-                vec!["-r".to_string(), source_dir_string, dest_file_path]
-            } else {
-                vec![source_dir_string, dest_file_path]
-            };
-            copy_cmd.args(copy_cmd_args);
-
-            let cmd_str = copy_cmd.get_program().to_str().unwrap().to_string();
-            let mut args_str = String::new();
-            for arg_val in copy_cmd.get_args() {
-                if let Some(arg) = arg_val.to_str() {
-                    args_str.push_str(arg)
-                }
-            }
-
-            let copy_cmd_str = format!("{cmd_str} {args_str}");
-            let status = copy_cmd.status()?;
-
+            let to = download_dir.join(dest_file.clone());
+            let from = PathBuf::from(source_dir_string.clone());
+            let copy_rs = std::fs::copy(from, to);
             let mut copy_task_rs = HashMap::from([
-                (CMD.to_string(), TaskArgValue::Str(copy_cmd_str)),
+                (
+                    CMD.to_string(),
+                    TaskArgValue::Str(format!(
+                        "copy {source_dir_string} Downloads/mono-cluster-cli/{dest_file}"
+                    )),
+                ),
                 (CMD_OUTPUT.to_string(), TaskArgValue::Str("".to_string())),
             ]);
-            if status.success() {
-                copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
+            if let Err(copy_err) = copy_rs {
+                copy_task_rs.insert(
+                    CMD_OUTPUT.to_string(),
+                    TaskArgValue::Str(copy_err.to_string()),
+                );
+                copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(100));
             } else {
-                error!("LocalCopyTask failed. command status code={:?}", status);
-                if let Some(code) = status.code() {
-                    copy_task_rs
-                        .insert(CMD_STATUS.to_string(), TaskArgValue::Number(code as usize));
-                } else {
-                    copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX));
-                }
+                copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
             }
             Ok(Some(copy_task_rs))
         }

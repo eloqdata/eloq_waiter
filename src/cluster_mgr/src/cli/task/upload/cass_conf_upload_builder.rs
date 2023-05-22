@@ -1,6 +1,6 @@
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
-    build_task_instance, create_temp_dir, UploadTaskBuilder,
+    build_task_instance, create_temp_dir, get_source_host, UploadTaskBuilder,
 };
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use indexmap::IndexMap;
@@ -20,6 +20,7 @@ impl UploadTaskBuilder for CassConfUploadBuilder {
             monitor,
         );
         assert!(cass_config_rs.is_ok());
+        let source_host = get_source_host(None);
         let cass_config = cass_config_rs.unwrap();
         let dest_file = format!("{install_dir}/apache-cassandra/conf");
         cass_config
@@ -53,7 +54,13 @@ impl UploadTaskBuilder for CassConfUploadBuilder {
                 }
             })
             .map(|upload_file| {
-                build_task_instance(upload_file, config, "install", "cass_conf_upload")
+                build_task_instance(
+                    source_host.clone(),
+                    upload_file,
+                    config,
+                    "install",
+                    "cass_conf_upload",
+                )
             })
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }

@@ -2,7 +2,7 @@ connection:
   username: "mono"
   auth_type: "keypair"
   auth:
-    keypair: "/home/$USER/.ssh/id_rsa"
+    keypair: "/home/_USER/.ssh/id_rsa"
 deployment:
   tx_image: "file:///home/ubuntu/monographdb-release.tar.gz"
   log_image: "file:///home/ubuntu/monographdb-tx-log-release.tar.gz"
@@ -16,7 +16,7 @@ deployment:
   log_service:
     nodes:
       - host: localhost
-        port: 9800
+        port: 9400
         data_dir:
           - "/data"
     replica: 3
@@ -40,7 +40,7 @@ deployment:
       host: "localhost"
     grafana:
       download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
-      port: 3300
+      port: 3301
       host: "localhost"
     node_exporter: "https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz"
     node_exporter_port: 9200
@@ -49,9 +49,3 @@ deployment:
     cassandra_collector:
       mcac_agent: "https://github.com/datastax/metric-collector-for-apache-cassandra/releases/download/v0.3.4/datastax-mcac-agent-0.3.4-4.1-beta1.tar.gz"
       mcac_port: 9103
-
-#    dynamodb:
-#      access_key_id: "",
-#      secret_key: ""
-#      region: "XXXX",
-#      endpoint: "";

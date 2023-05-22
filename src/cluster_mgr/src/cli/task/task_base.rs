@@ -96,7 +96,7 @@ macro_rules! task_value_into_impl {
 
 task_value_into_impl! {
     {Str, String},
-    {Number, usize},
+    {Number, i32},
     {List, Vec<String>}
 }
 
@@ -107,7 +107,7 @@ macro_rules! task_return_value {
         use $crate::cli::CMD_STATUS;
         let task_rs = $task_result.clone();
         let task_status = task_rs.get(CMD_STATUS).unwrap();
-        let status_code = TaskArgValue::into_inner_value::<usize>(task_status.clone());
+        let status_code = TaskArgValue::into_inner_value::<i32>(task_status.clone());
         if status_code != 0 {
             let cmd_err = $task_err_closure(status_code);
             info!(
@@ -154,7 +154,7 @@ pub enum CmdErr {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum TaskArgValue {
     Str(String),
-    Number(usize),
+    Number(i32),
     List(Vec<String>),
 }
 
@@ -329,7 +329,7 @@ impl TaskMgr {
                                         execution_value.get(CMD).unwrap().clone(),
                                     ),
 
-                                    cmd_status: if TaskArgValue::into_inner_value::<usize>(
+                                    cmd_status: if TaskArgValue::into_inner_value::<i32>(
                                         execution_value.get(CMD_STATUS).unwrap().clone(),
                                     ) == 0
                                     {
