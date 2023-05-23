@@ -205,6 +205,7 @@ impl MonographTxCtlTask {
             CommandArgs::Stop {
                 cluster: _,
                 ref force,
+                all: _,
             } => is_force_stop = force.is_some() && force.as_ref().unwrap().as_str() == "true",
             CommandArgs::Status {
                 cluster: _,
@@ -344,8 +345,8 @@ impl TaskExecutor for MonographTxCtlTask {
         let check_status_cmd = monograph_cmd!(
             TxCtlCmd::Status,
             remote_install_dir,
-            host_value.clone(),
-            user
+            user,
+            host_value.clone()
         )
         .cmd_value();
         let check_process_status = self

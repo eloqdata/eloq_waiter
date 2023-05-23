@@ -55,7 +55,8 @@ pub enum CommandArgs {
         cluster: String,
     },
     #[command(
-        long_about = "Stop the MonographDB cluster(TxService LogService Storage). with the specified cluster name.\n./cluster_mgr stop --cluster $CLUSTER_NAME --force true | false
+        long_about = "Stop the MonographDB cluster(TxService LogService Storage). with the specified cluster name.\n
+./cluster_mgr stop --cluster $CLUSTER_NAME --force true|false  --all true|false
     "
     )]
     #[strum(serialize = "stop")]
@@ -64,6 +65,8 @@ pub enum CommandArgs {
         cluster: String,
         #[arg(short, long, value_name = "FORCE STOP")]
         force: Option<String>,
+        #[arg(short, long, value_name = "STOP ALL")]
+        all: Option<String>,
     },
     #[command(
         long_about = "Restart the MonographDB cluster with the specified cluster name.\n./cluster_mgr restart --cluster $CLUSTER_NAME
@@ -75,9 +78,8 @@ pub enum CommandArgs {
         cluster: String,
     },
 
-    #[command(
-        long_about = "Execute custom shell commands.\n./cluster_mgr exec --command 'ls -la /data1/' --topology-file  ${PWD}/config/deployment.yaml"
-    )]
+    #[command(long_about = "Execute custom shell commands.\n\
+./cluster_mgr exec --command 'ls -la /data1/' --topology-file  ${PWD}/config/deployment.yaml")]
     #[strum(serialize = "exec_cmd")]
     Exec {
         #[arg(long, value_name = "SHELL COMMAND/SCRIPT")]

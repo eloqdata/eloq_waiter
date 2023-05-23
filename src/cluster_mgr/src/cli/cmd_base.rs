@@ -95,7 +95,11 @@ impl CommandExecutor {
                 Ok(Some(config))
             }
             CommandArgs::Install { cluster }
-            | CommandArgs::Stop { cluster, force: _ }
+            | CommandArgs::Stop {
+                cluster,
+                force: _,
+                all: _,
+            }
             | CommandArgs::Start { cluster }
             | CommandArgs::LogService {
                 cluster,

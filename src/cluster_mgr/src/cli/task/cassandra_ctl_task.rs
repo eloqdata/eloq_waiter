@@ -23,30 +23,30 @@ pub(crate) const CASSANDRA_CMD_STR: &str = "cassandra_cmd";
 
 #[macro_export]
 macro_rules! cassandra_cmd {
-    ( $cmd:ty, $cassandra_home:expr $(, $cmd_arg:expr)? $(,)?) => {{
+    ($cmd:ty, $cassandra_home:expr, $conn_user:expr) => {{
         use $crate::cli::task::task_base::REMOTE_ENV_PROPS;
         let cmd_var = stringify!($cmd);
         let remote_env_props = REMOTE_ENV_PROPS.as_ref().unwrap();
         let java_home = remote_env_props.get("JAVA_HOME").unwrap();
+        let cmd_user = $conn_user;
+        let echo_cmd=format!("ps uxwe -u {} | grep {} | grep -v grep", cmd_user, $cassandra_home);
         match cmd_var {
             "CassandraCmd::Start" => CassandraCmd::Start(format!(
                 r#"mkdir -p {}/logs && cd {} && export JAVA_HOME={}; {}/bin/cassandra -f > {}/logs/cassandra_start.log 2>&1 &"#,
                 $cassandra_home, $cassandra_home, java_home, $cassandra_home, $cassandra_home
             )),
             "CassandraCmd::Status" => CassandraCmd::Status("select keyspace_name,durable_writes from system_schema.keyspaces".to_string()),
-            $("CassandraCmd::Stop" => {
-                let pid = $cmd_arg;
-                CassandraCmd::Stop(format!("kill {}", pid))
+            "CassandraCmd::Stop" => {
+                let kill_cass = r#"| awk '{print $2}' | xargs kill"#;
+                CassandraCmd::Stop(format!("{echo_cmd} {kill_cass}"))
             },
             "CassandraCmd::ProcessInfo" => {
-                let cmd_user = $cmd_arg;
-                let echo_cmd=format!("ps uxwe -u {} | grep {} | grep -v grep", cmd_user, $cassandra_home);
                 let print_pid = r#"| awk '{print $2,$11}'"#;
                 let pid_cmd = format!("{} {}", echo_cmd, print_pid);
                 let pid_cwd = r#" awk '{printf "%s", sep $0; sep = "+"}; END {if (NR) print ""}'"#;
                 let final_cmd = format!("{} | {}", pid_cmd, pid_cwd);
                 CassandraCmd::ProcessInfo(final_cmd)
-            },)*
+            },
             _=> {
                unreachable!()
             }
@@ -99,20 +99,19 @@ pub enum CassandraCmd {
 }
 
 impl CassandraCmd {
-    pub fn from_string(cmd_str: String, cassandra_home: String, conn_user: Option<String>) -> Self {
+    pub fn from_string(cmd_str: String, cassandra_home: String, conn_user: String) -> Self {
         match cmd_str.to_lowercase().as_str() {
             "start" => {
-                cassandra_cmd!(CassandraCmd::Start, cassandra_home)
+                cassandra_cmd!(CassandraCmd::Start, cassandra_home, conn_user)
             }
             "stop" => {
-                cassandra_cmd!(CassandraCmd::Stop, cassandra_home)
+                cassandra_cmd!(CassandraCmd::Stop, cassandra_home, conn_user)
             }
             "status" => {
-                cassandra_cmd!(CassandraCmd::Status, cassandra_home)
+                cassandra_cmd!(CassandraCmd::Status, cassandra_home, conn_user)
             }
             "processinfo" => {
-                let user = conn_user.unwrap();
-                cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, user)
+                cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, conn_user)
             }
             _ => {
                 unreachable!()
@@ -148,6 +147,7 @@ impl CassandraCtlTask {
             CommandArgs::Stop {
                 cluster: _,
                 force: _,
+                all: _,
             } => (
                 "stop",
                 TaskId {
@@ -244,7 +244,8 @@ impl CassandraCtlTask {
         start_cmd: String,
         ssh_conn: &SSHSession,
     ) -> anyhow::Result<ExecutionValue> {
-        let check_status = cassandra_cmd!(CassandraCmd::Status, self.cassandra_home());
+        let ssh_info = ssh_conn.ssh_conn_info();
+        let check_status = cassandra_cmd!(CassandraCmd::Status, self.cassandra_home(), ssh_info.1);
         println!(
             "CassandraCtlTask check_node_status_cmd={}, start={}",
             check_status.cmd_value(),
@@ -333,7 +334,8 @@ impl TaskExecutor for CassandraCtlTask {
             "CassandraCtlTask will be run. Cmd={:?}, cassandra_home={:?}",
             cmd_str, cassandra_home
         );
-        let cmd = CassandraCmd::from_string(cmd_str, cassandra_home, None);
+        let conn_user = &self.config.connection.username;
+        let cmd = CassandraCmd::from_string(cmd_str, cassandra_home, conn_user.clone());
         let exec_rs = if cmd.as_ref() == "start" {
             cassandra_ctl!(task_host, cmd, Start, &ssh_session, self, is_none)
         } else if cmd.as_ref() == "stop" {

@@ -20,6 +20,7 @@ impl TaskGroup for UpgradeClusterTaskGroup {
         let stop_cmd = CommandArgs::Stop {
             cluster: cluster.clone(),
             force: None,
+            all: None,
         };
         let mut stop_monograph = MonographTxCtlTask::from_config(stop_cmd.clone(), &config);
         let has_log_srv = deployment_ref.log_service.is_some();

@@ -16,13 +16,21 @@ impl TaskGroup for CtrlDBTaskGroup {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
+        let stop_all = match cmd_arg.clone() {
+            CommandArgs::Stop {
+                cluster: _,
+                force: _,
+                all: Some(stop_all),
+            } => stop_all.to_lowercase().eq("true"),
+            _ => false,
+        };
+
         let cmd_ref = cmd_arg.as_ref();
         let storage_provider = config.get_monograph_storage()?;
-
         let is_start_cmd = (cmd_ref == "start" || cmd_ref == "restart")
             && storage_provider == StorageProvider::Cassandra;
 
-        let mut mut_executable = if is_start_cmd {
+        let mut mut_executable = if is_start_cmd || stop_all {
             CassandraCtlTask::from_config(cmd_arg.clone(), &config)
         } else {
             IndexMap::new()
@@ -42,6 +50,7 @@ impl TaskGroup for CtrlDBTaskGroup {
                     CommandArgs::Stop {
                         cluster: cluster_name.clone(),
                         force: Some("false".to_string()),
+                        all: None,
                     },
                     CommandArgs::Start {
                         cluster: cluster_name.to_string(),

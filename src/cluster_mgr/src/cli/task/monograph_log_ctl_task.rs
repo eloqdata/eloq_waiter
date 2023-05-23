@@ -93,7 +93,11 @@ impl LogCtlCmd {
                         user: _,
                         password: _,
                     } => LogCtlCmd::Status(ps_cmd_part),
-                    CommandArgs::Stop { cluster: _, force } => {
+                    CommandArgs::Stop {
+                        cluster: _,
+                        force,
+                        all: _,
+                    } => {
                         let ps_log_info = ps_cmd_part;
                         let is_force = force.is_some();
                         let stop_cmd_string = if is_force {
