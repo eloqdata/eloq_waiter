@@ -1,10 +1,11 @@
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
-    build_task_instance, create_temp_dir, get_source_host, UploadTaskBuilder,
+    build_task_instance, get_source_host, UploadTaskBuilder,
 };
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use crate::config::monitor::{
-    Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR, PROMETHEUS_CONFIG_DIR,
+    Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DASHBOARD_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR,
+    PROMETHEUS_CONFIG_DIR,
 };
 use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
@@ -28,38 +29,47 @@ impl MonitorInfraConfUploadBuilder {
         all_monitor_config
             .iter()
             .flat_map(|(dest_dir, path_and_hosts)| {
-                let tmp_prefix = if dest_dir.ends_with(PROMETHEUS_CONFIG_DIR) {
-                    "monograph_prometheus"
-                } else if dest_dir.ends_with(GRAFANA_CONFIG_DIR) {
-                    "monograph_grafana"
-                } else if dest_dir.ends_with(GRAFANA_DATASOURCE_CONFIG_DIR) {
-                    "monograph_grafana_ds"
-                } else {
-                    "monograph_monitor_files"
-                };
-                println!("tmp_fs={tmp_prefix},dest_dir={dest_dir}");
-                let monitor_conf_tmp_dir = create_temp_dir(tmp_prefix, "/tmp").unwrap();
+                //let monitor_conf_tmp_dir = create_temp_dir(tmp_prefix, "/tmp").unwrap();
                 let path_vec = &path_and_hosts.path;
-                let hosts = &path_and_hosts.hosts;
+                let path_files = path_vec
+                    .iter()
+                    .map(|path| path.to_str().unwrap())
+                    .map(|path_str| path_str.to_string())
+                    .join(" ");
 
-                path_vec.iter().for_each(|path| {
-                    let source_file = path.file_name().unwrap().to_str().unwrap();
-                    let dest_file = monitor_conf_tmp_dir.join(source_file);
-                    std::fs::copy(path, dest_file.as_path()).unwrap();
-                });
-                let source_file = monitor_conf_tmp_dir.to_str().unwrap();
+                let hosts = &path_and_hosts.hosts;
                 hosts
                     .iter()
                     .map(|host| UploadFile {
-                        source: format!("{source_file}/*.*"),
+                        source: path_files.clone(),
                         dest: dest_dir.clone(),
-                        extension: tmp_prefix.to_string(),
+                        extension: "".to_string(),
                         host: host.to_string(),
                         copy_dir: false,
                     })
                     .collect_vec()
             })
             .collect_vec()
+    }
+
+    fn dashboard_upload_files(&self, config: &DeploymentConfig) -> Option<UploadFile> {
+        let files = config.load_monitor_dashboard(None);
+        if files.is_empty() {
+            None
+        } else {
+            let host = config.get_host_list(DeploymentPackage::Grafana);
+            assert_eq!(1, host.len());
+            let dest_host = host.first().unwrap();
+            let dashboard_files = files.iter().join(" ");
+            let install_dir = config.install_dir();
+            Some(UploadFile {
+                source: dashboard_files,
+                dest: format!("{install_dir}/{GRAFANA_DASHBOARD_CONFIG_DIR}"),
+                extension: "json".to_string(),
+                host: dest_host.to_string(),
+                copy_dir: false,
+            })
+        }
     }
 
     fn gen_monitor_config(
@@ -128,11 +138,13 @@ impl MonitorInfraConfUploadBuilder {
 impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
     fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
         let monitor_opt = config.deployment.monitor.as_ref();
-
         let source_host = get_source_host(None);
         if let Some(monitor) = monitor_opt {
             let all_monitor_config = self.gen_monitor_config(monitor, config);
-            let all_upload_files = self.monitor_upload_files(all_monitor_config);
+            let mut all_upload_files = self.monitor_upload_files(all_monitor_config);
+            if let Some(upload_dashboard_file) = self.dashboard_upload_files(config) {
+                all_upload_files.push(upload_dashboard_file);
+            }
             all_upload_files
                 .iter()
                 .map(|upload_file| {
@@ -141,7 +153,7 @@ impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
                         upload_file.clone(),
                         config,
                         "deploy",
-                        upload_file.extension.as_str(),
+                        "upload_monitor_cnf",
                     )
                 })
                 .collect::<IndexMap<TaskId, TaskInstance>>()

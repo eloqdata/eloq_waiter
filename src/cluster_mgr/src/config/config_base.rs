@@ -16,6 +16,7 @@ use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env::current_exe;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -81,7 +82,6 @@ pub struct UploadFile {
     pub extension: String,
     pub host: String,
     pub copy_dir: bool,
-    //pub tmpdir: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -242,10 +242,6 @@ impl DeploymentConfig {
         }
     }
 
-    // pub fn gen_tx_start_script(&self) -> anyhow::Result<PathBuf> {
-    //     gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
-    // }
-
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
         let download_dir = download_dir();
         let my_local = download_dir.join("my_local.cnf");
@@ -268,35 +264,6 @@ impl DeploymentConfig {
             "{}/{}",
             &self.deployment.install_dir, self.deployment.cluster_name
         )
-    }
-
-    // The names of all the files that need to be installed as images.
-    // tx_service,log_service,cassandra,prometheus,grafana,node_exporter,
-    // mysql_exporter,cassandra_collector_agent
-    pub fn install_image_files(&self) -> anyhow::Result<HashMap<String, String>> {
-        let deployment = &self.deployment;
-        let mut files = HashMap::new();
-        let tx_file = DownloadUrl::from_url_str(deployment.tx_image.as_str())?.file_name();
-        files.insert(MONOGRAPH_FILE_KEY.to_string(), tx_file);
-
-        if let Some(log_image_ref) = deployment.log_image.as_ref() {
-            let log_file = DownloadUrl::from_url_str(log_image_ref.as_str())?.file_name();
-            files.insert(MONOGRAPH_LOG_FILE_KEY.to_string(), log_file);
-        }
-
-        if let Some(cassandra) = deployment.storage_service.cassandra.as_ref() {
-            let cass_file_name =
-                DownloadUrl::from_url_str(cassandra.download_url.as_str())?.file_name();
-            files.insert(CASSANDRA_FILE_KEY.to_string(), cass_file_name);
-        }
-
-        if let Some(monitor) = deployment.monitor.as_ref() {
-            let monitor_download_links = monitor.download_links_as_amp()?;
-            monitor_download_links.iter().for_each(|entry| {
-                files.insert(entry.0.clone(), entry.1.file_name());
-            });
-        }
-        Ok(files)
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
@@ -439,7 +406,7 @@ impl DeploymentConfig {
         }
     }
 
-    pub fn validate_storage_service(&self) -> bool {
+    fn validate_storage_service(&self) -> bool {
         let storage_service = &self.deployment.storage_service;
         storage_service.dynamodb.is_some() || storage_service.cassandra.is_some()
     }
@@ -517,6 +484,34 @@ impl DeploymentConfig {
             );
             Err(anyhow!(config_err))
         }
+    }
+
+    /// By default, the directory where cluster_mgr is located includes config dir.
+    /// If it does not exist, users need to specify the config location through environment variables (MONO_CLUSTER_MGR_CONF).
+    /// Recursively traverse all dashboard files
+    pub fn load_monitor_dashboard(&self, path_buf_opt: Option<PathBuf>) -> Vec<String> {
+        let dashboard_path = if let Some(spec_path_buf) = path_buf_opt {
+            spec_path_buf
+        } else if let Ok(curr) = current_exe() {
+            let parent = curr.parent().unwrap();
+            parent.join("config/dashboard")
+        } else {
+            return vec![];
+        };
+        println!("dashboard_path {dashboard_path:?}");
+        walkdir::WalkDir::new(dashboard_path)
+            .into_iter()
+            .filter_map(|curr_path| curr_path.ok())
+            .filter(|dir_entry| {
+                let path = dir_entry.path();
+                path.is_file()
+            })
+            .map(|file_entry| {
+                let path = file_entry.path();
+                let path_str = path.to_str().unwrap();
+                path_str.to_string()
+            })
+            .collect_vec()
     }
 }
 

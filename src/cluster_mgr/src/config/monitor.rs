@@ -23,6 +23,7 @@ pub const MONO_MONITOR_USER: &str = "mono_monitor";
 
 pub const GRAFANA_CONFIG_DIR: &str = "grafana/conf";
 pub const GRAFANA_DATASOURCE_CONFIG_DIR: &str = "grafana/conf/provisioning/datasources";
+pub const GRAFANA_DASHBOARD_CONFIG_DIR: &str = "grafana/conf/provisioning/dashboards";
 pub const PROMETHEUS_CONFIG_DIR: &str = "prometheus";
 
 #[macro_export]
