@@ -21,11 +21,7 @@ pub mod storage_service_config;
 pub const MONOGRAPH_CONF_TEMPLATE: &str = "my_template.cnf";
 pub const MONOGRAPH_CONF_DYNAMO_TEMPLATE: &str = "my_template_dynamo.cnf";
 
-pub const START_MONOGRAPH_SCRIPT: &str = "start_monographdb.bash";
-pub const START_MONOGRAPH_TEMPLATE: &str = "start_monographdb.template";
-
 pub const START_LOG_TEMPLATE: &str = "start_tx_log.template";
-
 pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
@@ -91,7 +87,7 @@ pub enum StorageProvider {
     DynamoDB,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum DownloadUrl {
     Local(String),
     Remote(String),

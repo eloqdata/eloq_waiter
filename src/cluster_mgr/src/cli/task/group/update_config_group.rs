@@ -1,0 +1,67 @@
+use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
+use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
+use crate::cli::task::task_base::TaskExecutionContext;
+use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
+use crate::cli::CommandArgs;
+use crate::config::config_base::DeploymentConfig;
+use indexmap::IndexMap;
+
+#[async_trait::async_trait]
+impl TaskGroup for UpdateConfigTaskGroup {
+    async fn tasks(
+        &self,
+        cmd_arg: CommandArgs,
+        config: DeploymentConfig,
+    ) -> anyhow::Result<TaskExecutionContext> {
+        let cluster_name = &config.deployment.cluster_name;
+        let need_restart = match cmd_arg {
+            CommandArgs::UpdateConf {
+                cluster: _,
+                restart,
+            } => {
+                if let Some(restart_cmd) = restart {
+                    restart_cmd.to_lowercase().eq("true")
+                } else {
+                    true
+                }
+            }
+            _ => unreachable!(),
+        };
+        let mut executable = IndexMap::new();
+        let mut barrier = vec![];
+        executable.extend(upload_tasks(UploadTaskBuilderType::MonographConf, &config).into_iter());
+
+        if need_restart {
+            barrier.push(executable.len());
+            let stop_tx_task = MonographTxCtlTask::from_config(
+                CommandArgs::Stop {
+                    cluster: cluster_name.clone(),
+                    force: None,
+                    all: None,
+                },
+                &config,
+            );
+
+            let start_tx_task = MonographTxCtlTask::from_config(
+                CommandArgs::Start {
+                    cluster: cluster_name.to_string(),
+                },
+                &config,
+            );
+            barrier.push(stop_tx_task.len());
+            barrier.push(start_tx_task.len());
+            executable.extend(stop_tx_task.into_iter());
+            executable.extend(start_tx_task.into_iter());
+        }
+
+        Ok(TaskExecutionContext {
+            task_group: "update-tx-conf".to_string(),
+            barrier: if barrier.is_empty() {
+                None
+            } else {
+                Some(barrier)
+            },
+            executable,
+        })
+    }
+}

@@ -5,6 +5,7 @@ mod deployment_group;
 mod install_runtime_deps_group;
 mod log_srv_ctl_group;
 mod monitor_ctl_group;
+mod update_config_group;
 mod upgrade_cluster_group;
 
 use crate::cli::task::task_base::TaskExecutionContext;
@@ -51,7 +52,8 @@ task_group_boxed! {
     {InstallRuntimeDepsTaskGroup},
     {MonitorCtlTaskGroup},
     {LogServiceCtlTaskGroup},
-    {UpgradeClusterTaskGroup}
+    {UpgradeClusterTaskGroup},
+    {UpdateConfigTaskGroup}
 }
 
 pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock::new(|| {
@@ -67,5 +69,6 @@ pub static TASK_GROUP: LazyLock<HashMap<String, Box<dyn TaskGroup>>> = LazyLock:
         ("monitor".to_string(), MonitorCtlTaskGroup::boxed()),
         ("log-srv".to_string(), LogServiceCtlTaskGroup::boxed()),
         ("upgrade".to_string(), UpgradeClusterTaskGroup::boxed()),
+        ("update-conf".to_string(), UpdateConfigTaskGroup::boxed()),
     ])
 });

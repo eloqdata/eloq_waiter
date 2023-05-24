@@ -130,7 +130,7 @@ pub enum CommandArgs {
     LogService {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
-        #[arg(long, value_name = "LogService START/STOP COMMAND")]
+        #[arg(long, value_name = "LogService START/STOP/STATUS COMMAND")]
         command: String,
     },
     #[command(
@@ -141,6 +141,17 @@ pub enum CommandArgs {
     Upgrade {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
+    },
+    #[command(
+        long_about = "Update the configuration file and restart the tx service (the default value of restart is true). \
+        Note: Please edit conf/my_template.cnf first\n ./cluster_mgr update-conf --cluster $CLUSTER_NAME --restart true | false"
+    )]
+    #[strum(serialize = "update-conf")]
+    UpdateConf {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
+        #[arg(long, value_name = "Whether to restart the TX service.TURE|FALSE ")]
+        restart: Option<String>,
     },
 }
 

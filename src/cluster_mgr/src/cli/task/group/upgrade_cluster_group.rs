@@ -29,7 +29,7 @@ impl TaskGroup for UpgradeClusterTaskGroup {
         }
         let mut upload_monograph_tasks = IndexMap::new();
         upload_monograph_tasks
-            .extend(upload_tasks(UploadTaskBuilderType::InstallTar, &config).into_iter());
+            .extend(upload_tasks(UploadTaskBuilderType::MonographAll, &config).into_iter());
         upload_monograph_tasks
             .extend(upload_tasks(UploadTaskBuilderType::MonitorConf, &config).into_iter());
 

@@ -7,7 +7,7 @@ use crate::config::monitor::Monitor;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider,
     CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE,
-    START_LOG_TEMPLATE, START_MONOGRAPH_SCRIPT, START_MONOGRAPH_TEMPLATE,
+    START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
@@ -68,16 +68,13 @@ macro_rules! monitor_components_unpack_file {
             }
             let download_url_obj_rs = DownloadUrl::from_url_str(monitor_downlad_url.as_str());
             if let Ok(download_url_obj) = download_url_obj_rs {
-                let file_name = download_url_obj.file_name();
-                if file_name.contains("tar.gz") {
-                    $unpack_files.insert(file_name, $hosts);
-                }
+                $unpack_files.insert(download_url_obj, $hosts);
             }
         }
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct UploadFile {
     pub source: String,
     pub dest: String,
@@ -96,7 +93,7 @@ pub struct DeploymentConfig {
 
 impl DeploymentConfig {
     /// key is host, value is tarball
-    pub fn unpack_files_map(&self) -> HashMap<String, Vec<String>> {
+    pub fn unpack_files_map(&self) -> HashMap<DownloadUrl, Vec<String>> {
         let all_hosts = self.get_host_as_map();
         let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
         let monitor_opt = self.deployment.monitor.as_ref();
@@ -109,10 +106,9 @@ impl DeploymentConfig {
             match service {
                 DeploymentPackage::Storage => {
                     if let Some(cassandra) = cassandra_opt {
-                        let file_name = DownloadUrl::from_url_str(cassandra.download_url.as_str())
-                            .unwrap()
-                            .file_name();
-                        unpack_files.insert(file_name, hosts.clone());
+                        let cass_url =
+                            DownloadUrl::from_url_str(cassandra.download_url.as_str()).unwrap();
+                        unpack_files.insert(cass_url, hosts.clone());
                         monitor_components_unpack_file!(
                             unpack_files,
                             hosts.clone(),
@@ -129,18 +125,14 @@ impl DeploymentConfig {
                 }
                 DeploymentPackage::MonographLog => {
                     if let Some(log_install_file) = log_image {
-                        let log_file_name = DownloadUrl::from_url_str(log_install_file.as_str())
-                            .unwrap()
-                            .file_name();
-                        unpack_files.insert(log_file_name, hosts.clone());
+                        let log_image =
+                            DownloadUrl::from_url_str(log_install_file.as_str()).unwrap();
+                        unpack_files.insert(log_image, hosts.clone());
                     }
                 }
                 DeploymentPackage::MonographTx => {
-                    let tx_file_name = DownloadUrl::from_url_str(tx_image.as_str())
-                        .unwrap()
-                        .file_name();
-
-                    unpack_files.insert(tx_file_name, hosts.clone());
+                    let tx_image = DownloadUrl::from_url_str(tx_image.as_str()).unwrap();
+                    unpack_files.insert(tx_image, hosts.clone());
                     monitor_components_unpack_file!(
                         unpack_files,
                         hosts.clone(),
@@ -250,9 +242,9 @@ impl DeploymentConfig {
         }
     }
 
-    pub fn gen_tx_start_script(&self) -> anyhow::Result<PathBuf> {
-        gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
-    }
+    // pub fn gen_tx_start_script(&self) -> anyhow::Result<PathBuf> {
+    //     gen_db_misc_files!(self, build_start_monograph_script, START_MONOGRAPH_SCRIPT)
+    // }
 
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
         let download_dir = download_dir();
@@ -364,15 +356,6 @@ impl DeploymentConfig {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn build_start_monograph_script(&self) -> anyhow::Result<String> {
-        let script_path = config_template(START_MONOGRAPH_TEMPLATE)?;
-        let rs = fs::read_to_string(script_path.as_path())?;
-        Ok(rs.replace(
-            "_MY_INSTALL_DIR",
-            format!("{}/{MONOGRAPH_TX_SERVICE_DIR}/install", self.install_dir()).as_str(),
-        ))
     }
 
     fn read_config_from_file(path: String) -> anyhow::Result<Self> {

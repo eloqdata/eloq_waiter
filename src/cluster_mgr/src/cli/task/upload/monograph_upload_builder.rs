@@ -1,3 +1,4 @@
+use crate::cli::download_dir;
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, list_files_by_host, UploadTaskBuilder,
@@ -16,8 +17,8 @@ pub struct MonographUploadBuilder;
 impl MonographUploadBuilder {
     fn monograph_tar_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
         let deployment_ref = &config.deployment;
-        // let download_dir_path = download_dir();
-        // let download_dir = download_dir_path.to_str().unwrap();
+        let download_dir_path = download_dir();
+        let download_dir = download_dir_path.to_str().unwrap();
         let monograph_download_links = deployment_ref.all_download_links().unwrap();
         let install_dir = config.install_dir();
         monograph_download_links
@@ -42,7 +43,7 @@ impl MonographUploadBuilder {
                 hosts
                     .iter()
                     .map(|host| {
-                        let source = url.get_url();
+                        let source = format!("{}/{}", download_dir, url.file_name());
                         UploadFile {
                             source,
                             dest: install_dir.clone(),
@@ -55,27 +56,11 @@ impl MonographUploadBuilder {
                     .collect_vec()
             })
             .collect_vec()
-        // .into_group_map_by(|upload| upload.host.clone())
-        // .into_iter()
-        // .map(|(host, upload_files)| {
-        //     let source = upload_files
-        //         .iter()
-        //         .map(|upload| upload.source.clone())
-        //         .join(" ");
-        //     UploadFile {
-        //         source,
-        //         dest: install_dir.clone(),
-        //         extension: "gz".to_string(),
-        //         host,
-        //         copy_dir: false,
-        //     }
-        // })
-        // .collect_vec()
     }
 
     fn build_monograph_misc_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
         let mut all_files_path = vec![
-            config.gen_tx_start_script().unwrap(),
+            // config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
         ];
         all_files_path.extend(config.gen_all_monograph_configs().unwrap().into_iter());
@@ -109,6 +94,7 @@ impl MonographUploadBuilder {
                     copy_dir: false,
                 }
             })
+            .unique_by(|upload_file| upload_file.source.clone())
             .collect_vec()
     }
 
@@ -154,7 +140,7 @@ impl UploadTaskBuilder for MonographUploadBuilder {
             .iter()
             .map(|upload_file| {
                 let extension = &upload_file.extension;
-                let task_name = format!("deploy_monograph_{extension}");
+                let task_name = format!("deploy_monograph_all_{extension}");
                 build_task_instance(
                     source_host.clone(),
                     upload_file.clone(),

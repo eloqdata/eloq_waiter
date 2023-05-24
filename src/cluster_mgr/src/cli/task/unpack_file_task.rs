@@ -5,6 +5,7 @@ use crate::cli::task::task_base::{
 use crate::config::config_base::{
     DeploymentConfig, MONOGRAPH_LOG_SERVICE_DIR, MONOGRAPH_TX_SERVICE_DIR,
 };
+use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -43,6 +44,18 @@ impl UnpackFileTask {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+        let deployment_ref = &config.deployment;
+
+        let tx_image = DownloadUrl::from_url_str(deployment_ref.tx_image.as_str())
+            .unwrap()
+            .file_name();
+        let log_image = if let Some(log_image_file) = deployment_ref.log_image.as_ref() {
+            DownloadUrl::from_url_str(log_image_file.as_str())
+                .unwrap()
+                .file_name()
+        } else {
+            "".to_string()
+        };
         let remote_install_dir = config.install_dir();
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
@@ -51,19 +64,20 @@ impl UnpackFileTask {
         let unpack_task_instance = all_hosts
             .into_iter()
             .map(|entry| {
-                let packed_file = entry.0.to_lowercase();
+                let packed_file = entry.0;
+                let curr_file_name = packed_file.file_name();
                 let hosts = entry.1;
-                let unpacked_file = if packed_file.contains("monograph-tx") {
-                    MONOGRAPH_TX_SERVICE_DIR.to_string()
-                } else if packed_file.contains("monograph-log") {
+                let unpacked_file = if curr_file_name.eq(&log_image) {
                     MONOGRAPH_LOG_SERVICE_DIR.to_string()
+                } else if curr_file_name.eq(&tx_image) {
+                    MONOGRAPH_TX_SERVICE_DIR.to_string()
                 } else {
-                    extract_unpacked_name(packed_file.as_str())
+                    extract_unpacked_name(curr_file_name.as_str())
                 };
                 hosts
                     .into_iter()
                     .map(|remote_host| {
-                        let remote_tarball = format!("{remote_install_dir}/{packed_file}");
+                        let remote_tarball = format!("{remote_install_dir}/{curr_file_name}");
                         let task_host = TaskHost::Remote {
                             user: conn_usr.clone(),
                             port: ssh_port as usize,
@@ -71,7 +85,7 @@ impl UnpackFileTask {
                         };
                         let task_id = TaskId {
                             cmd: "deploy".to_string(),
-                            task: format!("{packed_file}_unpack"),
+                            task: format!("{curr_file_name}_unpack"),
                             host: remote_host,
                         };
                         (

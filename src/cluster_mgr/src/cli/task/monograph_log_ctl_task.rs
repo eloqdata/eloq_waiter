@@ -118,6 +118,7 @@ impl LogCtlCmd {
                         match log_cmd_str.to_lowercase().as_str() {
                             "start" => LogCtlCmd::Start(log_start_cmd),
                             "stop" => LogCtlCmd::Stop(format!("{ps_cmd_part} | xargs kill")),
+                            "status" => LogCtlCmd::Status(ps_cmd_part),
                             _ => unreachable!(),
                         }
                     }

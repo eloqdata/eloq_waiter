@@ -106,6 +106,10 @@ impl CommandExecutor {
                 command: _,
             }
             | CommandArgs::Restart { cluster }
+            | CommandArgs::UpdateConf {
+                cluster,
+                restart: _,
+            }
             | CommandArgs::Status {
                 cluster,
                 user: _,
@@ -118,9 +122,9 @@ impl CommandExecutor {
                 let config = self
                     .state_mgr
                     .load_deployment_from_state(cluster.as_str()) //load_deployment_from_state(cluster.as_str())
-                    .await?
-                    .unwrap();
-                Ok(Some(config))
+                    .await?;
+                assert!(config.is_some());
+                Ok(config)
             }
             CommandArgs::RunDeps { topology_file }
             | CommandArgs::Exec {

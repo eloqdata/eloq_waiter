@@ -4,12 +4,11 @@ use crate::cli::task::upload::cass_conf_upload_builder::CassConfUploadBuilder;
 use crate::cli::task::upload::data_dir_upload_builder::DataDirUploadBuilder;
 use crate::cli::task::upload::monitor_upload_builder::*;
 use crate::cli::task::upload::monograph_upload_builder::MonographUploadBuilder;
+use crate::cli::task::upload::tx_conf_upload_builder::TxConfUpload;
 use crate::cli::task::upload::upload_task::UploadTask;
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use crate::config::connection::Connection;
-use crate::config::{
-    CREATE_MONITOR_USER_SQL_FILE, MONOGRAPH_INSTALL_SCRIPT, START_MONOGRAPH_SCRIPT,
-};
+use crate::config::{CREATE_MONITOR_USER_SQL_FILE, MONOGRAPH_INSTALL_SCRIPT};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use local_ip_address::local_ip;
@@ -33,11 +32,10 @@ pub trait UploadTaskBuilder {
 pub(crate) const SCP_COMMAND: &str = "_scp_cmd_";
 pub(crate) const SOURCE_IP: &str = "_source_ip_";
 
-const MONOGRAPH_TX_BASH_FILES: [&str; 4] = [
+const MONOGRAPH_TX_BASH_FILES: [&str; 3] = [
     "my_local.cnf",
     MONOGRAPH_INSTALL_SCRIPT,
     CREATE_MONITOR_USER_SQL_FILE,
-    START_MONOGRAPH_SCRIPT,
 ];
 
 // r#"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no {copy_dir}
@@ -65,8 +63,9 @@ pub(crate) fn scp(upload_file: &UploadFile, conn: Connection) -> String {
 pub enum UploadTaskBuilderType {
     CassConf,
     DataDir,
-    InstallTar,
+    MonographAll,
     MonitorConf,
+    MonographConf,
 }
 
 #[macro_export]
@@ -83,8 +82,9 @@ pub fn upload_tasks(
     match builder_type {
         UploadTaskBuilderType::CassConf => CassConfUploadBuilder {}.build(conf),
         UploadTaskBuilderType::DataDir => DataDirUploadBuilder {}.build(conf),
-        UploadTaskBuilderType::InstallTar => MonographUploadBuilder {}.build(conf),
+        UploadTaskBuilderType::MonographAll => MonographUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonitorConf => MonitorInfraConfUploadBuilder {}.build(conf),
+        UploadTaskBuilderType::MonographConf => TxConfUpload {}.build(conf),
     }
 }
 

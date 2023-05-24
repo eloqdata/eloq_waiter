@@ -65,7 +65,7 @@ impl TaskGroup for CtrlDBTaskGroup {
         for cmd in batch_cmd {
             let curr_cmd_ref = cmd.as_ref();
             let log_srv_tasks = MonographLogCtlTask::from_config(cmd.clone(), &config);
-            let log_probe_tasks = if curr_cmd_ref.eq("status") || curr_cmd_ref.eq("start") {
+            let log_probe_tasks = if curr_cmd_ref.eq("start") {
                 MonographLogProbeTask::from_config(&config)
             } else {
                 IndexMap::new()

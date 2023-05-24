@@ -65,7 +65,7 @@ impl TaskGroup for DeploymentTaskGroup {
         let (db_upload_task, unpack_task) = if need_skip_success_task {
             (
                 DeploymentTaskGroup::skip_success_task_execution(
-                    &upload_tasks(UploadTaskBuilderType::InstallTar, &config),
+                    &upload_tasks(UploadTaskBuilderType::MonographAll, &config),
                     &success_task_vec,
                 ),
                 DeploymentTaskGroup::skip_success_task_execution(
@@ -75,7 +75,7 @@ impl TaskGroup for DeploymentTaskGroup {
             )
         } else {
             (
-                upload_tasks(UploadTaskBuilderType::InstallTar, &config),
+                upload_tasks(UploadTaskBuilderType::MonographAll, &config),
                 UnpackFileTask::from_config(&config)?,
             )
         };
