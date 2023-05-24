@@ -32,21 +32,45 @@
 ```text
 Commands:
   deploy
-          Deploy the MonographDB cluster by specifying the cluster_topology.yaml file. For example: ./cluster_mgr deploy --topology-file  ${PWD}/config/$DEPLOYMENT.YML
+          Deploy the MonographDB cluster by specifying the cluster_topology.yaml file
+          ./cluster_mgr deploy --topology-file  ${PWD}/config/deployment.yaml
+
   install
-          Install MonographDB to generate catalog. You need to specify the cluster name.\n For example: ./cluster_mgr install --cluster $CLUSTER_NAME
+          bootstrap MonographDB to generate catalog. You need to specify the cluster name.
+          ./cluster_mgr install --cluster $CLUSTER_NAME
+
   start
-          Start the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr start  --cluster $CLUSTER_NAME
+          Start the MonographDB cluster(TxService LogService Storage). with the specified cluster name
+          ./cluster_mgr start  --cluster $CLUSTER_NAME
+
   stop
-          Stop the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr stop --cluster $CLUSTER_NAME --force true/false
+          Stop the MonographDB cluster(TxService LogService Storage). with the specified cluster name.
+          ./cluster_mgr stop --cluster $CLUSTER_NAME --force true | false
+
   restart
-          Restart the MonographDB cluster with the specified cluster name. For example: ./cluster_mgr restart --cluster $CLUSTER_NAME
+          Restart the MonographDB cluster with the specified cluster name.
+          ./cluster_mgr restart --cluster $CLUSTER_NAME
+
   exec
-          Execute custom shell commands. For example: ./cluster_mgr exec --command "ls -la /data1/" --cluster $CLUSTER_NAME
+          Execute custom shell commands.
+          ./cluster_mgr exec --command 'ls -la /data1/' --cluster $CLUSTER_NAME
   status
-          Check MonographDB cluster status. For example: ./cluster_mgr status -cluster $CLUSTER_NAME
+          Check MonographDB cluster status. If the username password is given,
+          the connection to the target database is established, otherwise, the ps command is executed.
+          ./cluster_mgr status --cluster $CLUSTER_NAME --user $DB_USER --password $DB_PASSWORD
+
   run-deps
-          Install MonographDB runtime dependencies. For example: ./cluster_mgr run-deps --topology-file $DEPLOYMENT.YAML
+          Install MonographDB runtime dependencies.
+          ./cluster_mgr run-deps --topology-file ${PWD}/config/deployment.yaml
+
+  monitor
+          Start or stop monitoring components,including prometheus, grafana,node_exporter,mysql_exporter.
+          ./cluster_mgr monitor --cluster $CLUSTER_NAME --command start | stop
+
+  log-service
+          Start or stop LogService This command is only available if LogService is deployed standalone
+          ./cluster_mgr log-service --cluster $CLUSTER_NAME --command start | stop
+
   help
           Print this message or the help of the given subcommand(s)
 ```

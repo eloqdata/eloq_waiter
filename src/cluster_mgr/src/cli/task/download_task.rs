@@ -20,21 +20,28 @@ pub(crate) const DOWNLOAD_FILE_NAME: &str = "download_file_name";
 pub(crate) const DOWNLOAD_PATH: &str = "download_path";
 
 #[derive(Debug, Clone)]
-pub struct DownloadFromRemoteTask {
+pub struct DownloadTask {
     task_id: TaskId,
 }
 
-impl DownloadFromRemoteTask {
+impl DownloadTask {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let deployment_cloned = &config.deployment;
-        let mono_download_url_string = deployment_cloned.install_image.clone();
-        let mono_download_url = DownloadUrl::from_url_str(mono_download_url_string.as_str())?;
+        let deployment_ref = &config.deployment;
+        let tx_download_url_string = deployment_ref.tx_image.clone();
+        let tx_download_url = DownloadUrl::from_url_str(tx_download_url_string.as_str())?;
 
         let mut download_url_vec = vec![];
-        if !mono_download_url.is_local() {
-            download_url_vec.push(mono_download_url_string);
+        if !tx_download_url.is_local() {
+            download_url_vec.push(tx_download_url_string);
+        }
+
+        if let Some(log_image_url) = deployment_ref.log_image.as_ref() {
+            let log_download_url = DownloadUrl::from_url_str(log_image_url.as_str())?;
+            if !log_download_url.is_local() {
+                download_url_vec.push(log_image_url.to_string());
+            }
         }
 
         if let Some(cassandra) = &config.deployment.storage_service.cassandra {
@@ -46,7 +53,7 @@ impl DownloadFromRemoteTask {
         }
 
         if let Some(monitor) = &config.deployment.monitor {
-            let monitor_download_url_vec = monitor.monitor_download_links()?;
+            let monitor_download_url_vec = monitor.download_links()?;
             let monitor_download_string_vec = monitor_download_url_vec
                 .iter()
                 .filter(|url| !url.is_local())
@@ -82,7 +89,7 @@ impl DownloadFromRemoteTask {
                                 TaskArgValue::Str(download_dir.to_str().unwrap().to_string()),
                             ),
                         ]),
-                        task: Box::new(DownloadFromRemoteTask::new(task_id)),
+                        task: Box::new(DownloadTask::new(task_id)),
                         task_host: TaskHost::Local,
                     },
                 )
@@ -97,7 +104,7 @@ impl DownloadFromRemoteTask {
 }
 
 #[async_trait::async_trait]
-impl TaskExecutor for DownloadFromRemoteTask {
+impl TaskExecutor for DownloadTask {
     fn identifier(&self) -> TaskId {
         self.task_id.clone()
     }

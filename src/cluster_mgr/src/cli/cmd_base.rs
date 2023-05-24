@@ -39,7 +39,11 @@ impl CommandExecutor {
         &self.state_mgr
     }
 
-    async fn save_deployment_config(&self, config: &DeploymentConfig) -> anyhow::Result<()> {
+    async fn save_deployment_config(
+        &self,
+        config: &DeploymentConfig,
+        upsert: bool,
+    ) -> anyhow::Result<()> {
         let deployment_operation = self
             .state_mgr
             .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
@@ -53,7 +57,7 @@ impl CommandExecutor {
                 })
             })
             .await?;
-        if !deployment_entity.is_empty() {
+        if !deployment_entity.is_empty() && !upsert {
             warn!(
                 "current cluster {} already exists. do nothing",
                 curr_cluster
@@ -81,25 +85,35 @@ impl CommandExecutor {
 
     async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<Option<DeploymentConfig>> {
         match cmd.clone() {
-            CommandArgs::Deploy { topology_file } => {
+            CommandArgs::Deploy { topology_file } | CommandArgs::Upgrade { topology_file } => {
                 let config_rs = DeploymentConfig::load(Some(topology_file));
                 let config = config_rs.unwrap().clone();
-                self.save_deployment_config(&config).await?;
+                let cmd_ref = cmd.as_ref();
+                self.save_deployment_config(&config, cmd_ref.eq("upgrade"))
+                    .await?;
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(Some(config))
             }
             CommandArgs::Install { cluster }
-            | CommandArgs::Stop { cluster, force: _ }
+            | CommandArgs::Stop {
+                cluster,
+                force: _,
+                all: _,
+            }
             | CommandArgs::Start { cluster }
+            | CommandArgs::LogService {
+                cluster,
+                command: _,
+            }
             | CommandArgs::Restart { cluster }
+            | CommandArgs::UpdateConf {
+                cluster,
+                restart: _,
+            }
             | CommandArgs::Status {
                 cluster,
                 user: _,
                 password: _,
-            }
-            | CommandArgs::Exec {
-                command: _,
-                cluster,
             }
             | CommandArgs::Monitor {
                 command: _,
@@ -108,13 +122,15 @@ impl CommandExecutor {
                 let config = self
                     .state_mgr
                     .load_deployment_from_state(cluster.as_str()) //load_deployment_from_state(cluster.as_str())
-                    .await?
-                    .unwrap();
-                Ok(Some(config))
+                    .await?;
+                assert!(config.is_some());
+                Ok(config)
             }
-            CommandArgs::RunDeps { topology_file } => {
-                Ok(Some(DeploymentConfig::load(Some(topology_file))?))
-            }
+            CommandArgs::RunDeps { topology_file }
+            | CommandArgs::Exec {
+                command: _,
+                topology_file,
+            } => Ok(Some(DeploymentConfig::load(Some(topology_file))?)),
         }
     }
 
@@ -123,9 +139,11 @@ impl CommandExecutor {
         cmd: CommandArgs,
         deployment_config: Option<DeploymentConfig>,
     ) -> anyhow::Result<()> {
+        let cmd_ref = cmd.as_ref();
         let config = match deployment_config {
             Some(config) => {
-                self.save_deployment_config(&config).await?;
+                self.save_deployment_config(&config, cmd_ref.eq("upgrade"))
+                    .await?;
                 config
             }
             None => self.get_config(cmd.clone()).await?.unwrap(),

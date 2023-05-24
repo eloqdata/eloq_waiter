@@ -139,7 +139,7 @@ impl TaskExecutor for ExecCustomCommand {
         ssh_session.close().await?;
         task_return_value!(
             exec_cmd_rs,
-            |status_code: usize| -> CmdErr {
+            |status_code: i32| -> CmdErr {
                 CmdErr::ExecUserCmdErr(self.cmd.clone(), status_code.to_string())
             },
             "ExecCustomCommand"

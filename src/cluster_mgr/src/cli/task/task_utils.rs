@@ -1,5 +1,7 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
+use std::any::{Any, TypeId};
+use std::fmt::Debug;
 use std::future::Future;
 
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue};
@@ -8,6 +10,7 @@ use crate::state::state_base::StateOperation;
 use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
 use anyhow::anyhow;
+use itertools::Itertools;
 use std::time::Duration;
 use tracing::{error, info};
 
@@ -26,59 +29,100 @@ macro_rules! wait_command_complete {
 }
 
 pub(crate) const PROCESS_PID: &str = "_process_pid_";
+pub(crate) const PROCESS_PID_LIST: &str = "_process_pid_list_";
+
+#[allow(dead_code)]
+pub fn parse_process_pid_as_list(process_info: String) -> Option<Vec<i32>> {
+    if process_info.is_empty() {
+        None
+    } else {
+        let output_normal = process_info.trim();
+        let pid_vec = ps_cmd_output_extract(output_normal.to_string());
+        if pid_vec.is_empty() {
+            None
+        } else {
+            Some(pid_vec)
+        }
+    }
+}
+
+fn ps_cmd_output_extract(cmd_output: String) -> Vec<i32> {
+    cmd_output
+        .lines()
+        .map(|line| line.trim())
+        .filter(|output_normal| !output_normal.is_empty())
+        .filter(|line| line.chars().all(char::is_numeric))
+        .map(|pid_str| pid_str.parse::<i32>().unwrap())
+        .unique()
+        .collect_vec()
+}
 
 pub fn parse_process_pid(process_info: String) -> Option<i32> {
     if process_info.is_empty() {
         None
     } else {
-        let mut pid = None;
         let output_normal = process_info.trim();
-        for line in output_normal.lines() {
-            let line_normal = line.trim();
-            if line_normal.is_empty() {
-                continue;
-            }
-            if !line_normal.chars().all(char::is_numeric) {
-                continue;
-            }
-            let parse_rs = line_normal.parse::<i32>().unwrap();
-            pid = Some(parse_rs);
-            break;
-        }
-        println!("ProcessInfo PID={pid:?}");
-        pid
+        let pid_vec = ps_cmd_output_extract(output_normal.to_string());
+        pid_vec.first().cloned()
     }
 }
 
-pub(crate) async fn check_process_pid<F>(
-    check_cmd: String,
-    ssh_conn: SSHSession,
-    parser_output: F,
+pub(crate) async fn check_pid<F, T>(
+    find_ps_cmd: String,
+    ssh_session: SSHSession,
+    ps_output_parse: F,
 ) -> anyhow::Result<ExecutionValue>
 where
-    F: Fn(String) -> Option<i32>,
+    F: Fn(String) -> Option<T>,
+    T: Any + Debug,
 {
-    let mut cmd_exec_rs = ssh_conn.command(check_cmd.as_str(), CollectOutput).await?;
+    let mut cmd_exec_rs = ssh_session
+        .command(find_ps_cmd.as_str(), CollectOutput)
+        .await?;
     let cmd_status = cmd_exec_rs.get(CMD_STATUS).unwrap();
-    if 0 != TaskArgValue::into_inner_value::<usize>(cmd_status.clone()) {
+    if 0 != TaskArgValue::into_inner_value::<i32>(cmd_status.clone()) {
         error!("check_process_pid fails status={:?}", cmd_status);
-        return Err(anyhow!("Cmd {} execution fails", check_cmd));
+        return Err(anyhow!("Cmd {} execution fails", find_ps_cmd));
     }
     let cmd_output_value = cmd_exec_rs.get(CMD_OUTPUT).unwrap();
-
-    let output = TaskArgValue::into_inner_value::<String>(cmd_output_value.clone());
-    info!("check_process_pid cmd={},output={}", check_cmd, output);
-
-    if let Some(pid_num) = parser_output(output) {
-        cmd_exec_rs.insert(
-            PROCESS_PID.to_string(),
-            TaskArgValue::Str(pid_num.to_string()),
-        );
+    let pid_output_string = TaskArgValue::into_inner_value::<String>(cmd_output_value.clone());
+    info!(
+        "check_process_pid cmd={},output={}",
+        find_ps_cmd, pid_output_string
+    );
+    if let Some(ref val) = ps_output_parse(pid_output_string) {
+        let val_any = val as &dyn Any;
+        if val_any.type_id() == TypeId::of::<i32>() {
+            match val_any.downcast_ref::<i32>() {
+                Some(pid_as_i32) => cmd_exec_rs.insert(
+                    PROCESS_PID.to_string(),
+                    TaskArgValue::Str(pid_as_i32.to_string()),
+                ),
+                None => unreachable!(),
+            };
+        } else if val_any.type_id() == TypeId::of::<Vec<i32>>() {
+            match val_any.downcast_ref::<Vec<i32>>() {
+                Some(pid_list) => {
+                    let cloned_pid_list = pid_list
+                        .iter()
+                        .map(|pid| pid.clone().to_string())
+                        .collect_vec();
+                    cmd_exec_rs.insert(
+                        PROCESS_PID_LIST.to_string(),
+                        TaskArgValue::List(cloned_pid_list),
+                    );
+                }
+                None => unreachable!(),
+            }
+        } else {
+            unreachable!()
+        };
     } else {
         cmd_exec_rs.insert(
             PROCESS_PID.to_string(),
             TaskArgValue::Str("NONE".to_string()),
         );
+        cmd_exec_rs.insert(PROCESS_PID_LIST.to_string(), TaskArgValue::List(vec![]));
     }
     Ok(cmd_exec_rs)
 }
@@ -136,7 +180,7 @@ where
         let rs = ssh_conn
             .command(check_status_cmd.as_str(), CollectOutput)
             .await;
-        println!("check_status_cmd = {rs:?}");
+        println!("check_status_cmd = {rs:#?}");
         if rs.as_ref().is_err() {
             let err_msg = rs.err().unwrap().to_string();
             error!(

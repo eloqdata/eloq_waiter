@@ -3,13 +3,11 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::{download_dir, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
-use crate::config::DownloadUrl;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use tracing::error;
 
 const SOURCE_DIR: &str = "_source_dir";
@@ -46,48 +44,20 @@ impl LocalCopyTask {
     pub fn form_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let mono_install_image = &config.deployment.install_image;
-        let mono_download_url = DownloadUrl::from_url_str(mono_install_image.as_str())?;
         let mut local_copy_task_instance = IndexMap::new();
-
-        if mono_download_url.is_local() {
-            build_copy_task_instances!(
-                local_copy_task_instance,
-                mono_download_url.get_url(),
-                mono_download_url.file_name(),
-                "copy_monograph".to_string()
-            );
-        }
-        let cassandra = &config.deployment.storage_service.cassandra;
-        if cassandra.is_some() {
-            let cassandra_download_string = cassandra.as_ref().unwrap().clone().download_url;
-            let cassandra_download = DownloadUrl::from_url_str(cassandra_download_string.as_str())?;
-            if cassandra_download.is_local() {
+        let download_links = config.deployment.all_download_links()?;
+        download_links
+            .iter()
+            .filter(|(_, download_url)| download_url.is_local())
+            .for_each(|(key, download_url)| {
+                let copy_task_id = format!("copy_{key}");
                 build_copy_task_instances!(
                     local_copy_task_instance,
-                    cassandra_download.get_url(),
-                    cassandra_download.file_name(),
-                    "copy_cassandra".to_string()
+                    download_url.get_url(),
+                    download_url.file_name(),
+                    copy_task_id
                 );
-            }
-        }
-        let monitor_opt = &config.deployment.monitor;
-        if monitor_opt.is_some() {
-            let monitor = monitor_opt.as_ref().unwrap();
-            let monitor_download_urls = monitor.monitor_download_links()?;
-            monitor_download_urls
-                .iter()
-                .filter(|monitor_download_url| monitor_download_url.is_local())
-                .for_each(|monitor_download_url| {
-                    let file_name = monitor_download_url.file_name();
-                    build_copy_task_instances!(
-                        local_copy_task_instance,
-                        monitor_download_url.get_url(),
-                        file_name,
-                        format!("copy_monitor_{file_name}")
-                    );
-                });
-        }
+            });
         Ok(local_copy_task_instance)
     }
 
@@ -118,43 +88,33 @@ impl TaskExecutor for LocalCopyTask {
             Err(anyhow!(CmdErr::CopyTaskErr(source_dir_string)))
         } else {
             let download_dir = download_dir();
-
             let dest_file =
                 TaskArgValue::into_inner_value::<String>(task_arg.get(DEST_DIR).unwrap().clone());
-            let dest_file_path = download_dir.join(dest_file).to_str().unwrap().to_string();
-            let mut copy_cmd = Command::new("cp");
-            let copy_cmd_args = if source_path.is_dir() {
-                vec!["-r".to_string(), source_dir_string, dest_file_path]
-            } else {
-                vec![source_dir_string, dest_file_path]
-            };
-            copy_cmd.args(copy_cmd_args);
-
-            let cmd_str = copy_cmd.get_program().to_str().unwrap().to_string();
-            let mut args_str = String::new();
-            for arg_val in copy_cmd.get_args() {
-                if let Some(arg) = arg_val.to_str() {
-                    args_str.push_str(arg)
-                }
-            }
-
-            let copy_cmd_str = format!("{cmd_str} {args_str}");
-            let status = copy_cmd.status()?;
-
+            let to = download_dir.join(dest_file.clone());
             let mut copy_task_rs = HashMap::from([
-                (CMD.to_string(), TaskArgValue::Str(copy_cmd_str)),
+                (
+                    CMD.to_string(),
+                    TaskArgValue::Str(format!(
+                        "copy {source_dir_string} Downloads/mono-cluster-cli/{dest_file}"
+                    )),
+                ),
                 (CMD_OUTPUT.to_string(), TaskArgValue::Str("".to_string())),
+                (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
             ]);
-            if status.success() {
-                copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
-            } else {
-                error!("LocalCopyTask failed. command status code={:?}", status);
-                if let Some(code) = status.code() {
-                    copy_task_rs
-                        .insert(CMD_STATUS.to_string(), TaskArgValue::Number(code as usize));
-                } else {
-                    copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(usize::MAX));
-                }
+
+            if to.exists() {
+                println!("Success: The target file already exists {to:?}");
+                return Ok(Some(copy_task_rs.clone()));
+            }
+            let from = PathBuf::from(source_dir_string);
+            let copy_rs = std::fs::copy(from, to);
+
+            if let Err(copy_err) = copy_rs {
+                copy_task_rs.insert(
+                    CMD_OUTPUT.to_string(),
+                    TaskArgValue::Str(copy_err.to_string()),
+                );
+                copy_task_rs.insert(CMD_STATUS.to_string(), TaskArgValue::Number(100));
             }
             Ok(Some(copy_task_rs))
         }

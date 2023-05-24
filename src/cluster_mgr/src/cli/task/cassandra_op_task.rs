@@ -3,7 +3,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
-use crate::config::{load_yaml_config_template, DeploymentService, CASSANDRA_CONF_TEMPLATE};
+use crate::config::{load_yaml_config_template, DeploymentPackage, CASSANDRA_CONF_TEMPLATE};
 use async_trait::async_trait;
 use cdrs_tokio::authenticators::NoneAuthenticatorProvider;
 use cdrs_tokio::cluster::session::{Session, SessionBuilder, TcpSessionBuilder};
@@ -61,7 +61,7 @@ impl CassandraOpTask {
             RoundRobinLoadBalancingStrategy<TransportTcp, TcpConnectionManager>,
         >,
     > {
-        let cass_hosts = self.config.get_host_list(DeploymentService::Storage);
+        let cass_hosts = self.config.get_host_list(DeploymentPackage::Storage);
         let cass_config = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
         let client_transport_port = cass_config
             .get("native_transport_port")

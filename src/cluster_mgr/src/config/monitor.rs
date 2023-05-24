@@ -1,13 +1,15 @@
 use crate::cli::download_dir;
 use crate::config::config_base::{
-    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
-    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
+    MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::{
-    config_template, load_yaml_config_template, DownloadUrl, CREATE_MONITOR_USER_SQL_FILE,
-    GRAFANA_CONFIG_TEMPLATE, MCAC_PROMETHEUS_CONFIG_TEMPLATE, MYSQL_EXPORTER_CLIENT_CONFIG,
-    PROMETHEUS_CONFIG_TEMPLATE,
+    config_template, load_yaml_config_template, DownloadUrl, CASS_MCAC_CONF_FILE,
+    CREATE_MONITOR_USER_SQL_FILE, GRAFANA_CONFIG_FILE, GRAFANA_CONFIG_TEMPLATE,
+    GRAFANA_PROMETHEUS_DS_FILE, MCAC_PROMETHEUS_CONFIG_TEMPLATE, MYSQL_EXPORTER_CLIENT_CONFIG,
+    PROMETHEUS_CONFIG_FILE, PROMETHEUS_CONFIG_TEMPLATE,
 };
+use crate::download_urls;
 use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,11 @@ use std::fs::File;
 use std::path::PathBuf;
 
 pub const MONO_MONITOR_USER: &str = "mono_monitor";
+
+pub const GRAFANA_CONFIG_DIR: &str = "grafana/conf";
+pub const GRAFANA_DATASOURCE_CONFIG_DIR: &str = "grafana/conf/provisioning/datasources";
+pub const GRAFANA_DASHBOARD_CONFIG_DIR: &str = "grafana/conf/provisioning/dashboards";
+pub const PROMETHEUS_CONFIG_DIR: &str = "prometheus";
 
 #[macro_export]
 macro_rules! monitor_component_config_dir {
@@ -81,50 +88,33 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    pub fn monitor_download_links(&self) -> anyhow::Result<Vec<DownloadUrl>> {
-        let download_links = self.monitor_download_links_as_amp()?;
+    pub fn download_links(&self) -> anyhow::Result<Vec<DownloadUrl>> {
+        let download_links = self.download_links_as_amp()?;
         Ok(download_links.into_values().collect_vec())
     }
 
-    pub fn monitor_download_links_as_amp(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
-        let mut download_link = HashMap::from([
-            (
-                PROMETHEUS_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.prometheus.download_url.as_str())?,
-            ),
-            (
-                GRAFANA_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.grafana.download_url.as_str())?,
-            ),
-            (
-                NODE_EXPORTER_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.node_exporter.as_str())?,
-            ),
-            (
-                MYSQL_EXPORTER_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(self.mysql_exporter.as_str())?,
-            ),
-        ]);
-
+    pub fn download_links_as_amp(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
+        let mut links = HashMap::new();
+        download_urls!(links,
+            {PROMETHEUS_FILE_KEY, self.prometheus.download_url},
+            {GRAFANA_FILE_KEY, self.grafana.download_url},
+            {NODE_EXPORTER_FILE_KEY, self.node_exporter},
+            {MYSQL_EXPORTER_FILE_KEY, self.mysql_exporter}
+        );
         if let Some(mcac) = &self.cassandra_collector {
-            download_link.insert(
-                CASSANDRA_COLLECTOR_AGENT_FILE_KEY.to_string(),
-                DownloadUrl::from_url_str(mcac.mcac_agent.as_str())?,
-            );
+            download_urls!(links, {CASSANDRA_COLLECTOR_AGENT_FILE_KEY, mcac.mcac_agent});
         }
-        Ok(download_link)
+        Ok(links)
     }
 
     pub fn flush_privileges_for_create_user(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_bin = format!("{install_dir}/monographdb-release/install/bin/mysql");
+        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
         format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock -e  'FLUSH PRIVILEGES;'")
     }
 
     pub fn create_monitor_user_cmd(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_exporter_dir = monitor_component_config_dir!("mysql_exporter");
-        let mysql_bin = format!("{install_dir}/monographdb-release/install/bin/mysql");
-        let script_path =
-            format!("{install_dir}/{mysql_exporter_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
+        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
+        let script_path = format!("{install_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
         format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock < {script_path}")
     }
 
@@ -141,13 +131,15 @@ impl Monitor {
     pub fn gen_grafana_config(&self) -> anyhow::Result<PathBuf> {
         let grafana_http_port = self.grafana.port;
         let grafana_config_path = config_template(GRAFANA_CONFIG_TEMPLATE)?;
-        let mut grafana_ini = Ini::new();
-        grafana_ini
-            .load(grafana_config_path)
-            .expect("local grafana config template");
-        grafana_ini.set("server", "http_port", Some(grafana_http_port.to_string()));
-        let grafana_default_ini = download_dir().join("defaults.ini");
-        grafana_ini.write(grafana_default_ini.as_path())?;
+        let mut grafana_ini = ini::Ini::load_from_file(grafana_config_path)
+            .expect("can not local grafana config template");
+        grafana_ini.set_to(
+            Some("server"),
+            "http_port".to_string(),
+            grafana_http_port.to_string(),
+        );
+        let grafana_default_ini = download_dir().join(GRAFANA_CONFIG_FILE);
+        grafana_ini.write_to_file(grafana_default_ini.as_path())?;
         Ok(grafana_default_ini)
     }
 
@@ -295,7 +287,7 @@ impl Monitor {
             "scrape_configs".to_string(),
             Value::Sequence(scrape_configs),
         );
-        let prometheus_config_path = download_dir().join("prometheus.yml");
+        let prometheus_config_path = download_dir().join(PROMETHEUS_CONFIG_FILE);
         let prometheus_config_file = File::create(prometheus_config_path.as_path()).unwrap();
         serde_yaml::to_writer(prometheus_config_file, &prometheus_config_map)?;
         Ok(prometheus_config_path)
@@ -317,7 +309,7 @@ impl Monitor {
                     "targets": [cassandra_target],"labels": {}
                 }
             ]);
-            let mcac_json_path = download_dir().join("tg_mcac.json");
+            let mcac_json_path = download_dir().join(CASS_MCAC_CONF_FILE);
             let mcac_json_file = File::create(mcac_json_path.as_path()).unwrap();
             serde_json::to_writer(mcac_json_file, &mcac_json)?;
             Ok(Some(mcac_json_path))
@@ -341,10 +333,34 @@ impl Monitor {
         );
         let prometheus_datasource: Value =
             serde_yaml::from_str(datasource_config_yaml.as_str()).unwrap();
-        let prometheus_datasource_path = download_dir().join("prometheus-datasource.yml");
+        let prometheus_datasource_path = download_dir().join(GRAFANA_PROMETHEUS_DS_FILE);
         let prometheus_datasource_file =
             File::create(prometheus_datasource_path.as_path()).unwrap();
         serde_yaml::to_writer(prometheus_datasource_file, &prometheus_datasource)?;
         Ok(prometheus_datasource_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ini::Ini;
+    use std::path::PathBuf;
+
+    #[test]
+    pub fn test_ini_raw_string_field() {
+        let curr_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let grafana_config_path = curr_dir.join("config/grafana_config.ini");
+
+        let def_ini = Ini::load_from_file(grafana_config_path).unwrap();
+        let raw_str = def_ini
+            .get_from(Some("security"), "content_security_policy_template")
+            .unwrap();
+        // let mut def_ini = Ini::new_cs();
+        // def_ini
+        //     .load(grafana_config_path)
+        //     .expect("local grafana config template");
+        //
+        // let raw_str = def_ini.get("security", "content_security_policy_template").unwrap();
+        println!("{raw_str}");
     }
 }

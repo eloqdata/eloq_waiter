@@ -110,7 +110,7 @@ impl SSHSession {
         let mut channel = session.channel_open_session().await?;
         channel.exec(true, command).await?;
         let mut output = Vec::new();
-        let mut status_code = 0;
+        let mut status_code = 0_i32;
         while let Some(chanel_msg) = channel.wait().await {
             match chanel_msg {
                 ChannelMsg::Data { ref data } => {
@@ -119,7 +119,7 @@ impl SSHSession {
                     }
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
-                    status_code = exit_status;
+                    status_code = exit_status as i32;
                 }
                 ChannelMsg::Failure => {
                     error!("ssh channel receive failure msg.");
@@ -131,12 +131,13 @@ impl SSHSession {
         // println!("SSHSession output = {output_str}");
         let cmd_res = HashMap::from([
             (CMD.to_string(), TaskArgValue::Str(command.to_string())),
-            (
-                CMD_STATUS.to_string(),
-                TaskArgValue::Number(status_code as usize),
-            ),
+            (CMD_STATUS.to_string(), TaskArgValue::Number(status_code)),
             (CMD_OUTPUT.to_string(), TaskArgValue::Str(output_str)),
         ]);
+        if status_code != 0 {
+            let conn_info = (self.host.clone(), self.port);
+            error!("SSHSession Failed execute command. ssh_info={conn_info:?}, {cmd_res:#?}] ");
+        }
         channel.close().await?;
         Ok(cmd_res)
     }
@@ -150,6 +151,7 @@ impl SSHSession {
             error!("SSHSession close error cause by {}", close_err.to_string());
             Err(anyhow!(close_err.to_string()))
         } else {
+            println!("SSHSession close by monograph waiter cluster_mgr");
             Ok(())
         }
     }
