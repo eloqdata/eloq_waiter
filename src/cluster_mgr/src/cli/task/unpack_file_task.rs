@@ -2,7 +2,10 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::{
+    DeploymentConfig, MONOGRAPH_LOG_SERVICE_DIR, MONOGRAPH_TX_SERVICE_DIR,
+};
+use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -11,13 +14,14 @@ use tracing::info;
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
-pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 6] = [
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 7] = [
     "apache-cassandra",
     "prometheus",
     "grafana",
     "node_exporter",
     "mysqld_exporter",
     "datastax-mcac-agent",
+    "monograph-logserver",
 ];
 
 #[derive(Debug, Clone)]
@@ -40,6 +44,18 @@ impl UnpackFileTask {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+        let deployment_ref = &config.deployment;
+
+        let tx_image = DownloadUrl::from_url_str(deployment_ref.tx_image.as_str())
+            .unwrap()
+            .file_name();
+        let log_image = if let Some(log_image_file) = deployment_ref.log_image.as_ref() {
+            DownloadUrl::from_url_str(log_image_file.as_str())
+                .unwrap()
+                .file_name()
+        } else {
+            "".to_string()
+        };
         let remote_install_dir = config.install_dir();
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
@@ -49,16 +65,19 @@ impl UnpackFileTask {
             .into_iter()
             .map(|entry| {
                 let packed_file = entry.0;
+                let curr_file_name = packed_file.file_name();
                 let hosts = entry.1;
-                let unpacked_file = if packed_file.contains("monograph") {
-                    "monographdb-release".to_string()
+                let unpacked_file = if curr_file_name.eq(&log_image) {
+                    MONOGRAPH_LOG_SERVICE_DIR.to_string()
+                } else if curr_file_name.eq(&tx_image) {
+                    MONOGRAPH_TX_SERVICE_DIR.to_string()
                 } else {
-                    extract_unpacked_name(packed_file.as_str())
+                    extract_unpacked_name(curr_file_name.as_str())
                 };
                 hosts
                     .into_iter()
                     .map(|remote_host| {
-                        let remote_tarball = format!("{remote_install_dir}/{packed_file}");
+                        let remote_tarball = format!("{remote_install_dir}/{curr_file_name}");
                         let task_host = TaskHost::Remote {
                             user: conn_usr.clone(),
                             port: ssh_port as usize,
@@ -66,7 +85,7 @@ impl UnpackFileTask {
                         };
                         let task_id = TaskId {
                             cmd: "deploy".to_string(),
-                            task: format!("{packed_file}_unpack"),
+                            task: format!("{curr_file_name}_unpack"),
                             host: remote_host,
                         };
                         (
@@ -118,9 +137,8 @@ impl TaskExecutor for UnpackFileTask {
         let unpacked_name = TaskArgValue::into_inner_value::<String>(
             task_input.get(UNPACKED_NAME).unwrap().clone(),
         );
-
         let install_dir = self.config.install_dir();
-        let unpack_pair = if unpacked_name.contains("monograph") {
+        let unpack_pair = if unpacked_name.contains(MONOGRAPH_TX_SERVICE_DIR) {
             let target_dir = format!("{install_dir}/{unpacked_name}");
             (
                 format!(r#"mkdir -p {target_dir} && tar -zxvf {remote_tar} -C {target_dir}"#,),
@@ -136,17 +154,16 @@ impl TaskExecutor for UnpackFileTask {
             )
         };
         let unpack_cmd = unpack_pair.0;
-        info!("UnpackFileTask cmd={}", unpack_cmd.as_str());
+        // let unpack_and_remove_raw_file = format!("{unpack_cmd};rm -rf {remote_tar}");
+        info!("UnpackFileTask cmd={unpack_cmd}");
         let task_rs = ssh_session
-            .command(unpack_cmd.clone().as_str(), SSHCommandOption::None)
+            .command(unpack_cmd.as_str(), SSHCommandOption::None)
             .await?;
 
         ssh_session.close().await?;
         task_return_value!(
             task_rs,
-            |status_code: usize| -> CmdErr {
-                CmdErr::UnpackErr(unpack_cmd, status_code.to_string())
-            },
+            |status_code: i32| -> CmdErr { CmdErr::UnpackErr(unpack_cmd, status_code.to_string()) },
             "UnpackFileTask",
             HashMap::from([(
                 "UNPACK_TARGET_DIR".to_string(),

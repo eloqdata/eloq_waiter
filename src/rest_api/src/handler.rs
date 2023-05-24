@@ -7,10 +7,17 @@ use cluster_mgr::cli::CommandArgs;
 use cluster_mgr::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-// use tracing::info;
 
-const SUPPORT_CTL_CMD: &[&str; 5] = &["start", "stop", "install", "start_monitor", "stop_monitor"];
-const SUPPORT_CTL_STATUS_CMD: &[&str; 8] = &[
+const SUPPORT_CTL_CMD: &[&str; 7] = &[
+    "start",
+    "stop",
+    "install",
+    "start_log",
+    "stop_log",
+    "start_monitor",
+    "stop_monitor",
+];
+const SUPPORT_CTL_STATUS_CMD: &[&str; 10] = &[
     "start",
     "stop",
     "install",
@@ -19,6 +26,8 @@ const SUPPORT_CTL_STATUS_CMD: &[&str; 8] = &[
     "run-deps",
     "start_monitor",
     "stop_monitor",
+    "start_log",
+    "stop_log",
 ];
 
 #[get("/check_health")]
@@ -52,6 +61,7 @@ fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> CommandArgs
         "stop" => CommandArgs::Stop {
             cluster: cluster.unwrap(),
             force: Some("false".to_string()),
+            all: None,
         },
         "deploy" => CommandArgs::Deploy {
             topology_file: "_NONE".to_string(),
@@ -69,6 +79,14 @@ fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> CommandArgs
             command: "start".to_string(),
         },
         "stop_monitor" => CommandArgs::Monitor {
+            cluster: cluster.unwrap(),
+            command: "stop".to_string(),
+        },
+        "start_log" => CommandArgs::LogService {
+            cluster: cluster.unwrap(),
+            command: "start".to_string(),
+        },
+        "stop_log" => CommandArgs::LogService {
             cluster: cluster.unwrap(),
             command: "stop".to_string(),
         },
@@ -148,7 +166,6 @@ pub async fn check_cmd_status(
 
         let task_ids = task_context.list_task_ids();
         let cmd_vec = vec![task_context.task_group];
-        println!("#### task_group={cmd_vec:#?}");
         let completed_task_vec = cmd_executor
             .state_mgr()
             .load_task_status_from_state(cluster, None, Some(cmd_vec))

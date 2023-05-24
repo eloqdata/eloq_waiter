@@ -1,6 +1,6 @@
 use crate::cli::cmd_printer::{CmdPrinter, Printable};
+use crate::cli::task::group::TASK_GROUP;
 use crate::cli::task::task_controller::TaskController;
-use crate::cli::task::task_group::TASK_GROUP;
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::load_remote_env;
@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::string::ToString;
 use std::sync::LazyLock;
-use tabled::display::ExpandedDisplay;
-use tabled::Tabled;
+// use tabled::display::ExpandedDisplay;
+use tabled::{display::ExpandedDisplay, Tabled};
 use thiserror::Error;
 use tracing::{error, info};
 use ExecutionValue as LastResult;
@@ -96,7 +96,7 @@ macro_rules! task_value_into_impl {
 
 task_value_into_impl! {
     {Str, String},
-    {Number, usize},
+    {Number, i32},
     {List, Vec<String>}
 }
 
@@ -107,7 +107,7 @@ macro_rules! task_return_value {
         use $crate::cli::CMD_STATUS;
         let task_rs = $task_result.clone();
         let task_status = task_rs.get(CMD_STATUS).unwrap();
-        let status_code = TaskArgValue::into_inner_value::<usize>(task_status.clone());
+        let status_code = TaskArgValue::into_inner_value::<i32>(task_status.clone());
         if status_code != 0 {
             let cmd_err = $task_err_closure(status_code);
             info!(
@@ -151,11 +151,21 @@ pub enum CmdErr {
     MonitorCtlCmdErr(String, String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum TaskArgValue {
     Str(String),
-    Number(usize),
+    Number(i32),
     List(Vec<String>),
+}
+
+impl ToString for TaskArgValue {
+    fn to_string(&self) -> String {
+        match self {
+            TaskArgValue::Str(string_value) => string_value.to_string(),
+            TaskArgValue::Number(num_value) => num_value.to_string(),
+            TaskArgValue::List(list_value) => list_value.join(","),
+        }
+    }
 }
 
 impl TaskArgValue {
@@ -319,7 +329,7 @@ impl TaskMgr {
                                         execution_value.get(CMD).unwrap().clone(),
                                     ),
 
-                                    cmd_status: if TaskArgValue::into_inner_value::<usize>(
+                                    cmd_status: if TaskArgValue::into_inner_value::<i32>(
                                         execution_value.get(CMD_STATUS).unwrap().clone(),
                                     ) == 0
                                     {
