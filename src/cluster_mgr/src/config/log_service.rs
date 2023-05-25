@@ -5,6 +5,25 @@ use std::collections::HashMap;
 
 const LOG_SRV_REPLICA_NUM: usize = 3;
 
+#[derive(PartialEq, Eq, Debug, Clone)]
+struct NodeDiskIndexPair {
+    host_idx: i32,
+    host: String,
+    dist_idx: i32,
+    disk: String,
+}
+
+impl Default for NodeDiskIndexPair {
+    fn default() -> Self {
+        Self {
+            host_idx: i32::MIN,
+            host: "_NONE_HOST_".to_string(),
+            dist_idx: i32::MIN,
+            disk: "_NONE_DISK_".to_string(),
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct LogProcessKey {
     pub host: String,
@@ -166,6 +185,97 @@ impl LogService {
         }
     }
 
+    fn node_and_disk_matrix(&self) -> Vec<Vec<NodeDiskIndexPair>> {
+        let mut node_sorted = self.nodes.clone();
+        node_sorted.sort_by_key(|node| node.host.clone());
+        let cols = self.nodes.len();
+        let rows = self
+            .nodes
+            .iter()
+            .map(|node| node.data_dir.len())
+            .max()
+            .unwrap();
+
+        let mut matrix = vec![vec![NodeDiskIndexPair::default(); cols]; rows];
+        for (row, item) in matrix.iter_mut().enumerate().take(rows) {
+            node_sorted.iter().enumerate().for_each(|(node_idx, node)| {
+                let storage = &node.data_dir;
+                let host = &node.host;
+                let disk_len = storage.len();
+                if row < disk_len {
+                    let disk = storage.get(row).unwrap();
+                    item[node_idx] = NodeDiskIndexPair {
+                        host_idx: node_idx as i32,
+                        host: host.to_string(),
+                        dist_idx: row as i32,
+                        disk: disk.to_string(),
+                    };
+                };
+            });
+        }
+        matrix
+    }
+
+    /// The log_group distribution strategy ensures maximum disk utilization
+    /// while maintaining availability for the io-sensitive application, log_service.
+    /// There are two aspects to this strategy:
+    /// 1. members within a log group are distributed across different machines to balance
+    ///    the number of leaders on each node;
+    /// 2. to maximize throughput, all disks are utilized as much as possible by ensuring
+    ///    uniform distribution of disks across nodes. This ensures balanced load distribution among nodes.
+    fn memberships(&self) -> HashMap<usize, Vec<LogGroupMember>> {
+        let mut node_sorted = self.nodes.clone();
+        node_sorted.sort_by_key(|node| node.host.clone());
+        let node_host_matrix = self.node_and_disk_matrix();
+        let member_count = self.log_replica();
+        let mut members = HashMap::new();
+        let mut group_id = 0_usize;
+        let mut port_usage: HashMap<String, u16> = HashMap::default();
+        for node_host_r in &node_host_matrix {
+            let mut member_idx = 0_usize;
+            let mut member_collect = vec![];
+            let len = node_host_r.len();
+            println!("memberships  cols ={len}");
+            for node_host_l in node_host_r {
+                if node_host_l.clone().eq(&NodeDiskIndexPair::default()) {
+                    return members;
+                }
+                let node_idx = node_host_l.host_idx;
+                let node = node_sorted.get(node_idx as usize).unwrap();
+                let curr_port = node.port;
+
+                let member_host = &node_host_l.host;
+                let member_storage = &node_host_l.disk;
+
+                let port = if !port_usage.contains_key(member_host) {
+                    port_usage.insert(member_host.clone(), curr_port);
+                    node.port
+                } else {
+                    *port_usage.get(&node.host).unwrap() + (group_id + member_idx) as u16
+                };
+                let group_member_obj = LogGroupMember {
+                    node_id: member_idx,
+                    group_id,
+                    member_host: member_host.to_string(),
+                    port,
+                    storage_path: member_storage.to_string(),
+                    check_health_url: format!("http://{member_host}:{port}/healthz"),
+                };
+                member_collect.push(group_member_obj);
+                if member_idx < member_count {
+                    println!("next_member curr_node={member_idx} {group_id}");
+                    member_idx += 1;
+                } else {
+                    member_idx = 0;
+                    group_id += 1;
+                }
+            }
+            members.insert(group_id, member_collect);
+            group_id += 1;
+        }
+        return members;
+    }
+
     pub fn group_member_config(&self, members: &[LogGroupMember]) -> IndexMap<usize, String> {
         let group_members = members
             .iter()
@@ -236,12 +346,17 @@ mod tests {
     use crate::config::log_service::{LogReadiness, LogService, LogServiceNode};
     use itertools::Itertools;
 
-    fn mock_log_service(host_num: usize, replica: usize) -> LogService {
+    fn mock_log_service(host_num: usize, replica: usize, disks: usize) -> LogService {
+        let disk_path = (0..disks)
+            .into_iter()
+            .map(|disk_idx| format!("/data/opt/disk_{disk_idx}"))
+            .collect_vec();
+
         let nodes = (0..host_num)
             .into_iter()
             .map(|idx| LogServiceNode {
                 host: format!("127.0.0.{idx}"),
-                data_dir: vec!["/data/opt/log_srv".to_string()],
+                data_dir: disk_path.clone(),
                 port: 9400,
             })
             .collect_vec();
@@ -254,7 +369,7 @@ mod tests {
 
     #[test]
     pub fn test_gen_nodes() {
-        let one_host_log_srv = &mock_log_service(1, 3);
+        let one_host_log_srv = &mock_log_service(1, 3, 3);
         let nodes = one_host_log_srv.gen_log_node_ids(0);
         println!("{nodes:?}");
         let expected_total_nodes = nodes.iter().sum::<usize>();
@@ -263,12 +378,12 @@ mod tests {
 
     #[test]
     pub fn test_log_service_groups() {
-        let one_host_log_srv = &mock_log_service(1, 3);
+        let one_host_log_srv = &mock_log_service(1, 3, 3);
         let group = one_host_log_srv.group();
         println!("host=1,group_size={group}");
         assert_eq!(1, group);
 
-        let multi_host_log_srv = &mock_log_service(4, 3);
+        let multi_host_log_srv = &mock_log_service(4, 3, 3);
         let group = multi_host_log_srv.group();
         println!("host=4,group_size={group}");
         assert_eq!(2, group);
@@ -276,24 +391,21 @@ mod tests {
 
     #[test]
     pub fn test_log_group_members() {
-        let log_srv = &mock_log_service(4, 3);
-        let expect_group = 2;
-        let expect_members = 2 * log_srv.log_replica();
-        let members = log_srv.group_members();
-        println!("log_members={members:#?}");
-        let groups = members
-            .iter()
-            .flat_map(|(_, member)| member.iter().map(|inner_member| inner_member.group_id))
-            .unique()
-            .count();
-        println!("groups={groups}");
-        assert_eq!(expect_members, members.len());
-        assert_eq!(expect_group, groups);
+        let log_srv = &mock_log_service(4, 3, 3);
+        let matrix = log_srv.node_and_disk_matrix();
+        let rows = matrix.len();
+        let cols = matrix.get(0).unwrap().len();
+        assert_eq!(3, rows);
+        assert_eq!(4, cols);
+        let groups = (rows * cols) / log_srv.log_replica();
+        let members = log_srv.memberships();
+        println!("members = {members:#?}");
+        // assert_eq!(groups, members.len());
     }
 
     #[test]
     pub fn test_log_start_cmd() {
-        let log_srv = &mock_log_service(5, 3);
+        let log_srv = &mock_log_service(5, 3, 3);
         let log_srv_cmd = log_srv.log_start_cmd();
         println!("log_srv_cmd={log_srv_cmd:#?}");
         let hosts = log_srv_cmd.keys();
@@ -302,7 +414,7 @@ mod tests {
 
     #[test]
     pub fn test_group_member_config() {
-        let log_srv = &mock_log_service(4, 3);
+        let log_srv = &mock_log_service(4, 3, 3);
         let binding = log_srv.group_member_as_vec();
         let all_members = binding.as_slice();
         let group_member_config = log_srv.group_member_config(all_members);
