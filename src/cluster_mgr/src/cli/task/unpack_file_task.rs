@@ -59,14 +59,15 @@ impl UnpackFileTask {
         let remote_install_dir = config.install_dir();
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
-        // key is file name , value is host list
-        let all_hosts = config.unpack_files_map();
-        let unpack_task_instance = all_hosts
-            .into_iter()
-            .map(|entry| {
-                let packed_file = entry.0;
+        let unpack_file_location = config.unpack_files_map();
+        // println!("unpack_files  = {all_hosts:#?}");
+        let unpack_task_instance = unpack_file_location
+            .iter()
+            .map(|unpack_location| {
+                let packed_file = &unpack_location.file;
                 let curr_file_name = packed_file.file_name();
-                let hosts = entry.1;
+                let remote_host = &unpack_location.host;
+
                 let unpacked_file = if curr_file_name.eq(&log_image) {
                     MONOGRAPH_LOG_SERVICE_DIR.to_string()
                 } else if curr_file_name.eq(&tx_image) {
@@ -74,43 +75,35 @@ impl UnpackFileTask {
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
                 };
-                hosts
-                    .into_iter()
-                    .map(|remote_host| {
-                        let remote_tarball = format!("{remote_install_dir}/{curr_file_name}");
-                        let task_host = TaskHost::Remote {
-                            user: conn_usr.clone(),
-                            port: ssh_port as usize,
-                            hosts: remote_host.clone(),
-                        };
-                        let task_id = TaskId {
-                            cmd: "deploy".to_string(),
-                            task: format!("{curr_file_name}_unpack"),
-                            host: remote_host,
-                        };
-                        (
-                            task_id.clone(),
-                            TaskInstance {
-                                task_input: HashMap::from([
-                                    (REMOTE_TAR.to_string(), TaskArgValue::Str(remote_tarball)),
-                                    (
-                                        UNPACKED_NAME.to_string(),
-                                        TaskArgValue::Str(unpacked_file.clone()),
-                                    ),
-                                ]),
-                                task: Box::new(UnpackFileTask {
-                                    config: config.clone(),
-                                    task_id,
-                                }),
-                                task_host,
-                            },
-                        )
-                    })
-                    .collect::<IndexMap<TaskId, TaskInstance>>()
+
+                let remote_tarball = format!("{remote_install_dir}/{curr_file_name}");
+                let task_host = TaskHost::Remote {
+                    user: conn_usr.clone(),
+                    port: ssh_port as usize,
+                    hosts: remote_host.clone(),
+                };
+                let task_id = TaskId {
+                    cmd: "deploy".to_string(),
+                    task: format!("{curr_file_name}_unpack"),
+                    host: remote_host.clone(),
+                };
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([
+                            (REMOTE_TAR.to_string(), TaskArgValue::Str(remote_tarball)),
+                            (UNPACKED_NAME.to_string(), TaskArgValue::Str(unpacked_file)),
+                        ]),
+                        task: Box::new(UnpackFileTask {
+                            config: config.clone(),
+                            task_id,
+                        }),
+                        task_host,
+                    },
+                )
             })
-            .into_iter()
-            .flatten()
             .collect::<IndexMap<TaskId, TaskInstance>>();
+
         Ok(unpack_task_instance)
     }
 }

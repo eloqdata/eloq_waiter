@@ -14,6 +14,7 @@ use crate::config::{
 };
 use anyhow::anyhow;
 use configparser::ini::Ini;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -63,9 +64,15 @@ impl Deployment {
             let replica_num = log_srv.log_replica();
             let all_members = log_srv.group_member_as_vec();
             let group_member_map = log_srv.group_member_config(all_members.as_slice());
-            let node_group = Vec::from_iter(group_member_map.values())
+            // println!("group_member_map={group_member_map:#?}");
+            let ordered_members = group_member_map
+                .into_iter()
+                .sorted_by_key(|(key, _val)| *key)
+                .collect::<IndexMap<usize, String>>();
+            let node_group = Vec::from_iter(ordered_members.values())
                 .into_iter()
                 .join(",");
+
             Some(HashMap::from([
                 (
                     "monograph_txlog_group_replica_num".to_string(),
@@ -244,5 +251,28 @@ impl Deployment {
             db_image_download_links.extend(monitor_srv.download_links_as_amp()?.into_iter());
         }
         Ok(db_image_download_links)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indexmap::IndexMap;
+    use itertools::Itertools;
+
+    #[test]
+    pub fn test_index_value_order() {
+        let map = IndexMap::from([
+            (3, "3".to_string()),
+            (2, "2".to_string()),
+            (1, "1".to_string()),
+        ]);
+
+        let ordered_map = map
+            .into_iter()
+            .sorted_by_key(|(key, _val)| *key)
+            .collect::<IndexMap<i32, String>>();
+        let node_group = Vec::from_iter(ordered_map.values()).into_iter().join(",");
+
+        println!("{node_group:#?}");
     }
 }

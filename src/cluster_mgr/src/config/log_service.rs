@@ -234,7 +234,8 @@ impl LogService {
             group_members.insert(group_id, members);
             group_id += 1;
         }
-        self.try_set_leader(Some(group_members))
+        group_members
+        //self.try_set_leader(Some(group_members))
     }
 
     fn init_members_table(&self, node_sorted: &[LogServiceNode]) -> Vec<Vec<NodeDiskCell>> {

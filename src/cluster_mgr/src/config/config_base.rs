@@ -1,9 +1,7 @@
 use crate::cli::download_dir;
-
 use crate::config::connection::Connection;
 use crate::config::deployment::Deployment;
 use crate::config::log_service::LogProcessKey;
-use crate::config::monitor::Monitor;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider,
     CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE,
@@ -60,17 +58,10 @@ macro_rules! extract_monitor_host {
     }};
 }
 
-macro_rules! monitor_components_unpack_file {
-    ($unpack_files:expr,$hosts:expr, $monitor:expr,$get_download_url:expr) => {
-        if let Some(monitor_ref) = $monitor {
-            let monitor_downlad_url = $get_download_url(monitor_ref);
-            if monitor_downlad_url.is_empty() {
-                return;
-            }
-            let download_url_obj_rs = DownloadUrl::from_url_str(monitor_downlad_url.as_str());
-            if let Ok(download_url_obj) = download_url_obj_rs {
-                $unpack_files.insert(download_url_obj, $hosts);
-            }
+macro_rules! extract_monitor_link {
+    ($monitor_links:expr, $monitor_fil_key:expr, $links_vec:expr) => {
+        if let Some(download_url) = $monitor_links.get($monitor_fil_key) {
+            $links_vec.push(download_url.clone());
         }
     };
 }
@@ -91,81 +82,97 @@ pub struct DeploymentConfig {
     pub conf_opts: Option<HashMap<String, bool>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnPackFileLocation {
+    pub file: DownloadUrl,
+    pub host: String,
+}
+
 impl DeploymentConfig {
-    /// key is host, value is tarball
-    pub fn unpack_files_map(&self) -> HashMap<DownloadUrl, Vec<String>> {
+    fn unpack_links_map(&self) -> HashMap<DeploymentPackage, Vec<DownloadUrl>> {
         let all_hosts = self.get_host_as_map();
         let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
         let monitor_opt = self.deployment.monitor.as_ref();
         let tx_image = &self.deployment.tx_image;
         let log_image = &self.deployment.log_image;
-        let mut unpack_files = HashMap::new();
-        all_hosts.iter().for_each(|entry| {
-            let hosts = entry.1;
-            let service = entry.0;
-            match service {
-                DeploymentPackage::Storage => {
-                    if let Some(cassandra) = cassandra_opt {
-                        let cass_url =
-                            DownloadUrl::from_url_str(cassandra.download_url.as_str()).unwrap();
-                        unpack_files.insert(cass_url, hosts.clone());
-                        monitor_components_unpack_file!(
-                            unpack_files,
-                            hosts.clone(),
-                            monitor_opt,
-                            |monitor: &Monitor| -> String {
-                                if let Some(mcac) = &monitor.cassandra_collector {
-                                    mcac.mcac_agent.clone()
-                                } else {
-                                    "".to_string()
-                                }
-                            }
-                        );
+        let monitor_link = if let Some(monitor) = monitor_opt {
+            monitor.download_links_as_amp().unwrap()
+        } else {
+            HashMap::default()
+        };
+        all_hosts
+            .keys()
+            .map(|pkg| {
+                let mut unpack_files = vec![];
+                match pkg {
+                    DeploymentPackage::Storage => {
+                        if let Some(cassandra) = cassandra_opt {
+                            let cass_url =
+                                DownloadUrl::from_url_str(cassandra.download_url.as_str()).unwrap();
+                            unpack_files.push(cass_url);
+                            extract_monitor_link!(
+                                monitor_link,
+                                NODE_EXPORTER_FILE_KEY,
+                                unpack_files
+                            );
+                            extract_monitor_link!(
+                                monitor_link,
+                                CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
+                                unpack_files
+                            );
+                        }
+                    }
+                    DeploymentPackage::MonographTx => {
+                        extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
+                        extract_monitor_link!(monitor_link, MYSQL_EXPORTER_FILE_KEY, unpack_files);
+                        let tx_image = DownloadUrl::from_url_str(tx_image.as_str()).unwrap();
+                        unpack_files.push(tx_image);
+                    }
+                    DeploymentPackage::MonographLog => {
+                        if let Some(log_img_val) = log_image {
+                            let log_image_link =
+                                DownloadUrl::from_url_str(log_img_val.as_str()).unwrap();
+                            unpack_files.push(log_image_link);
+                            extract_monitor_link!(
+                                monitor_link,
+                                NODE_EXPORTER_FILE_KEY,
+                                unpack_files
+                            );
+                        }
+                    }
+                    DeploymentPackage::Prometheus => {
+                        extract_monitor_link!(monitor_link, PROMETHEUS_FILE_KEY, unpack_files);
+                    }
+                    DeploymentPackage::Grafana => {
+                        extract_monitor_link!(monitor_link, GRAFANA_FILE_KEY, unpack_files);
                     }
                 }
-                DeploymentPackage::MonographLog => {
-                    if let Some(log_install_file) = log_image {
-                        let log_image =
-                            DownloadUrl::from_url_str(log_install_file.as_str()).unwrap();
-                        unpack_files.insert(log_image, hosts.clone());
-                    }
-                }
-                DeploymentPackage::MonographTx => {
-                    let tx_image = DownloadUrl::from_url_str(tx_image.as_str()).unwrap();
-                    unpack_files.insert(tx_image, hosts.clone());
-                    monitor_components_unpack_file!(
-                        unpack_files,
-                        hosts.clone(),
-                        monitor_opt,
-                        |monitor: &Monitor| -> String { monitor.node_exporter.clone() }
-                    );
 
-                    monitor_components_unpack_file!(
-                        unpack_files,
-                        hosts.clone(),
-                        monitor_opt,
-                        |monitor: &Monitor| -> String { monitor.mysql_exporter.clone() }
-                    );
-                }
-                DeploymentPackage::Prometheus => {
-                    monitor_components_unpack_file!(
-                        unpack_files,
-                        hosts.clone(),
-                        monitor_opt,
-                        |monitor: &Monitor| -> String { monitor.prometheus.download_url.clone() }
-                    );
-                }
-                DeploymentPackage::Grafana => {
-                    monitor_components_unpack_file!(
-                        unpack_files,
-                        hosts.clone(),
-                        monitor_opt,
-                        |monitor: &Monitor| -> String { monitor.grafana.download_url.clone() }
-                    );
-                }
-            }
-        });
-        unpack_files
+                (pkg.clone(), unpack_files)
+            })
+            .collect::<HashMap<DeploymentPackage, Vec<DownloadUrl>>>()
+    }
+
+    // key is file, value is hosts
+    pub fn unpack_files_map(&self) -> Vec<UnPackFileLocation> {
+        let pkg_links = self.unpack_links_map();
+        let all_hosts = self.get_host_as_map();
+        let mut result = vec![];
+        for (pkg, hosts) in &all_hosts {
+            let links = pkg_links.get(pkg).unwrap();
+            links.iter().for_each(|link| {
+                let unpack_files = hosts
+                    .clone()
+                    .iter()
+                    .map(|host| UnPackFileLocation {
+                        file: link.clone(),
+                        host: host.to_string(),
+                    })
+                    .collect_vec();
+                result.extend(unpack_files.into_iter());
+            })
+        }
+        result
     }
 
     pub fn gen_all_monograph_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
@@ -518,7 +525,9 @@ impl DeploymentConfig {
 #[cfg(test)]
 mod tests {
     use crate::config::config_base::DeploymentConfig;
+    use crate::config::monitor::MONOGRAPH_TX_JOB_NAME;
     use crate::config::{DeploymentPackage, CONFIG_PATH_DIR};
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn set_config_path_env_and_get() -> String {
@@ -541,7 +550,10 @@ mod tests {
 
         let mono_host_list = config.get_host_list(DeploymentPackage::MonographTx);
         let monitor = monitor.unwrap();
-        let pro_rs = monitor.gen_prometheus_config(mono_host_list);
+        let pro_rs = monitor.gen_prometheus_config(HashMap::from([(
+            MONOGRAPH_TX_JOB_NAME.to_string(),
+            mono_host_list,
+        )]));
         println!("pro_rs={pro_rs:#?}")
     }
 }

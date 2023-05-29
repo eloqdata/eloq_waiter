@@ -5,7 +5,7 @@ use crate::cli::task::upload::upload_task_builder::{
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use crate::config::monitor::{
     Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DASHBOARD_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR,
-    PROMETHEUS_CONFIG_DIR,
+    MONOGRAPH_TX_JOB_NAME, MYSQL_EXPORTER_JOB_NAME, NODE_EXPORTER_JOB_NAME, PROMETHEUS_CONFIG_DIR,
 };
 use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
@@ -80,8 +80,27 @@ impl MonitorInfraConfUploadBuilder {
         let mcac_config = monitor
             .gen_mcac_file_sd_config(cass_config_host_ref.clone())
             .unwrap(); // prometheus
+        let log_hosts = all_host.get(&DeploymentPackage::MonographLog).unwrap();
         let prometheus_conf = monitor
-            .gen_prometheus_config(monograph_tx_hosts.clone())
+            .gen_prometheus_config(HashMap::from([
+                (
+                    MONOGRAPH_TX_JOB_NAME.to_string(),
+                    monograph_tx_hosts.clone(),
+                ),
+                (
+                    MYSQL_EXPORTER_JOB_NAME.to_string(),
+                    monograph_tx_hosts.clone(),
+                ),
+                (
+                    NODE_EXPORTER_JOB_NAME.to_string(),
+                    vec![
+                        &monograph_tx_hosts[..],
+                        &log_hosts.clone()[..],
+                        &cass_config_host_ref[..],
+                    ]
+                    .concat(),
+                ),
+            ]))
             .unwrap(); //prometheus config
         let prometheus_conf_files = if let Some(mcac) = mcac_config {
             vec![prometheus_conf, mcac]
