@@ -20,17 +20,25 @@ impl MonographUploadBuilder {
         let download_dir_path = download_dir();
         let download_dir = download_dir_path.to_str().unwrap();
         let monograph_download_links = deployment_ref.all_download_links().unwrap();
+
+        let tx_hosts = config.get_host_list(DeploymentPackage::MonographTx);
+        let log_hosts = config.get_host_list(DeploymentPackage::MonographLog);
+        let storage_hosts = config.get_host_list(DeploymentPackage::Storage);
         let install_dir = config.install_dir();
         monograph_download_links
             .iter()
             .map(|(file_key, download_url)| {
                 let dest_hosts = match file_key.as_str() {
-                    MONOGRAPH_FILE_KEY | MYSQL_EXPORTER_FILE_KEY | NODE_EXPORTER_FILE_KEY => {
-                        config.get_host_list(DeploymentPackage::MonographTx)
-                    }
-                    MONOGRAPH_LOG_FILE_KEY => config.get_host_list(DeploymentPackage::MonographLog),
+                    MONOGRAPH_FILE_KEY | MYSQL_EXPORTER_FILE_KEY => tx_hosts.clone(),
+                    NODE_EXPORTER_FILE_KEY => vec![
+                        &tx_hosts.clone()[..],
+                        &log_hosts.clone()[..],
+                        &storage_hosts.clone()[..],
+                    ]
+                    .concat(),
+                    MONOGRAPH_LOG_FILE_KEY => log_hosts.clone(),
                     CASSANDRA_FILE_KEY | CASSANDRA_COLLECTOR_AGENT_FILE_KEY => {
-                        config.get_host_list(DeploymentPackage::Storage)
+                        storage_hosts.clone()
                     }
                     PROMETHEUS_FILE_KEY => config.get_host_list(DeploymentPackage::Prometheus),
                     GRAFANA_FILE_KEY => config.get_host_list(DeploymentPackage::Grafana),

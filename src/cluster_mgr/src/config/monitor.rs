@@ -27,6 +27,10 @@ pub const GRAFANA_DATASOURCE_CONFIG_DIR: &str = "grafana/conf/provisioning/datas
 pub const GRAFANA_DASHBOARD_CONFIG_DIR: &str = "grafana/conf/provisioning/dashboards";
 pub const PROMETHEUS_CONFIG_DIR: &str = "prometheus";
 
+pub const MYSQL_EXPORTER_JOB_NAME: &str = "monograph-myslqd";
+pub const NODE_EXPORTER_JOB_NAME: &str = "monograph-node";
+pub const MONOGRAPH_TX_JOB_NAME: &str = "monograph-tx";
+
 #[macro_export]
 macro_rules! monitor_component_config_dir {
     ($component:expr) => {{
@@ -238,36 +242,38 @@ impl Monitor {
     }
 
     // node_exporter, mysql_exporter,prometheus,cassandra_metrics(optional)
-    pub fn gen_prometheus_config(&self, monograph_hosts: Vec<String>) -> anyhow::Result<PathBuf> {
+    pub fn gen_prometheus_config(
+        &self,
+        job_hosts: HashMap<String, Vec<String>>,
+    ) -> anyhow::Result<PathBuf> {
         let mysql_exporter_port = self.mysql_exporter_port;
         let node_exporter_port = self.node_exporter_port;
-        let mut node_targets = vec![];
-        let mut mysqld_targets = vec![];
-        let mut monograph_targets = vec![];
         let monograph_metrics_opt = self.monograph_metrics.as_ref();
-        monograph_hosts.iter().for_each(|host| {
-            node_targets.push(format!("{host}:{node_exporter_port}"));
-            mysqld_targets.push(format!("{host}:{mysql_exporter_port}"));
-            if let Some(monograph_metrics) = monograph_metrics_opt {
-                let port = &monograph_metrics.port;
-                monograph_targets.push(format!("{host}:{port}"));
-            }
-        });
+
         let mut scrape_configs: Vec<Value> = vec![];
-        let mysqld_scrape_job_value = Monitor::build_prometheus_target_value(
-            "monograph-mysqld".to_string(),
-            None,
-            mysqld_targets,
-        );
-        let node_scrape_job_value = Monitor::build_prometheus_target_value(
-            "monograph-node".to_string(),
-            None,
-            node_targets,
-        );
-
-        scrape_configs.push(mysqld_scrape_job_value);
-        scrape_configs.push(node_scrape_job_value);
-
+        job_hosts.iter().for_each(|(job_name, hosts)| {
+            let mut target_hosts: Vec<String> = vec![];
+            let mut url = None;
+            hosts.iter().for_each(|host| match job_name.as_str() {
+                MONOGRAPH_TX_JOB_NAME => {
+                    if let Some(monograph_metrics) = monograph_metrics_opt {
+                        let port = &monograph_metrics.port;
+                        target_hosts.push(format!("{host}:{port}"));
+                        url = Some("/mono_metrics".to_string())
+                    }
+                }
+                NODE_EXPORTER_JOB_NAME => {
+                    target_hosts.push(format!("{host}:{node_exporter_port}"));
+                }
+                MYSQL_EXPORTER_JOB_NAME => {
+                    target_hosts.push(format!("{host}:{mysql_exporter_port}"));
+                }
+                _ => unreachable!(),
+            });
+            let scrape_job_value =
+                Monitor::build_prometheus_target_value(job_name.to_string(), url, target_hosts);
+            scrape_configs.push(scrape_job_value);
+        });
         if self.cassandra_collector.is_some() {
             let mcac_prometheus_config =
                 load_yaml_config_template(MCAC_PROMETHEUS_CONFIG_TEMPLATE)?;
@@ -279,14 +285,14 @@ impl Monitor {
             scrape_configs.push(mcac_scrape_job);
         }
 
-        if !monograph_targets.is_empty() {
-            let monograph_scrap_job_value = Monitor::build_prometheus_target_value(
-                "monograph-service".to_string(),
-                Some("/mono_metrics".to_string()),
-                monograph_targets,
-            );
-            scrape_configs.push(monograph_scrap_job_value);
-        }
+        // if !monograph_targets.is_empty() {
+        //     let monograph_scrap_job_value = Monitor::build_prometheus_target_value(
+        //         "monograph-service".to_string(),
+        //         Some("/mono_metrics".to_string()),
+        //         monograph_targets,
+        //     );
+        //     scrape_configs.push(monograph_scrap_job_value);
+        // }
 
         let prometheus_host = &self.prometheus.host;
         let prometheus_port = self.prometheus.port;
