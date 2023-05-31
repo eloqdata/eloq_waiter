@@ -16,6 +16,7 @@ use crate::config::monitor::Monitor;
 use crate::config::DeploymentPackage;
 use crate::{task_return_value, wait_command_complete};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -183,50 +184,66 @@ impl MonitorCtlTask {
         cmd_arg: CommandArgs,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
+        let cmd_str_ref = cmd_arg.as_ref();
         let monitor = config.deployment.monitor.as_ref();
         assert!(monitor.is_some());
         let install_dir = config.install_dir();
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
-        let monograph_hosts = config.get_host_list(DeploymentPackage::MonographTx);
-        monograph_hosts
+        let all_hosts = config.get_host_as_map();
+        all_hosts
             .iter()
-            .map(|monograph_host| {
-                let task_remote_host = TaskHost::Remote {
-                    user: conn_user.clone(),
-                    port: ssh_port as usize,
-                    hosts: monograph_host.clone(),
-                };
-                let node_exporter_cmd = MonitorComponentCommand::NodeExporter {
-                    home: format!("{install_dir}/{NODE_EXPORTER_FILE_KEY}"),
-                };
+            .filter(|(pkg, _hosts)| {
+                let pkg_copy = *pkg;
+                pkg_copy.eq(&DeploymentPackage::MonographTx)
+                    || pkg_copy.eq(&DeploymentPackage::MonographLog)
+                    || pkg_copy.eq(&DeploymentPackage::Storage)
+            })
+            .flat_map(|(pkg, hosts)| {
+                let is_tx_srv = pkg.eq(&DeploymentPackage::MonographTx);
+                hosts
+                    .iter()
+                    .unique()
+                    .map(|host| {
+                        let task_remote_host = TaskHost::Remote {
+                            user: conn_user.clone(),
+                            port: ssh_port as usize,
+                            hosts: host.clone(),
+                        };
+                        let node_exporter_cmd = MonitorComponentCommand::NodeExporter {
+                            home: format!("{install_dir}/{NODE_EXPORTER_FILE_KEY}"),
+                        };
 
-                let mysql_exporter_cmd = MonitorComponentCommand::MySqlExporter {
-                    home: format!("{install_dir}/{MYSQL_EXPORTER_FILE_KEY}"),
-                    mysql_conf: format!(
-                        //"{install_dir}/mysqld_exporter/mysql_exporter_{monograph_host}.cnf"
-                        "{install_dir}/mysql_exporter_{monograph_host}.cnf"
-                    ),
-                };
-                let task_remote_host_cloned = task_remote_host.clone();
-                vec![
-                    build_monitor_task_instance!(
-                        config.clone(),
-                        node_exporter_cmd,
-                        "node_exporter_start",
-                        task_remote_host_cloned,
-                        NODE_EXPORTER_FILE_KEY,
-                        cmd_arg.clone()
-                    ),
-                    build_monitor_task_instance!(
-                        config,
-                        mysql_exporter_cmd,
-                        "mysql_exporter_start",
-                        task_remote_host,
-                        MYSQL_EXPORTER_FILE_KEY,
-                        cmd_arg.clone()
-                    ),
-                ]
+                        let task_remote_host_cloned = task_remote_host.clone();
+                        let mut exporter_cmd_vec = vec![build_monitor_task_instance!(
+                            config.clone(),
+                            node_exporter_cmd,
+                            format!("node_exporter_{cmd_str_ref}"),
+                            task_remote_host_cloned,
+                            NODE_EXPORTER_FILE_KEY,
+                            cmd_arg.clone()
+                        )];
+
+                        if is_tx_srv {
+                            let mysql_exporter_cmd = MonitorComponentCommand::MySqlExporter {
+                                home: format!("{install_dir}/{MYSQL_EXPORTER_FILE_KEY}"),
+                                mysql_conf: format!(
+                                    //"{install_dir}/mysqld_exporter/mysql_exporter_{monograph_host}.cnf"
+                                    "{install_dir}/mysql_exporter_{host}.cnf"
+                                ),
+                            };
+                            exporter_cmd_vec.push(build_monitor_task_instance!(
+                                config,
+                                mysql_exporter_cmd,
+                                format!("mysql_exporter_{cmd_str_ref}"),
+                                task_remote_host,
+                                MYSQL_EXPORTER_FILE_KEY,
+                                cmd_arg.clone()
+                            ));
+                        }
+                        exporter_cmd_vec
+                    })
+                    .collect_vec()
             })
             .into_iter()
             .flatten()
