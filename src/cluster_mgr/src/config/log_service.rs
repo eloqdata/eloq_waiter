@@ -427,10 +427,18 @@ mod tests {
     }
 
     #[test]
-    pub fn test_memberships() {
-        let log_srv = &mock_log_service(3, 3, HashMap::from([(0, 3), (1, 3), (2, 3)]));
+    pub fn test_memberships_one_lg() {
+        let log_srv = &mock_log_service(1, 1, HashMap::from([(0, 1)]));
         let members = log_srv.group_members();
-        println!("set master before members = {members:#?}");
-        assert_eq!(3, members.len());
+        println!("test_memberships_one_lg members = {members:#?}");
+        assert_eq!(1, members.len());
+    }
+
+    #[test]
+    pub fn test_memberships_multi_lg() {
+        let log_srv = &mock_log_service(3, 3, HashMap::from([(0, 1), (1, 1), (2, 1)]));
+        let members = log_srv.group_members();
+        println!("test_memberships_multi_lg members = {members:#?}");
+        assert_eq!(1, members.len());
     }
 }
