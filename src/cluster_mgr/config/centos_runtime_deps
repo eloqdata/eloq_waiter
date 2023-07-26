@@ -4,3 +4,4 @@ glog
 java-11-openjdk-devel
 wget
 libuv
+boost169-devel.x86_64
