@@ -441,20 +441,26 @@ impl DeploymentConfig {
 
     /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
     /// for example: ubuntu_runtime_deps, centos_runtime_deps
-    pub fn load_runtime_deps_by_os(os_name: Option<String>) -> anyhow::Result<(String, String)> {
+    pub fn load_runtime_deps_by_os(
+        os_name: Option<String>,
+        os_version: Option<String>,
+    ) -> anyhow::Result<(String, String, String)> {
         let config_path_var_rs = std::env::var(CONFIG_PATH_DIR);
         assert!(config_path_var_rs.is_ok());
-        let curr_os_name = if let Some(short_os_name) = os_name {
-            short_os_name.to_lowercase()
+        let (curr_os_name, curr_os_version) = if let Some(short_os_name) = os_name {
+            let os_version_input = os_version.unwrap();
+            (short_os_name.to_lowercase(), os_version_input)
         } else {
             let system = sysinfo::System::new();
             let curr_os_name = system.name();
+            let os_version = system.os_version();
             assert!(curr_os_name.is_some());
+            assert!(os_version.is_some());
             let os_name = curr_os_name.unwrap().to_lowercase();
             if os_name.starts_with("ubuntu") {
-                "ubuntu".to_string()
+                ("ubuntu".to_string(), os_version.unwrap())
             } else if os_name.starts_with("centos") {
-                "centos".to_string()
+                ("centos".to_string(), os_version.unwrap())
             } else {
                 unreachable!()
             }
@@ -474,7 +480,7 @@ impl DeploymentConfig {
                 }
             })
             .join(" ");
-        Ok((curr_os_name, deps_string))
+        Ok((curr_os_name, curr_os_version, deps_string))
     }
 
     pub fn load(path: Option<String>) -> anyhow::Result<Self> {
