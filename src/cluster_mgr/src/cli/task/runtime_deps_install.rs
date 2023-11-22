@@ -20,21 +20,28 @@ impl RuntimeDepsInstallation {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None)?;
+        let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None, None)?;
         let os_name = os_and_deps_pair.0;
-        // println!("RuntimeDep from_config = {os_name}");
+        let os_version = os_and_deps_pair.1;
+        println!("RuntimeDep from_config = {os_name}");
         let dep_cmd_partial = match os_name.as_str() {
             "ubuntu" => {
                "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
             }
             "centos" => {
-                "sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y"
+                match os_version.as_str() {
+                    "8" => r#"sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y &
+sudo /usr/bin/crb enable &
+sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y"#,
+                    "7"=> "sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y",
+                    _ => unreachable!()
+                }
             }
             _=> {
-                panic!("For now MonographDB only run on Ubuntu or Centos");
+                panic!("For now MonographDB only run on Ubuntu or Centos7/Centos8");
             }
         };
-        let dep_pkg = os_and_deps_pair.1;
+        let dep_pkg = os_and_deps_pair.2;
         let install_dep_cmd = format!("{dep_cmd_partial} {dep_pkg}");
 
         let conn_user = config.connection.clone().username;
