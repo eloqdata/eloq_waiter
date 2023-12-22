@@ -46,7 +46,14 @@ pub struct MonographService {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum Product {
+    Monograph,
+    Redis,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
+    pub product: String, // TODO(zhanghao): enum Product
     pub tx_image: String,
     pub log_image: Option<String>,
     pub cluster_name: String,

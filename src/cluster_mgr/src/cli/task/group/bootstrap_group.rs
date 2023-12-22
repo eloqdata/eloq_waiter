@@ -57,12 +57,8 @@ impl TaskGroup for InstallDBTaskGroup {
                     }
                 }
                 let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
-                let monograph_install = MonographInstall::from_config(&config, install_db_host);
                 barrier.push(cassandra_start.len());
-                barrier.push(monograph_install.len());
-
                 executable.extend(cassandra_start);
-                executable.extend(monograph_install);
 
                 TaskExecutionContext {
                     task_group: cmd_args.as_ref().to_string(),
@@ -73,20 +69,26 @@ impl TaskGroup for InstallDBTaskGroup {
             _ => {
                 let monograph_is_multi_node =
                     config.get_host_list(DeploymentPackage::MonographTx).len() > 1;
-                let monograph_install = MonographInstall::from_config(&config, install_db_host);
                 TaskExecutionContext {
                     task_group: cmd_args.as_ref().to_string(),
                     barrier: if monograph_is_multi_node {
-                        Some(vec![monograph_install.len()])
+                        Some(vec![])
                     } else {
                         None
                     },
-                    executable: monograph_install,
+                    executable: IndexMap::new(),
                 }
             }
         };
         let mut barrier = execution_context_tuple.clone().barrier.unwrap();
         let mut executable = execution_context_tuple.executable;
+
+        if config.deployment.product == "Monograph" {
+            // Bootstrap
+            let monograph_install = MonographInstall::from_config(&config, install_db_host);
+            barrier.push(monograph_install.len());
+            executable.extend(monograph_install);
+        }
 
         let upload_data_dir_task = upload_tasks(UploadTaskBuilderType::DataDir, &config);
         if !upload_data_dir_task.is_empty() {

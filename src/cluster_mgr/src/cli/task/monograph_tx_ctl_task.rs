@@ -8,7 +8,9 @@ use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::{DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR};
+use crate::config::config_base::{
+    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
+};
 use crate::config::DeploymentPackage;
 use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
@@ -33,20 +35,14 @@ pub enum TxCtlCmd {
 
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
-macro_rules! monograph_cmd {
-    ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $host:expr) => {{
-        let ctl_cmd = stringify!($ctl_cmd);
-        let mysqld_pid = format!(
-            r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
-            $user, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR
-        );
-        let output_pid = r#"awk '{print $2}'"#;
-        match ctl_cmd {
-            "TxCtlCmd::Start" => TxCtlCmd::Start(format!(
+macro_rules! mono_start_cmd {
+    ($remote_install_home:expr, $host:expr, $product:expr) => {
+        match $product {
+            "Monograph" => format!(
                 r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
-export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
-export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-{}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf > {}/{}/logs/mysqld_start.log 2>&1 &"#,
+    export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
+    export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
+    {}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf > {}/{}/logs/mysqld_start.log 2>&1 &"#,
                 $remote_install_home,
                 MONOGRAPH_TX_SERVICE_DIR,
                 $remote_install_home,
@@ -59,7 +55,49 @@ export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_e
                 $host,
                 $remote_install_home,
                 MONOGRAPH_TX_SERVICE_DIR
-            )),
+            ),
+            "Redis" => format!(
+                r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
+    export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
+    export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
+    {}/{}/install/redis_server > {}/{}/logs/redis.log 2>&1 &"#,
+                $remote_install_home,
+                REDIS_TX_SERVICE_DIR,
+                $remote_install_home,
+                REDIS_TX_SERVICE_DIR,
+                $remote_install_home,
+                REDIS_TX_SERVICE_DIR,
+                $remote_install_home,
+                REDIS_TX_SERVICE_DIR,
+                $remote_install_home,
+                REDIS_TX_SERVICE_DIR
+            ),
+            _ => {
+                unreachable!()
+            }
+        }
+    };
+}
+
+macro_rules! monograph_cmd {
+    ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $host:expr, $product:expr) => {{
+        let ctl_cmd = stringify!($ctl_cmd);
+        let mysqld_pid = match $product {
+            "Monograph" => format!(
+                r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
+                $user, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR
+            ),
+            "Redis" => format!(
+                r#"ps uxwe -u {} | grep {}/{}/install/redis_server | grep -v grep | "#,
+                $user, $remote_install_home, REDIS_TX_SERVICE_DIR
+            ),
+            _ => unreachable!(),
+        };
+        let output_pid = r#"awk '{print $2}'"#;
+        match ctl_cmd {
+            "TxCtlCmd::Start" => {
+                TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $host, $product))
+            }
             "TxCtlCmd::ForceStop" => {
                 TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", mysqld_pid, output_pid))
             }
@@ -199,6 +237,7 @@ impl MonographTxCtlTask {
         let ssh_port = config.connection.ssh_port();
         let remote_install_dir = config.install_dir();
         let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
+        let product = config.product();
 
         let mut db_user = "_NONE".to_string();
         let mut db_pwd = "_NONE".to_string();
@@ -229,7 +268,7 @@ impl MonographTxCtlTask {
             .map(|host| {
                 let task_id = TaskId {
                     cmd: cmd_str_ref.to_string(),
-                    task: format!("monographdb-{cmd_str_ref}"),
+                    task: format!("{product}-{cmd_str_ref}"),
                     host: host.to_string(),
                 };
                 let cmd_task_input_tuple = match cmd_str_ref {
@@ -238,7 +277,8 @@ impl MonographTxCtlTask {
                             TxCtlCmd::Start,
                             remote_install_dir,
                             conn_user.clone(),
-                            host.to_string()
+                            host.to_string(),
+                            product
                         ),
                         HashMap::default(),
                     ),
@@ -247,7 +287,8 @@ impl MonographTxCtlTask {
                             TxCtlCmd::Status,
                             remote_install_dir,
                             conn_user.clone(),
-                            host.to_string()
+                            host.to_string(),
+                            product
                         ),
                         HashMap::from([
                             (MONO_DB_USER.to_string(), TaskArgValue::Str(db_user.clone())),
@@ -261,7 +302,8 @@ impl MonographTxCtlTask {
                                     TxCtlCmd::ForceStop,
                                     remote_install_dir,
                                     conn_user.clone(),
-                                    host.to_string()
+                                    host.to_string(),
+                                    product
                                 ),
                                 HashMap::default(),
                             )
@@ -271,7 +313,8 @@ impl MonographTxCtlTask {
                                     TxCtlCmd::Stop,
                                     remote_install_dir,
                                     conn_user.clone(),
-                                    host.to_string()
+                                    host.to_string(),
+                                    product
                                 ),
                                 HashMap::default(),
                             )
@@ -318,7 +361,8 @@ impl MonographTxCtlTask {
             TxCtlCmd::Status,
             remote_install_dir,
             user.to_string(),
-            host.to_string()
+            host.to_string(),
+            self.config.product()
         );
         let cmd_val = check_status.cmd_value();
         check_pid(cmd_val, ssh_conn, parse_process_pid).await
@@ -348,7 +392,8 @@ impl TaskExecutor for MonographTxCtlTask {
             TxCtlCmd::Status,
             remote_install_dir,
             user,
-            host_value.clone()
+            host_value.clone(),
+            self.config.product()
         )
         .cmd_value();
         let check_process_status = self

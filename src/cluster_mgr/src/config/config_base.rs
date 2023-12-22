@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
+pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
 pub const MONOGRAPH_LOG_SERVICE_DIR: &str = "monograph-log-service-release";
 
 pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
@@ -270,6 +271,10 @@ impl DeploymentConfig {
             "{}/{}",
             &self.deployment.install_dir, self.deployment.cluster_name
         )
+    }
+
+    pub fn product(&self) -> &str {
+        self.deployment.product.as_str()
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
