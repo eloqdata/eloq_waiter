@@ -4,11 +4,11 @@ connection:
   auth:
     keypair: "/home/ubuntu/.ssh/ed25519_mono"
 deployment:
-  product: "Monograph"
-  tx_image: "file:///home/ubuntu/monographdb-tx-release-bin.tar.gz"
-  log_image: "file:///home/ubuntu/monographdb-log-release-bin.tar.gz"
-  cluster_name: "mono-poc"
-  install_dir: "/data/opt"
+  product: "Redis"
+  tx_image: "file:///home/ubuntu/Downloads/monograph_redis_tar.tar.gz"
+  log_image: "file:///home/ubuntu/Downloads/log_service.tar.gz"
+  cluster_name: "redis"
+  install_dir: "/home/ubuntu/POC"
   port:
     mysql_port: 3300
     monograph_port:
@@ -19,9 +19,9 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/data1/opt/log_data"
-          - "/data2/opt/log_data"
-          - "/data3/opt/log_data"
+          - "/home/ubuntu/POC/log_data1"
+          - "/home/ubuntu/POC/log_data2"
+          - "/home/ubuntu/POC/log_data3"
     replica: 1
   tx_service:
     host:
