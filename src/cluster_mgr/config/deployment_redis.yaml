@@ -1,14 +1,14 @@
 connection:
-  username: "ubuntu"
+  username: "zhanghao"
   auth_type: "keypair"
   auth:
-    keypair: "/home/ubuntu/.ssh/ed25519_mono"
+    keypair: "/home/zhanghao/.ssh/ed25519_mono"
 deployment:
   product: "Redis"
-  tx_image: "file:///home/ubuntu/Downloads/monograph_redis_tar.tar.gz"
-  log_image: "file:///home/ubuntu/Downloads/log_service.tar.gz"
+  tx_image: "file:///home/zhanghao/Downloads/monograph_redis_tar.tar.gz"
+  log_image: "file:///home/zhanghao/Downloads/log_service.tar.gz"
   cluster_name: "redis"
-  install_dir: "/home/ubuntu/POC"
+  install_dir: "/home/zhanghao/POC"
   port:
     mysql_port: 3300
     monograph_port:
@@ -19,9 +19,9 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/ubuntu/POC/log_data1"
-          - "/home/ubuntu/POC/log_data2"
-          - "/home/ubuntu/POC/log_data3"
+          - "/home/zhanghao/POC/log_data1"
+          - "/home/zhanghao/POC/log_data2"
+          - "/home/zhanghao/POC/log_data3"
     replica: 1
   tx_service:
     host:
