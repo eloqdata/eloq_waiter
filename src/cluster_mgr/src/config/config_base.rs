@@ -274,7 +274,11 @@ impl DeploymentConfig {
     }
 
     pub fn product(&self) -> Product {
-        self.deployment.product.clone()
+        if let Some(p) = self.deployment.product.clone() {
+            p
+        } else {
+            Product::Monograph
+        }
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {

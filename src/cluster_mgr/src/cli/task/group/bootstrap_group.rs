@@ -67,19 +67,11 @@ impl TaskGroup for InstallDBTaskGroup {
                     executable,
                 }
             }
-            _ => {
-                let monograph_is_multi_node =
-                    config.get_host_list(DeploymentPackage::MonographTx).len() > 1;
-                TaskExecutionContext {
-                    task_group: cmd_args.as_ref().to_string(),
-                    barrier: if monograph_is_multi_node {
-                        Some(vec![])
-                    } else {
-                        None
-                    },
-                    executable: IndexMap::new(),
-                }
-            }
+            _ => TaskExecutionContext {
+                task_group: cmd_args.as_ref().to_string(),
+                barrier: None,
+                executable: IndexMap::new(),
+            },
         };
         let mut barrier = execution_context_tuple.clone().barrier.unwrap();
         let mut executable = execution_context_tuple.executable;
