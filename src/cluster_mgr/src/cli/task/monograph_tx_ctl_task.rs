@@ -82,7 +82,7 @@ macro_rules! mono_start_cmd {
 macro_rules! monograph_cmd {
     ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $host:expr, $product:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
-        let mysqld_pid = match $product {
+        let pid_cmd = match $product {
             "Monograph" => format!(
                 r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
                 $user, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR
@@ -99,13 +99,11 @@ macro_rules! monograph_cmd {
                 TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $host, $product))
             }
             "TxCtlCmd::ForceStop" => {
-                TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", mysqld_pid, output_pid))
+                TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", pid_cmd, output_pid))
             }
-            "TxCtlCmd::Stop" => {
-                TxCtlCmd::Stop(format!("{} {} | xargs kill", mysqld_pid, output_pid))
-            }
+            "TxCtlCmd::Stop" => TxCtlCmd::Stop(format!("{} {} | xargs kill", pid_cmd, output_pid)),
             "TxCtlCmd::Status" => {
-                let ps_cmd = format!(r#"{} {} "#, mysqld_pid, output_pid);
+                let ps_cmd = format!(r#"{} {} "#, pid_cmd, output_pid);
                 TxCtlCmd::Status(ps_cmd)
             }
             _ => {
