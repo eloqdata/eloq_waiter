@@ -92,11 +92,11 @@ impl Deployment {
                 .join(",");
             let key_list = match self.product() {
                 Product::Monograph => "monograph_txlog_service_list".to_string(),
-                Product::Redis => "log_server_config".to_string(),
+                Product::Redis => "txlog_service_list".to_string(),
             };
             let key_replica = match self.product() {
                 Product::Monograph => "monograph_txlog_group_replica_num".to_string(),
-                Product::Redis => "log_replica_num".to_string(),
+                Product::Redis => "txlog_group_replica_num".to_string(),
             };
             Some(HashMap::from([
                 (key_replica, replica_num.to_string()),
