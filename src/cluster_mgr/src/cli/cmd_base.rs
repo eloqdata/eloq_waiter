@@ -157,9 +157,15 @@ impl CommandExecutor {
                 self.task_mgr.print_task_result().await;
             }
         });
-        let rs = self.task_mgr.run_tasks(cmd, config).await?;
+        let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
         recv_rs_and_print_join.await?;
         println!(r#"all tasks complete.task_size={}"#, rs.len());
+        if cmd_ref.eq("play") {
+            println!(
+                "Ready to play! Connect to server by execute:\n {:?}",
+                config.conn_to_play()
+            );
+        }
         Ok(())
     }
 }

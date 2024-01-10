@@ -91,7 +91,8 @@ impl TaskGroup for InstallDBTaskGroup {
             "rm -rf {remote_install_dir}/datafarm/cc_ng {remote_install_dir}/datafarm/tx_log",
         );
 
-        let rm_log_data_task_instance = ExecCustomCommand::from_config(rm_log_data_cmd, &config);
+        let rm_log_data_task_instance =
+            ExecCustomCommand::from_config(&cmd_args, "rm_log", rm_log_data_cmd, &config);
         barrier.push(rm_log_data_task_instance.len());
         executable.extend(rm_log_data_task_instance);
         Ok(TaskExecutionContext {

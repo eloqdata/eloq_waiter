@@ -2,7 +2,7 @@ use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::{ssh, CMD_OUTPUT};
+use crate::cli::{ssh, CommandArgs, CMD_OUTPUT};
 use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -61,7 +61,9 @@ impl ExecCustomCommand {
     }
 
     pub fn from_config(
-        cmd_string: String,
+        cmd: &CommandArgs,
+        task: &str,
+        content: String,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let all_hosts = config.get_unique_host_list();
@@ -76,8 +78,8 @@ impl ExecCustomCommand {
                     hosts: host_val.clone(),
                 };
                 let task_id = TaskId {
-                    cmd: "exec_cmd".to_string(),
-                    task: format!("exec_cmd_in_{host_val}"),
+                    cmd: cmd.as_ref().to_string(),
+                    task: format!("{task}@{host_val}"),
                     host: host_val.clone(),
                 };
                 (
@@ -85,7 +87,7 @@ impl ExecCustomCommand {
                     TaskInstance {
                         task_input: HashMap::default(),
                         task: Box::new(ExecCustomCommand::new(
-                            cmd_string.clone(),
+                            content.clone(),
                             task_id,
                             config.clone(),
                         )),

@@ -81,8 +81,12 @@ impl TaskGroup for DeploymentTaskGroup {
         };
 
         let mkdir_cmd = config.install_dir();
-        let mkdir_remote_dir =
-            ExecCustomCommand::from_config(format!("mkdir -p {mkdir_cmd}"), &config);
+        let mkdir_remote_dir = ExecCustomCommand::from_config(
+            &cmd_args,
+            "mkdir",
+            format!("mkdir -p {mkdir_cmd}"),
+            &config,
+        );
         let upload_monitor_conf_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, &config);
 
         let barrier = Some(vec![

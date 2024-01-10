@@ -6,7 +6,7 @@ use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use indexmap::IndexMap;
-use tracing::info;
+use tracing::{debug, info};
 
 #[async_trait::async_trait]
 impl TaskGroup for PlayTaskGroup {
@@ -22,16 +22,6 @@ impl TaskGroup for PlayTaskGroup {
                 unreachable!()
             }
         };
-
-        // let topo_file = match cmd_arg {
-        //     CommandArgs::Play { topology_file } => match topology_file {
-        //         Some(fp) => fp,
-        //         None => "".to_string(),
-        //     },
-        //     _ => {
-        //         unreachable!()
-        //     }
-        // };
 
         let groups = vec![
             InstallRuntimeDepsTaskGroup
@@ -76,23 +66,28 @@ impl TaskGroup for PlayTaskGroup {
                 )
                 .await?,
         ];
-
         let mut barrier = vec![];
         let mut executable = IndexMap::new();
-        for tasks in groups {
+        groups.into_iter().for_each(|tasks| {
             info!(
-                "Play step {} has barrier {:?} and tasks {}",
+                "Play step {} has barrier {:?} and tasks {}, total_tasks {}",
                 tasks.task_group,
                 tasks.barrier,
-                tasks.executable.len()
+                tasks.executable.len(),
+                executable.len()
             );
+            tasks.executable.iter().for_each(|(id, _)| {
+                debug!("Playground add task {}", id.format_string());
+            });
+
             if let Some(b) = tasks.barrier {
                 barrier.extend(b);
             } else {
                 barrier.push(tasks.executable.len());
             }
             executable.extend(tasks.executable);
-        }
+        });
+
         Ok(TaskExecutionContext {
             task_group: cmd_ref,
             barrier: Some(barrier),

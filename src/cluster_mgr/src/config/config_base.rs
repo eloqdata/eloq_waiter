@@ -301,6 +301,22 @@ impl DeploymentConfig {
         )
     }
 
+    pub fn conn_to_play(&self) -> String {
+        match self.product() {
+            Product::Monograph => format!(
+                "{}/{}/install/bin/mariadb --user={} -S /tmp/mysql{}.sock",
+                self.install_dir(),
+                MONOGRAPH_TX_SERVICE_DIR,
+                self.connection.username,
+                self.deployment.port.mysql_port
+            ),
+            Product::Redis => format!(
+                "redis-cli -h {} -p 6379",
+                self.deployment.tx_service.host.first().unwrap()
+            ),
+        }
+    }
+
     pub fn product(&self) -> Product {
         return self.deployment.product();
     }
