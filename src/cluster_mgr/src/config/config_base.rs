@@ -318,7 +318,7 @@ impl DeploymentConfig {
     }
 
     pub fn product(&self) -> Product {
-        return self.deployment.product();
+        self.deployment.product()
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
