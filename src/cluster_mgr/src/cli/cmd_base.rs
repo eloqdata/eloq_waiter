@@ -5,6 +5,7 @@ use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
+use anyhow::anyhow;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -83,7 +84,7 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<Option<DeploymentConfig>> {
+    async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<DeploymentConfig> {
         match cmd.clone() {
             CommandArgs::Deploy { topology_file }
             | CommandArgs::Upgrade { topology_file }
@@ -94,7 +95,7 @@ impl CommandExecutor {
                 self.save_deployment_config(&config, cmd_ref.eq("upgrade"))
                     .await?;
                 info!("CmdExecutor Save DeploymentConfig successfully.");
-                Ok(Some(config))
+                Ok(config)
             }
             CommandArgs::Install { cluster }
             | CommandArgs::Stop {
@@ -120,19 +121,20 @@ impl CommandExecutor {
             | CommandArgs::Monitor {
                 command: _,
                 cluster,
-            } => {
+            }
+            | CommandArgs::Remove { cluster } => {
                 let config = self
                     .state_mgr
-                    .load_deployment_from_state(cluster.as_str()) //load_deployment_from_state(cluster.as_str())
-                    .await?;
-                assert!(config.is_some());
+                    .load_deployment_from_state(cluster.as_str())
+                    .await?
+                    .ok_or(anyhow!("cluster {} not exist", cluster))?;
                 Ok(config)
             }
             CommandArgs::RunDeps { topology_file }
             | CommandArgs::Exec {
                 command: _,
                 topology_file,
-            } => Ok(Some(DeploymentConfig::load(Some(topology_file))?)),
+            } => Ok(DeploymentConfig::load(Some(topology_file))?),
         }
     }
 
@@ -148,7 +150,7 @@ impl CommandExecutor {
                     .await?;
                 config
             }
-            None => self.get_config(cmd.clone()).await?.unwrap(),
+            None => self.get_config(cmd.clone()).await?,
         };
 
         let recv_rs_and_print_join = tokio::task::spawn(async move {
@@ -160,11 +162,17 @@ impl CommandExecutor {
         let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
         recv_rs_and_print_join.await?;
         println!(r#"all tasks complete.task_size={}"#, rs.len());
-        if cmd_ref.eq("play") {
-            println!(
+
+        match cmd {
+            CommandArgs::Play { topology_file: _ } => println!(
                 "Ready to play! Connect to server by execute:\n {:?}",
                 config.conn_to_play()
-            );
+            ),
+            CommandArgs::Remove { cluster } => {
+                let n = self.state_mgr.delete_cluster(&cluster).await?;
+                println!("cluster state cleared rows={}", n);
+            }
+            _ => {}
         }
         Ok(())
     }

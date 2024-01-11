@@ -11,6 +11,8 @@ pub(crate) const SERVICE_STATUS_UPSERT: [&str; 2] = [
     r#" )on CONFLICT (cluster_name, service_name) DO UPDATE SET service_status = excluded.service_status,update_timestamp=excluded.update_timestamp"#,
 ];
 
+pub(crate) const SERVICE_STATUS_DELETE: &str = r#"delete from t_service_instance"#;
+
 #[derive(Eq, PartialEq, Clone, Debug, FromRow)]
 pub struct ServiceInstanceEntity {
     cluster_name: String,
@@ -38,5 +40,5 @@ impl Stateful for ServiceInstanceEntity {
 }
 
 state_operation_impl! {
-    { ServiceInstanceOperation, ServiceInstanceEntity, SERVICE_STATUS_SELECT, SERVICE_STATUS_UPSERT }
+    { ServiceInstanceOperation, ServiceInstanceEntity, SERVICE_STATUS_SELECT, SERVICE_STATUS_UPSERT ,SERVICE_STATUS_DELETE}
 }

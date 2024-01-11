@@ -161,6 +161,12 @@ pub enum CommandArgs {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },
+    #[command(long_about = "Remove cluster.\n./cluster_mgr remove --cluster $CLUSTER_NAME")]
+    #[strum(serialize = "remove")]
+    Remove {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
+    },
 }
 
 pub fn download_dir() -> PathBuf {

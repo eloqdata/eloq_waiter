@@ -11,6 +11,8 @@ pub(crate) const TASK_STATUS_UPSERT: [&str; 2] = [
     r#" )on CONFLICT (cluster_name, task, command, task_host) DO UPDATE SET task_status = excluded.task_status,update_timestamp=excluded.update_timestamp"#,
 ];
 
+pub(crate) const TASK_STATUS_DELETE: &str = r#"delete from t_task_status"#;
+
 #[derive(Clone, Debug, Eq, PartialEq, FromRow)]
 pub struct TaskStatusEntity {
     pub cluster_name: String,
@@ -38,5 +40,5 @@ impl Stateful for TaskStatusEntity {
 }
 
 state_operation_impl! {
-    { TaskStatusOperation, TaskStatusEntity, TASK_STATUS_SELECT, TASK_STATUS_UPSERT }
+    { TaskStatusOperation, TaskStatusEntity, TASK_STATUS_SELECT, TASK_STATUS_UPSERT ,TASK_STATUS_DELETE}
 }

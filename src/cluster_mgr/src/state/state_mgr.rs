@@ -158,6 +158,27 @@ impl StateMgr {
         }
     }
 
+    pub async fn delete_cluster(&self, cluster: &str) -> Result<u64> {
+        let cond = QueryCondition {
+            cond_text: "cluster_name = $1".to_string(),
+            bind_values: vec![StateValue::Varchar(cluster.to_owned())],
+        };
+
+        let mut rows = self
+            .get_state_operation::<TaskStatusOperation>(TASK_STATUS_STATE)
+            .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
+            .await?;
+        rows += self
+            .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE)
+            .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
+            .await?;
+        rows += self
+            .get_state_operation::<ServiceInstanceOperation>(SERVICE_STATUS_STATE)
+            .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
+            .await?;
+        Ok(rows)
+    }
+
     #[allow(dead_code)]
     async fn list_tables(&self) -> Vec<String> {
         let table_result = QueryBuilder::new(

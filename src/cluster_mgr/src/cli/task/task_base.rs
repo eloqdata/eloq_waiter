@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use std::string::ToString;
 use tabled::{display::ExpandedDisplay, Tabled};
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use ExecutionValue as LastResult;
 
 pub type EnvProps = HashMap<String, String>;
@@ -120,6 +120,33 @@ macro_rules! task_return_value {
             return Ok(Some(task_rs));
         }
     }};
+}
+
+pub fn merge_execution(
+    exe: Vec<TaskExecutionContext>,
+) -> (Vec<usize>, IndexMap<TaskId, TaskInstance>) {
+    let mut barrier = vec![];
+    let mut executable = IndexMap::new();
+    exe.into_iter().for_each(|tasks| {
+        info!(
+            "Play step {} has barrier {:?} and tasks {}, total_tasks {}",
+            tasks.task_group,
+            tasks.barrier,
+            tasks.executable.len(),
+            executable.len()
+        );
+        tasks.executable.iter().for_each(|(id, _)| {
+            debug!("Playground add task {}", id.format_string());
+        });
+
+        if let Some(b) = tasks.barrier {
+            barrier.extend(b);
+        } else {
+            barrier.push(tasks.executable.len());
+        }
+        executable.extend(tasks.executable);
+    });
+    (barrier, executable)
 }
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]
