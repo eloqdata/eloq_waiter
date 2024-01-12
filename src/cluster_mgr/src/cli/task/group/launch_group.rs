@@ -1,20 +1,20 @@
 use crate::cli::task::group::{
     CtrlDBTaskGroup, DeploymentTaskGroup, InstallDBTaskGroup, InstallRuntimeDepsTaskGroup,
-    MonitorCtlTaskGroup, PlayTaskGroup, TaskGroup,
+    LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
 use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 
 #[async_trait::async_trait]
-impl TaskGroup for PlayTaskGroup {
+impl TaskGroup for LaunchTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let topo_file = match cmd_arg.clone() {
-            CommandArgs::Play { topology_file } => topology_file,
+            CommandArgs::Launch { topology_file } => topology_file,
             _ => {
                 unreachable!()
             }

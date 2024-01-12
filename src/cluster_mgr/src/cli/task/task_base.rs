@@ -129,14 +129,14 @@ pub fn merge_execution(
     let mut executable = IndexMap::new();
     exe.into_iter().for_each(|tasks| {
         info!(
-            "Play step {} has barrier {:?} and tasks {}, total_tasks {}",
+            "Merge step {} has barrier {:?} and tasks {}, total_tasks {}",
             tasks.task_group,
             tasks.barrier,
             tasks.executable.len(),
             executable.len()
         );
         tasks.executable.iter().for_each(|(id, _)| {
-            debug!("Playground add task {}", id.format_string());
+            debug!("add task {}", id.format_string());
         });
 
         if !tasks.executable.is_empty() {

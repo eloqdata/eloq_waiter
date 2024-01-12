@@ -154,10 +154,10 @@ pub enum CommandArgs {
         restart: Option<String>,
     },
     #[command(
-        long_about = "Build a playground quickly.\n./cluster_mgr play --topology-file  ${PWD}/config/play-maria.yaml"
+        long_about = "Build a playground quickly.\n./cluster_mgr launch --topology-file  ${PWD}/config/demo-maria.yaml"
     )]
-    #[strum(serialize = "play")]
-    Play {
+    #[strum(serialize = "launch")]
+    Launch {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },

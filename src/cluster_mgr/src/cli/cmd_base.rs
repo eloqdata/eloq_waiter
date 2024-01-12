@@ -88,7 +88,7 @@ impl CommandExecutor {
         match cmd.clone() {
             CommandArgs::Deploy { topology_file }
             | CommandArgs::Upgrade { topology_file }
-            | CommandArgs::Play { topology_file } => {
+            | CommandArgs::Launch { topology_file } => {
                 let config_rs = DeploymentConfig::load(Some(topology_file));
                 let config = config_rs.unwrap().clone();
                 let cmd_ref = cmd.as_ref();
@@ -164,9 +164,9 @@ impl CommandExecutor {
         println!(r#"all tasks complete.task_size={}"#, rs.len());
 
         match cmd {
-            CommandArgs::Play { topology_file: _ } => println!(
-                "Ready to play! Connect to server by execute:\n {:?}",
-                config.conn_to_play()
+            CommandArgs::Launch { topology_file: _ } => println!(
+                "You can connect to server by execute:\n {:?}",
+                config.conn_hint()
             ),
             CommandArgs::Remove { cluster } => {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
