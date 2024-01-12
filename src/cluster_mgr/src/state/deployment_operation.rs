@@ -11,6 +11,8 @@ pub(crate) const DEPLOYMENT_UPSERT: [&str; 2] = [
     r#" )on CONFLICT (cluster_name) DO UPDATE SET deployment_config = excluded.deployment_config,host_list=excluded.host_list"#,
 ];
 
+pub(crate) const DEPLOYMENT_DELETE: &str = r#"delete from t_deployment"#;
+
 #[derive(Eq, PartialEq, Clone, Debug, FromRow)]
 pub struct DeploymentEntity {
     pub cluster_name: String,
@@ -34,5 +36,5 @@ impl Stateful for DeploymentEntity {
 }
 
 state_operation_impl! {
-    { DeploymentOperation, DeploymentEntity, DEPLOYMENT_SELECT, DEPLOYMENT_UPSERT }
+    { DeploymentOperation, DeploymentEntity, DEPLOYMENT_SELECT, DEPLOYMENT_UPSERT ,DEPLOYMENT_DELETE}
 }

@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use std::string::ToString;
 use tabled::{display::ExpandedDisplay, Tabled};
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use ExecutionValue as LastResult;
 
 pub type EnvProps = HashMap<String, String>;
@@ -120,6 +120,35 @@ macro_rules! task_return_value {
             return Ok(Some(task_rs));
         }
     }};
+}
+
+pub fn merge_execution(
+    exe: Vec<TaskExecutionContext>,
+) -> (Vec<usize>, IndexMap<TaskId, TaskInstance>) {
+    let mut barrier = vec![];
+    let mut executable = IndexMap::new();
+    exe.into_iter().for_each(|tasks| {
+        info!(
+            "Merge step {} has barrier {:?} and tasks {}, total_tasks {}",
+            tasks.task_group,
+            tasks.barrier,
+            tasks.executable.len(),
+            executable.len()
+        );
+        tasks.executable.iter().for_each(|(id, _)| {
+            debug!("add task {}", id.format_string());
+        });
+
+        if !tasks.executable.is_empty() {
+            if let Some(b) = tasks.barrier {
+                barrier.extend(b);
+            } else {
+                barrier.push(tasks.executable.len());
+            }
+            executable.extend(tasks.executable);
+        }
+    });
+    (barrier, executable)
 }
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]
@@ -384,7 +413,8 @@ impl TaskMgr {
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let tasks_execution = self.task_context(cmd_args, &config).await?;
         info!(
-            "TaskMgr start current barrier={:?}",
+            "TaskMgr start current tasks={} barrier={:?}",
+            tasks_execution.executable.len(),
             tasks_execution.barrier
         );
         self.task_controller

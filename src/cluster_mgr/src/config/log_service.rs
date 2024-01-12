@@ -225,7 +225,7 @@ impl LogService {
                         group_id,
                         member_host: node_host.to_string(),
                         port,
-                        storage_path: format!("{disk}/lg{group_id}/ln{node_id}"),
+                        storage_path: format!("{disk}/g{group_id}n{node_id}"),
                         check_health_url: format!("http://{node_host}:{port}/healthz"),
                     }
                 })
@@ -367,6 +367,21 @@ impl LogService {
                 (host.to_string(), cmds)
             })
             .collect::<HashMap<String, Vec<LogCmdItems>>>()
+    }
+
+    pub fn log_directories(&self) -> HashMap<String, Vec<String>> {
+        self.group_member_as_vec()
+            .into_iter()
+            .into_group_map_by(|log_member| log_member.member_host.clone())
+            .into_iter()
+            .map(|(host, members)| {
+                let dirs = members
+                    .into_iter()
+                    .map(|log_member| log_member.storage_path)
+                    .collect();
+                (host, dirs)
+            })
+            .collect::<HashMap<String, Vec<String>>>()
     }
 }
 

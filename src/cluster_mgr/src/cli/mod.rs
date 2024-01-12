@@ -19,7 +19,7 @@ pub const CMD: &str = "_cmd_";
 #[command(next_line_help = true)]
 pub struct ClusterMgrCommandArgs {
     #[arg(short, long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
+    pub home: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Option<CommandArgs>,
 }
@@ -152,6 +152,20 @@ pub enum CommandArgs {
         cluster: String,
         #[arg(long, value_name = "Whether to restart the TX service.TURE|FALSE ")]
         restart: Option<String>,
+    },
+    #[command(
+        long_about = "Build a playground quickly.\n./cluster_mgr launch --topology-file  ${PWD}/config/demo-maria.yaml"
+    )]
+    #[strum(serialize = "launch")]
+    Launch {
+        #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
+        topology_file: String,
+    },
+    #[command(long_about = "Remove cluster.\n./cluster_mgr remove --cluster $CLUSTER_NAME")]
+    #[strum(serialize = "remove")]
+    Remove {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
     },
 }
 

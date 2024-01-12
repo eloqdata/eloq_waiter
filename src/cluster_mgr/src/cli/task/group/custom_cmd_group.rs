@@ -12,7 +12,7 @@ impl TaskGroup for CustomCmdTaskGroup {
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cmd_ref = cmd_arg.as_ref().to_string();
-        let user_command = match cmd_arg {
+        let user_command = match cmd_arg.clone() {
             CommandArgs::Exec {
                 command,
                 topology_file: _,
@@ -21,7 +21,8 @@ impl TaskGroup for CustomCmdTaskGroup {
                 unreachable!()
             }
         };
-        let exec_cmd_task_execution = ExecCustomCommand::from_config(user_command, &config);
+        let exec_cmd_task_execution =
+            ExecCustomCommand::from_config(&cmd_arg, "exec", user_command, &config);
 
         Ok(TaskExecutionContext {
             task_group: cmd_ref,
