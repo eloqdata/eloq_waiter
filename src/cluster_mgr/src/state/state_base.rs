@@ -46,6 +46,10 @@ pub trait StateOperation: StateOperationAny {
         F: Send,
         F: Fn() -> Option<QueryCondition>;
     async fn put(&self, obj: Self::StateObject) -> anyhow::Result<u64>;
+    async fn del<F>(&self, cond_supplier: F) -> anyhow::Result<u64>
+    where
+        F: Send,
+        F: Fn() -> Option<QueryCondition>;
 }
 
 pub(crate) fn handle_execute_result<T>(result: Result<T, Error>) -> anyhow::Result<T> {
@@ -60,7 +64,7 @@ pub(crate) fn handle_execute_result<T>(result: Result<T, Error>) -> anyhow::Resu
 
 #[macro_export]
 macro_rules! state_operation_impl {
-    ($({$operation_struct:ident,$entity_name:ty,$select:expr,$upsert:expr} ),*) => {
+    ($({$operation_struct:ident,$entity_name:ty,$select:expr,$upsert:expr,$delete:expr} ),*) => {
         use $crate::state::state_base::{StateOperation, StateOperationAny, handle_execute_result,
              QueryCondition};
         use std::any::Any;
@@ -134,6 +138,31 @@ macro_rules! state_operation_impl {
                 });
                 separated.push_unseparated($upsert[1]);
                 let exec_rs = sql_builder.build().execute(&self.db_instance).await;
+                let result = handle_execute_result::<SqliteQueryResult>(exec_rs)?;
+                Ok(result.rows_affected())
+            }
+
+            async fn del<F>(
+                &self,
+                cond_supplier: F,
+            ) -> anyhow::Result<u64>  where F: Send, F : Fn()-> Option<QueryCondition> {
+                let query_cond = cond_supplier();
+                let exec_rs = if let Some(query_condition) = query_cond {
+                    let query_text = format!(r#"{} where {}"#, $delete, query_condition.cond_text);
+                    let mut query = sqlx::query(query_text.as_str());
+                    for bind_value in query_condition.bind_values.iter()  {
+                        query = match bind_value.as_ref() {
+                              "String" => {query.bind(StateValue::into_inner_value::<String>(bind_value.clone()))}
+                              "i32" => query.bind(StateValue::into_inner_value::<i32>(bind_value.clone())),
+                              "i64" => query.bind(StateValue::into_inner_value::<i64>(bind_value.clone())),
+                              "chrono::DateTime<Utc>" => query.bind(StateValue::into_inner_value::<chrono::DateTime<Utc>,>(bind_value.clone())),
+                              _ => unreachable!(),
+                        };
+                    }
+                    query.execute(&self.db_instance).await
+                } else {
+                    sqlx::query($delete).execute(&self.db_instance).await
+                };
                 let result = handle_execute_result::<SqliteQueryResult>(exec_rs)?;
                 Ok(result.rows_affected())
             }
