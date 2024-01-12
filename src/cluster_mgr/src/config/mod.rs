@@ -80,6 +80,7 @@ pub enum ConfigErr {
     DownloadUrlFormatErr(String),
 }
 
+pub const HOME_DIR: &str = "CLUSTER_MGR_HOME";
 pub const CONFIG_PATH_DIR: &str = "CLUSTER_MGR_CLI_CONFIG";
 pub const CONFIG_MARIADB_SECTION: &str = "mariadb";
 pub const CONFIG_SECTION_LOCAL: &str = "local";

@@ -1,8 +1,8 @@
 use clap::Parser;
 use cluster_mgr::cli::cmd_base::CommandExecutor;
 use cluster_mgr::cli::ClusterMgrCommandArgs;
-use cluster_mgr::config::CONFIG_PATH_DIR;
-use std::env;
+use cluster_mgr::config::{CONFIG_PATH_DIR, HOME_DIR};
+use std::{env, path::PathBuf, process::exit};
 use tracing::{error, Level};
 use tracing_subscriber::EnvFilter;
 
@@ -25,29 +25,28 @@ async fn main() {
         .with_env_filter(filter)
         .init();
     let cluster_mgr_cmd = ClusterMgrCommandArgs::parse();
-    let config_path = match cluster_mgr_cmd.config {
-        Some(ref config) => config.to_str().unwrap().to_string(),
+    match cluster_mgr_cmd.home {
+        Some(ref home) => env::set_var(HOME_DIR, home),
         None => {
-            let current_dir = env::current_dir().unwrap();
-            let config_path_buf = current_dir.join("config");
-            let config_path = config_path_buf.as_path();
-            if !config_path.exists() {
-                error!(
-                    "The config [{:?}] folder was not found in the current process's directory",
-                    config_path_buf
-                );
-                return;
-            } else {
-                config_path.to_str().unwrap().to_string()
+            if env::var(HOME_DIR).is_err() {
+                env::set_var(HOME_DIR, env::current_dir().unwrap())
             }
         }
     };
-    env::set_var(CONFIG_PATH_DIR, config_path.clone());
+    // Set config directory path
+    let cnf_dir = PathBuf::from(env::var(HOME_DIR).unwrap()).join("config");
+    if !cnf_dir.exists() {
+        error!("Config path not exist: {} ", cnf_dir.display());
+        exit(1);
+    }
+    env::set_var(CONFIG_PATH_DIR, cnf_dir);
+
     let cmd_executor = Box::leak(Box::new(CommandExecutor::new()));
     if let Some(command) = cluster_mgr_cmd.command {
         println!("ClusterMgr receive {:?} command", command.clone());
         if let Err(e) = cmd_executor.run(command, None).await {
-            eprintln!("{}", e);
+            error!("{}", e);
+            exit(1);
         }
     }
 }

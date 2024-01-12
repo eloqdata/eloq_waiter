@@ -19,7 +19,7 @@ pub const CMD: &str = "_cmd_";
 #[command(next_line_help = true)]
 pub struct ClusterMgrCommandArgs {
     #[arg(short, long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
+    pub home: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Option<CommandArgs>,
 }

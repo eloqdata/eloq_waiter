@@ -1,5 +1,5 @@
 use crate::config::config_base::DeploymentConfig;
-use crate::config::CONFIG_PATH_DIR;
+use crate::config::{CONFIG_PATH_DIR, HOME_DIR};
 use crate::state::deployment_operation::DeploymentOperation;
 use crate::state::service_status_operation::{ServiceInstanceEntity, ServiceInstanceOperation};
 use crate::state::state_base::{QueryCondition, StateOperation, StateOperationAny};
@@ -199,9 +199,7 @@ impl StateMgr {
     }
 
     fn get_or_init_db_location() -> Result<PathBuf> {
-        let db_location = PathBuf::from("./")
-            .join(".data")
-            .join("mono_cluster_mgr_cli");
+        let db_location = PathBuf::from(env::var(HOME_DIR).unwrap()).join("db");
         info!(
             "StateMgr get_or_init_db_location db_location = {:?}",
             db_location
