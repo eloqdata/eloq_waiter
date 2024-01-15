@@ -154,18 +154,24 @@ pub enum CommandArgs {
         restart: Option<String>,
     },
     #[command(
-        long_about = "Build a playground quickly.\n./cluster_mgr launch --topology-file  ${PWD}/config/demo-maria.yaml"
+        long_about = "Launch a cluster quickly.\ncluster_mgr launch --topology-file  ${PWD}/config/deployment.yaml"
     )]
     #[strum(serialize = "launch")]
     Launch {
         #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
         topology_file: String,
     },
-    #[command(long_about = "Remove cluster.\n./cluster_mgr remove --cluster $CLUSTER_NAME")]
+    #[command(long_about = "Remove cluster.\ncluster_mgr remove --cluster $CLUSTER_NAME")]
     #[strum(serialize = "remove")]
     Remove {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
+    },
+    #[command(long_about = "Launch a demo quickly.\ncluster_mgr demo --product monograph")]
+    #[strum(serialize = "demo")]
+    Demo {
+        #[arg(short, long, value_name = "Product")]
+        product: String,
     },
 }
 

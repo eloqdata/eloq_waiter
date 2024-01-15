@@ -1,5 +1,10 @@
 ## MonographDB Deployment and Management CLI
 
+### Install
+```shell
+bash src/cluster_mgr/install.sh
+```
+
 ### Design and implementation
 
 #### Terminology
