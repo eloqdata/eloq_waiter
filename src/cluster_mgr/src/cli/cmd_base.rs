@@ -1,11 +1,13 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
+use crate::config::{CONFIG_PATH_DIR, HOME_DIR};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::anyhow;
+use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -97,6 +99,24 @@ impl CommandExecutor {
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(config)
             }
+            CommandArgs::Demo { product } => {
+                let topology = format!(
+                    "{}/demo-{}.yaml",
+                    env::var(CONFIG_PATH_DIR)?,
+                    product.to_lowercase()
+                );
+                let mut config = DeploymentConfig::load(Some(topology)).unwrap();
+                config.connection.username = whoami::username();
+                config.connection.auth.keypair = Some(format!("{}/ed25519", env::var(HOME_DIR)?));
+                // TODO(zhanghao): cross platform
+                // set tx_image log_image by platform information
+                self.save_deployment_config(&config, false).await?;
+                info!(
+                    "CmdExecutor Save DeploymentConfig successfully. username={}",
+                    config.connection.username
+                );
+                Ok(config)
+            }
             CommandArgs::Install { cluster }
             | CommandArgs::Stop {
                 cluster,
@@ -164,13 +184,23 @@ impl CommandExecutor {
         println!(r#"all tasks complete.task_size={}"#, rs.len());
 
         match cmd {
-            CommandArgs::Launch { topology_file: _ } => println!(
-                "You can connect to server by execute:\n {:?}",
-                config.conn_hint()
-            ),
+            CommandArgs::Launch { topology_file: _ } | CommandArgs::Demo { product: _ } => {
+                print!("\nLaunch cluster finished, Enjoy!");
+                println!("Connect to server: {}", config.client_conn());
+                if let Some(moni) = &config.deployment.monitor {
+                    println!(
+                        "Prometheus: http://{}:{}",
+                        moni.prometheus.host, moni.prometheus.port
+                    );
+                    println!(
+                        "Grafana: http://{}:{}",
+                        moni.grafana.host, moni.grafana.port
+                    );
+                }
+            }
             CommandArgs::Remove { cluster } => {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
-                println!("cluster state cleared rows={}", n);
+                info!("cluster state cleared rows={}", n);
             }
             _ => {}
         }

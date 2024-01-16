@@ -8,7 +8,7 @@ deployment:
   tx_image: "https://dzkle3nb4zzyc.cloudfront.net/mono-release-ci-redis/monograph_redis.tar.gz"
   log_image: "https://dzkle3nb4zzyc.cloudfront.net/mono-release-ci-redis/log_service.tar.gz"
   cluster_name: "demo-redis"
-  install_dir: "/home/ubuntu/POC"
+  install_dir: "/tmp"
   port:
     mysql_port: 3300
     monograph_port:
@@ -19,9 +19,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/ubuntu/POC/demo-redis/logDisk1"
-          - "/home/ubuntu/POC/demo-redis/logDisk2"
-          - "/home/ubuntu/POC/demo-redis/logDisk3"
+          - "/tmp/demo-redis/logDisk1"
     replica: 1
   tx_service:
     host:

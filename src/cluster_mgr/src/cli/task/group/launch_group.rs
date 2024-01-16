@@ -5,6 +5,8 @@ use crate::cli::task::group::{
 use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
+use crate::config::CONFIG_PATH_DIR;
+use std::env;
 
 #[async_trait::async_trait]
 impl TaskGroup for LaunchTaskGroup {
@@ -15,6 +17,11 @@ impl TaskGroup for LaunchTaskGroup {
     ) -> anyhow::Result<TaskExecutionContext> {
         let topo_file = match cmd_arg.clone() {
             CommandArgs::Launch { topology_file } => topology_file,
+            CommandArgs::Demo { product } => format!(
+                "{}/demo-{}.yaml",
+                env::var(CONFIG_PATH_DIR)?,
+                product.to_lowercase()
+            ),
             _ => {
                 unreachable!()
             }
