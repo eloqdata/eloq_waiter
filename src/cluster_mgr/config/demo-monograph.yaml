@@ -7,8 +7,8 @@ deployment:
   product: "Monograph"
   tx_image: "https://dzkle3nb4zzyc.cloudfront.net/main_tagged_range_ubuntu2004/cassandra/0.3.3/monographdb-tx-release-bin.tar.gz"
   log_image: "https://dzkle3nb4zzyc.cloudfront.net/main_tagged_range_ubuntu2004/cassandra/0.3.3/monographdb-log-release-bin.tar.gz"
-  cluster_name: "demo-maria"
-  install_dir: "/home/ubuntu/POC"
+  cluster_name: "demo-monograph"
+  install_dir: "/tmp"
   port:
     mysql_port: 3300
     monograph_port:
@@ -19,9 +19,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/ubuntu/POC/demo-maria/logDisk1"
-          - "/home/ubuntu/POC/demo-maria/logDisk2"
-          - "/home/ubuntu/POC/demo-maria/logDisk3"
+          - "/tmp/demo-monograph/logDisk1"
     replica: 1
   tx_service:
     host:

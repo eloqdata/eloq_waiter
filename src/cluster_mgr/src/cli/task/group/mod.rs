@@ -79,6 +79,7 @@ pub fn init_task_group() -> &'static HashMap<String, Box<dyn TaskGroup>> {
             ("update-conf".to_string(), UpdateConfigTaskGroup::boxed()),
             ("launch".to_string(), LaunchTaskGroup::boxed()),
             ("remove".to_string(), RemoveTaskGroup::boxed()),
+            ("demo".to_string(), LaunchTaskGroup::boxed()),
         ])
     })
 }

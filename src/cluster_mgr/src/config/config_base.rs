@@ -301,7 +301,7 @@ impl DeploymentConfig {
         )
     }
 
-    pub fn conn_hint(&self) -> String {
+    pub fn client_conn(&self) -> String {
         match self.product() {
             Product::Monograph => format!(
                 "{}/{}/install/bin/mariadb --user={} -S /tmp/mysql{}.sock",
