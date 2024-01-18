@@ -98,12 +98,20 @@ pub fn set_home_dir(home: &Option<PathBuf>) -> anyhow::Result<()> {
         }
     };
     // check config directory
-    let cnf_dir = PathBuf::from(env::var(HOME_DIR).unwrap()).join("config");
+    let cnf_dir = home_path().join("config");
     if !cnf_dir.exists() {
         return Err(anyhow!("Config path not exist: {} ", cnf_dir.display()));
     }
     env::set_var(CONFIG_PATH_DIR, cnf_dir);
+    if let Err(create_err) = std::fs::create_dir_all(home_path().join("downloads").as_path()) {
+        let err_msg = create_err.to_string();
+        panic!("Create download path Error cause by {err_msg:?} ");
+    }
     Ok(())
+}
+
+pub fn home_path() -> PathBuf {
+    PathBuf::from(env::var(HOME_DIR).unwrap())
 }
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr)]
