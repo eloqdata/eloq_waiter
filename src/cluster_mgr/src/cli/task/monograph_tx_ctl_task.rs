@@ -153,11 +153,14 @@ impl MySQLProbe {
     }
 
     pub async fn probe(&self) -> anyhow::Result<ExecutionValue> {
-        let user = &self.user;
-        let pwd = &self.password;
+        let user_pwd = if self.password.eq("_NONE") {
+            self.user.clone()
+        } else {
+            format!("{}:{}", self.user, self.password)
+        };
         let host = &self.host;
         let port = self.mysql_port;
-        let mysql_conn_url = format!("mysql://{user}:{pwd}@{host}:{port}/mysql");
+        let mysql_conn_url = format!("mysql://{user_pwd}@{host}:{port}/mysql");
         let mono_conn_rs = sqlx::mysql::MySqlConnection::connect(mysql_conn_url.as_str()).await;
         if let Err(mono_conn_err) = mono_conn_rs {
             error!(
@@ -180,7 +183,7 @@ impl MySQLProbe {
         let query_cmd = "select date_format(now(), '%Y-%m-%d %T') as now_date";
         info!(
             "MonographDetector established database connection successfully user={},host={}",
-            user, pwd
+            self.user, self.password
         );
         let query_rs = mono_conn.fetch_one(query_cmd).await;
         let result = if let Ok(row) = query_rs {
@@ -399,7 +402,7 @@ impl TaskExecutor for MonographTxCtlTask {
                     task_arg.get(MONO_DB_PWD).unwrap().clone(),
                 );
                 let mysql_port = self.config.deployment.port.mysql_port;
-                if !db_user.eq("_NONE") && !db_pwd.eq("_NONE") {
+                if !db_user.eq("_NONE") {
                     println!(
                         "MonographCtlTask The status commands passed in user and password will \
                         probe the connection status of the MonographDB."
