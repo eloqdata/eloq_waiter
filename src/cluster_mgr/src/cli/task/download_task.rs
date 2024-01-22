@@ -10,6 +10,7 @@ use futures::stream::StreamExt;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -172,53 +173,49 @@ impl TaskExecutor for DownloadTask {
             return Ok(None);
         }
 
-        let create_local_file_rs = std::fs::File::create(local_file_path.as_path());
+        // TODO(zhanghao): Use HTTP range header to resume download
+        let tmp_file = append_ext(local_file_path.clone(), "partial");
+        let create_local_file_rs = std::fs::File::create(tmp_file.as_path());
         if create_local_file_rs.is_err() {
             return Err(anyhow!(DownloadErr(
                 download_url_cloned,
                 create_local_file_rs.err().unwrap().to_string()
             )));
         }
-
         let mut download_file = create_local_file_rs.unwrap();
         let mut downloaded = 0_u64;
         let pb = file_process_progress(file_len, format!("DOWNLOAD [{download_file_name}]"), "#>-");
 
         let mut stream_reader = http_response.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
-            if stream_chunk.is_err() {
-                let err_msg = stream_chunk.err().unwrap().to_string();
+            if let Err(err) = stream_chunk {
                 error!(
                     "DownloadRemote task error file={},msg={}",
-                    download_url_cloned, err_msg
+                    download_url_cloned, err
                 );
-                return Err(anyhow!(DownloadErr(download_url_cloned, err_msg)));
+                return Err(anyhow!(DownloadErr(download_url_cloned, err.to_string())));
             }
-            if let Ok(chunk) = stream_chunk {
-                if let Err(write_err) = download_file.write_all(&chunk) {
-                    let err_msg = write_err.to_string();
-                    error!(
-                        "DownloadRemote task error file={},msg={}",
-                        download_url_cloned, err_msg
-                    );
-                    return Err(anyhow!(DownloadErr(download_url_cloned, err_msg)));
-                }
-                let new_progress = std::cmp::min(downloaded + (chunk.len() as u64), file_len);
-                downloaded = new_progress;
-                pb.set_position(downloaded);
-            } else {
-                let stream_chunk_err = stream_chunk.err().unwrap().to_string();
+            let chunk = stream_chunk.unwrap();
+            if let Err(write_err) = download_file.write_all(&chunk) {
                 error!(
                     "DownloadTask {} write local file error {} ",
-                    download_url_cloned, stream_chunk_err
+                    download_url_cloned, write_err
                 );
-                return Err(anyhow!(DownloadErr(download_url_cloned, stream_chunk_err)));
+                return Err(anyhow!(DownloadErr(
+                    download_url_cloned,
+                    write_err.to_string()
+                )));
             }
+            let new_progress = std::cmp::min(downloaded + (chunk.len() as u64), file_len);
+            downloaded = new_progress;
+            pb.set_position(downloaded);
+        }
+        if let Err(err) = std::fs::rename(tmp_file, local_file_path.as_path()) {
+            return Err(anyhow!(DownloadErr(download_url_cloned, err.to_string())));
         }
         pb.finish_with_message(format!("{download_file_name} download compete"));
 
         let mut download_result = HashMap::new();
-
         download_result.insert(
             CMD.to_string(),
             TaskArgValue::Str(self.task_id.format_string()),
@@ -227,9 +224,14 @@ impl TaskExecutor for DownloadTask {
             CMD_OUTPUT.to_string(),
             TaskArgValue::Str(local_file_path.to_str().unwrap().to_string()),
         );
-
         download_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
-
-        Ok(None)
+        Ok(Some(download_result))
     }
+}
+
+pub fn append_ext(path: PathBuf, ext: impl AsRef<OsStr>) -> PathBuf {
+    let mut os_string: OsString = path.into();
+    os_string.push(".");
+    os_string.push(ext.as_ref());
+    os_string.into()
 }
