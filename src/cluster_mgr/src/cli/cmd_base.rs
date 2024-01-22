@@ -134,6 +134,7 @@ impl CommandExecutor {
                 cluster,
                 user: _,
                 password: _,
+                wait: _,
             }
             | CommandArgs::Monitor {
                 command: _,

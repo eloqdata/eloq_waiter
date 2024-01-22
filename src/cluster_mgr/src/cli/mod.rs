@@ -101,6 +101,8 @@ pub enum CommandArgs {
         user: Option<String>,
         #[arg(short, long, value_name = "MonographDB password")]
         password: Option<String>,
+        #[arg(short, long, value_name = "Wait cluster ready")]
+        wait: Option<u16>,
     },
     #[command(
         long_about = "Install MonographDB runtime dependencies.\n./cluster_mgr run-deps --topology-file ${PWD}/config/deployment.yaml
