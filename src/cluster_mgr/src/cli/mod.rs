@@ -189,12 +189,8 @@ pub fn download_file_path(download_files: Vec<String>) -> Vec<PathBuf> {
         .collect_vec()
 }
 
-pub fn file_process_progress(
-    total_size: u64,
-    file_name: String,
-    process_chars: &str,
-) -> ProgressBar {
-    let cmd_pb = ProgressBar::new(total_size);
+pub fn file_process_progress(file_name: String, process_chars: &str) -> ProgressBar {
+    let cmd_pb = ProgressBar::hidden();
     let sty = format!(
         "{{spinner:.green}} {file_name:14}: [{{elapsed_precise}}] \
         [{{wide_bar:.green/white}}] \
