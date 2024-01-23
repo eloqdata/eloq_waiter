@@ -57,7 +57,8 @@ pub enum Product {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
     pub product: Option<Product>,
-    pub tx_image: String,
+    pub version: Option<String>,
+    pub tx_image: Option<String>,
     pub log_image: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
@@ -69,24 +70,27 @@ pub struct Deployment {
 }
 
 impl Deployment {
-    pub fn version_convert(&mut self) {
+    // Populate tx_image and log_image according to version number
+    pub fn image_by_version(&mut self) {
+        if self.version.is_none() || self.version.as_ref().unwrap().to_lowercase() == "latest" {
+            self.version = Some("latest".to_owned());
+        } else {
+            let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
+            if !re.is_match(self.version.as_ref().unwrap()) {
+                panic!("Invalid version {}", self.version.as_ref().unwrap());
+            }
+        }
+        let version = self.version.as_ref().unwrap();
         match self.product() {
             Product::Monograph => {
-                let version = if self.tx_image.to_lowercase() == "latest" {
-                    "0.3.3".to_owned()
-                } else {
-                    self.tx_image.clone()
-                };
-                let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
-                if !re.is_match(&version) {
-                    return;
-                }
                 let store = self.storage_service.provider().unwrap().to_string();
-                self.tx_image = format!(
-                    "{}/main_tagged_range_ubuntu2004/{}/{}/monographdb-tx-release-bin.tar.gz",
-                    RESOURCE_REPO, store, version
-                );
-                if self.log_service.is_some() && self.log_image.is_none() {
+                if self.tx_image.is_none() {
+                    self.tx_image = Some(format!(
+                        "{}/main_tagged_range_ubuntu2004/{}/{}/monographdb-tx-release-bin.tar.gz",
+                        RESOURCE_REPO, store, version
+                    ));
+                }
+                if self.log_image.is_none() && self.log_service.is_some() {
                     self.log_image = Some(format!(
                         "{}/main_tagged_range_ubuntu2004/{}/{}/monographdb-log-release-bin.tar.gz",
                         RESOURCE_REPO, store, version
@@ -94,11 +98,13 @@ impl Deployment {
                 }
             }
             Product::Redis => {
-                self.tx_image = format!(
-                    "{}/mono-release-ci-redis/monograph_redis.tar.gz",
-                    RESOURCE_REPO
-                );
-                if self.log_service.is_some() && self.log_image.is_none() {
+                if self.tx_image.is_none() {
+                    self.tx_image = Some(format!(
+                        "{}/mono-release-ci-redis/monograph_redis.tar.gz",
+                        RESOURCE_REPO
+                    ));
+                }
+                if self.log_image.is_none() && self.log_service.is_some() {
                     self.log_image = Some(format!(
                         "{}/mono-release-ci-redis/log_service.tar.gz",
                         RESOURCE_REPO
@@ -106,6 +112,10 @@ impl Deployment {
                 }
             }
         }
+    }
+
+    pub fn get_tx_image(&self) -> String {
+        self.tx_image.clone().unwrap()
     }
 
     pub fn product(&self) -> Product {
@@ -356,7 +366,7 @@ impl Deployment {
     pub fn monograph_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut links = HashMap::new();
         download_urls!(links,
-                {MONOGRAPH_FILE_KEY, self.tx_image}
+                {MONOGRAPH_FILE_KEY, self.get_tx_image()}
         );
         if let Some(log_image_url) = self.log_image.as_ref() {
             download_urls!(links,

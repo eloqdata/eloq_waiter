@@ -32,7 +32,7 @@ impl DownloadTask {
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
-        let tx_download_url_string = deployment_ref.tx_image.clone();
+        let tx_download_url_string = deployment_ref.get_tx_image();
         let tx_download_url = DownloadUrl::from_url_str(tx_download_url_string.as_str())?;
 
         let mut download_url_vec = vec![];

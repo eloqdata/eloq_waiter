@@ -5,7 +5,7 @@ connection:
     keypair: "/home/ubuntu/.ssh/ed25519_mono"
 deployment:
   product: "Monograph" # Monograph | Redis
-  tx_image: "0.3.3"
+  version: "0.3.3"
   cluster_name: "mono-poc"
   install_dir: "/data/opt"
   port:
