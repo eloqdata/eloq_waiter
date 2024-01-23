@@ -49,7 +49,7 @@ impl TaskGroup for DeploymentTaskGroup {
             })
             .collect_vec();
 
-        let download_task = DownloadTask::from_config(&config, &self.mpg_bar)?;
+        let download_task = DownloadTask::from_config(&config)?;
         let mut copy_or_download_task_instances = LocalCopyTask::form_config(&config)?;
         copy_or_download_task_instances.extend(download_task);
 

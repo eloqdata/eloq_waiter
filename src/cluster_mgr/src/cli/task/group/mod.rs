@@ -14,7 +14,6 @@ use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use dyn_clone::DynClone;
-use indicatif::MultiProgress;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 
@@ -30,22 +29,6 @@ pub trait TaskGroup: Send + Sync + DynClone {
 }
 
 dyn_clone::clone_trait_object!(TaskGroup);
-
-#[derive(Clone)]
-struct DeploymentTaskGroup {
-    mpg_bar: MultiProgress,
-}
-
-impl DeploymentTaskGroup {
-    fn new() -> Self {
-        Self {
-            mpg_bar: MultiProgress::new(),
-        }
-    }
-    fn boxed() -> Box<dyn TaskGroup> {
-        Box::new(Self::new())
-    }
-}
 
 #[macro_export]
 macro_rules! task_group_boxed {
@@ -65,6 +48,7 @@ macro_rules! task_group_boxed {
 
 task_group_boxed! {
     {InstallDBTaskGroup},
+    {DeploymentTaskGroup},
     {CtrlDBTaskGroup},
     {CustomCmdTaskGroup},
     {InstallRuntimeDepsTaskGroup},

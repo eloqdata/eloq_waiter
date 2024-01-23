@@ -26,7 +26,6 @@ impl TaskGroup for LaunchTaskGroup {
                 unreachable!()
             }
         };
-        let deploy_group = DeploymentTaskGroup::new();
         let (barrier, executable) = merge_execution(vec![
             InstallRuntimeDepsTaskGroup
                 .tasks(
@@ -36,7 +35,7 @@ impl TaskGroup for LaunchTaskGroup {
                     config.clone(),
                 )
                 .await?,
-            deploy_group
+            DeploymentTaskGroup
                 .tasks(
                     CommandArgs::Deploy {
                         topology_file: topo_file.clone(),

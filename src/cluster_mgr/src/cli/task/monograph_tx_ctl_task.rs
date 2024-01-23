@@ -17,6 +17,7 @@ use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
+use redis::Commands;
 use sqlx::{Connection, Executor, Row};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -136,24 +137,24 @@ pub(crate) static WAIT_SECS: &str = "wait_ready_seconds";
 pub(crate) static MONO_DB_USER: &str = "mono_user";
 pub(crate) static MONO_DB_PWD: &str = "mono_pwd";
 
-#[derive(Clone, Debug)]
-pub struct MySQLProbe {
-    host: String,
-    mysql_port: u16,
-    user: String,
-    password: String,
-}
-
 macro_rules! maybe_continue_probe {
     ($wait_secs:expr) => {
         if $wait_secs > 0 {
-            warn!("MySQL probe failed, retrying. {}", $wait_secs);
+            warn!("TxService probe failed, retrying. {}", $wait_secs);
             $wait_secs -= 1;
             let sleep_duration = Duration::from_secs(1);
             tokio::time::sleep(sleep_duration).await;
             continue;
         }
     };
+}
+
+#[derive(Clone, Debug)]
+pub struct MySQLProbe {
+    host: String,
+    mysql_port: u16,
+    user: String,
+    password: String,
 }
 
 impl MySQLProbe {
@@ -230,6 +231,46 @@ impl MySQLProbe {
                     ),
                 ]));
             };
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RedisProbe {
+    host: String,
+}
+
+impl RedisProbe {
+    pub fn new(host: String) -> Self {
+        Self { host }
+    }
+    pub async fn probe(&self, mut wait_secs: i32) -> anyhow::Result<ExecutionValue> {
+        let url = format!("redis://{}/", self.host);
+        let client = redis::Client::open(url.clone())?;
+        loop {
+            match client.get_connection() {
+                Ok(mut con) => {
+                    con.get("probe")?;
+                    return Ok(HashMap::from([
+                        (CMD.to_string(), TaskArgValue::Str("GET probe".to_string())),
+                        (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
+                        (CMD_OUTPUT.to_string(), TaskArgValue::Str("nil".to_owned())),
+                    ]));
+                }
+                Err(err) => {
+                    if err.is_connection_refusal() {
+                        maybe_continue_probe!(wait_secs);
+                    }
+                    return Ok(HashMap::from([
+                        (
+                            CMD.to_string(),
+                            TaskArgValue::Str(format!("Dial Redis={url}")),
+                        ),
+                        (CMD_STATUS.to_string(), TaskArgValue::Number(-1)),
+                        (CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string())),
+                    ]));
+                }
+            }
         }
     }
 }
@@ -432,17 +473,23 @@ impl TaskExecutor for MonographTxCtlTask {
                 let db_pwd = TaskArgValue::into_inner_value::<String>(
                     task_arg.get(MONO_DB_PWD).unwrap().clone(),
                 );
-                // TODO: Redis
-                let mysql_port = self.config.deployment.port.mysql_port;
-                if !db_user.eq("_NONE") {
-                    println!(
-                        "MonographCtlTask The status commands passed in user and password will \
-                        probe the connection status of the MonographDB."
-                    );
-                    let db_detector = MySQLProbe::new(host_value, mysql_port, db_user, db_pwd);
-                    db_detector.probe(wait_secs).await
-                } else {
-                    check_process_status
+                match self.config.product() {
+                    Product::Monograph => {
+                        let mysql_port = self.config.deployment.port.mysql_port;
+                        if !db_user.eq("_NONE") {
+                            println!("Probe whether MonographDB is ready to be connected");
+                            let db_detector =
+                                MySQLProbe::new(host_value, mysql_port, db_user, db_pwd);
+                            db_detector.probe(wait_secs).await
+                        } else {
+                            check_process_status
+                        }
+                    }
+                    Product::Redis => {
+                        println!("Probe whether Redis is ready to be connected");
+                        let db_detector = RedisProbe::new(host_value);
+                        db_detector.probe(wait_secs).await
+                    }
                 }
             }
             "stop" | "force_stop" => {

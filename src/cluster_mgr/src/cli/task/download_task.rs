@@ -30,7 +30,6 @@ pub struct DownloadTask {
 impl DownloadTask {
     pub fn from_config(
         config: &DeploymentConfig,
-        mpg_bar: &MultiProgress,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
         let tx_download_url_string = deployment_ref.tx_image.clone();
@@ -66,6 +65,7 @@ impl DownloadTask {
             download_url_vec.extend(monitor_download_string_vec);
         }
 
+        let mpg_bar = MultiProgress::new();
         let download_dir = download_dir();
         let local_ip = local_ip_address::local_ip()?.to_string();
         let download_tasks = download_url_vec
