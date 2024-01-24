@@ -142,6 +142,49 @@ impl SSHSession {
         Ok(cmd_res)
     }
 
+    pub async fn parallel(
+        key: String,
+        user: &str,
+        port: usize,
+        hosts: Vec<String>,
+        content: &str,
+    ) -> HashMap<String, String> {
+        let mut joins = vec![];
+        hosts.into_iter().for_each(|host| {
+            let task_host = TaskHost::Remote {
+                user: user.to_owned(),
+                port,
+                hosts: host.clone(),
+            };
+            let key_path = key.clone();
+            let c = content.to_owned();
+            let join = tokio::task::spawn(async move {
+                let ssh_session = Self::from_task_host(task_host, key_path)
+                    .await
+                    .expect("SSH failed");
+                let output = ssh_session
+                    .command(&c, SSHCommandOption::CollectOutput)
+                    .await
+                    .expect("Execute failed");
+                ssh_session.close().await.expect("Close failed");
+                (host, output)
+            });
+            joins.push(join);
+        });
+        futures::future::join_all(joins)
+            .await
+            .into_iter()
+            .filter(|e| e.is_ok())
+            .map(|e| {
+                let (host, out_map) = e.unwrap();
+                match out_map.get(CMD_OUTPUT).unwrap().clone() {
+                    TaskArgValue::Str(output) => (host, output),
+                    _ => unreachable!(),
+                }
+            })
+            .collect::<HashMap<String, String>>()
+    }
+
     pub async fn close(&self) -> anyhow::Result<()> {
         let session = self.session.lock().await;
         let close_rs = session

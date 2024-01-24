@@ -55,6 +55,12 @@ pub enum Product {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct Hardware {
+    pub cpu: u16,
+    pub memory: u32, // MiB
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
     pub product: Option<Product>,
     pub version: Option<String>,
@@ -67,6 +73,7 @@ pub struct Deployment {
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
     pub monitor: Option<Monitor>,
+    pub hardware: Option<HashMap<String, Hardware>>,
 }
 
 impl Deployment {
@@ -116,6 +123,10 @@ impl Deployment {
 
     pub fn get_tx_image(&self) -> String {
         self.tx_image.clone().unwrap()
+    }
+
+    pub fn hardware_info(&self, host: &str) -> Option<&Hardware> {
+        self.hardware.as_ref().unwrap().get(host)
     }
 
     pub fn product(&self) -> Product {
@@ -287,6 +298,27 @@ impl Deployment {
                 "monograph_local_ip",
                 Some(format!("{}:{}", host_and_file_tuple.0, port)),
             );
+            if let Some(hw) = self.hardware_info(&host_and_file_tuple.0) {
+                let mut ncore = (hw.cpu * 3) / 8;
+                if ncore == 0 {
+                    ncore = 1;
+                }
+                my_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "thread_pool_size",
+                    Some(ncore.to_string()),
+                );
+                my_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_core_num",
+                    Some(ncore.to_string()),
+                );
+                my_ini.set(
+                    CONFIG_MARIADB_SECTION,
+                    "monograph_node_memory_limit_mb",
+                    Some(((hw.memory * 6) / 10).to_string()),
+                );
+            }
 
             if let Err(err) = my_ini.write(db_config_location.clone()) {
                 Err(anyhow!(err))
@@ -352,6 +384,10 @@ impl Deployment {
                 "ip",
                 Some(format!("{}:{}", host_and_file_tuple.0, port)),
             );
+            if let Some(hw) = self.hardware_info(&host_and_file_tuple.0) {
+                let ncore = if hw.cpu >= 4 { hw.cpu / 4 } else { 1 };
+                my_ini.set(CONFIG_SECTION_LOCAL, "core_number", Some(ncore.to_string()));
+            }
 
             if let Err(err) = my_ini.write(db_config_location.clone()) {
                 Err(anyhow!(err))

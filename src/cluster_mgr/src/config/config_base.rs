@@ -1,6 +1,6 @@
-use crate::cli::download_dir;
+use crate::cli::{download_dir, ssh};
 use crate::config::connection::Connection;
-use crate::config::deployment::{Deployment, Product};
+use crate::config::deployment::{Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider,
@@ -573,6 +573,32 @@ impl DeploymentConfig {
                 path_str.to_string()
             })
             .collect_vec()
+    }
+
+    pub async fn scan_hardware(&self) -> anyhow::Result<HashMap<String, Hardware>> {
+        let hw_sh = tokio::fs::read_to_string(config_template("hardware.sh")?).await?;
+        let hw_info = ssh::SSHSession::parallel(
+            self.connection.ssh_auth_key().unwrap(),
+            &self.connection.username,
+            self.connection.ssh_port() as usize,
+            self.get_unique_host_list(),
+            &hw_sh,
+        )
+        .await
+        .into_iter()
+        .map(|(host, out)| {
+            let hw = out.trim().split(',').collect::<Vec<&str>>();
+            info!("{} hardware: cpu={}, memory={}Mib", host, hw[0], hw[1]);
+            (
+                host,
+                Hardware {
+                    cpu: hw[0].trim().parse().unwrap(),
+                    memory: hw[1].trim().parse().unwrap(),
+                },
+            )
+        })
+        .collect::<HashMap<String, Hardware>>();
+        Ok(hw_info)
     }
 }
 

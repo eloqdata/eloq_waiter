@@ -146,7 +146,7 @@ pub enum CommandArgs {
     },
     #[command(
         long_about = "Update the configuration file and restart the tx service (the default value of restart is true). \
-        Note: Please edit conf/my_template.cnf first\n ./cluster_mgr update-conf --cluster $CLUSTER_NAME --restart true | false"
+        Note: Please edit config/my_template.cnf first\n ./cluster_mgr update-conf --cluster $CLUSTER_NAME --restart true | false"
     )]
     #[strum(serialize = "update-conf")]
     UpdateConf {
