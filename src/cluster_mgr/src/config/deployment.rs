@@ -1,4 +1,4 @@
-use crate::cli::{download_dir, upload_dir};
+use crate::cli::{download_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
     MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
@@ -311,7 +311,7 @@ impl Deployment {
             ("127.0.0.1".to_string(), "local".to_string())
         };
         let file_suffix = host_and_file_tuple.1;
-        let db_config_location = download_dir().join(format!("my_{file_suffix}.cnf"));
+        let db_config_location = upload_host_dir(&file_suffix).join("my.cnf");
         let log_member_config = self.build_log_config();
         if let Ok(mut my_ini) = my_ini_rs {
             if !file_suffix.eq("local") {
@@ -397,7 +397,7 @@ impl Deployment {
             ("127.0.0.1".to_string(), "local".to_string())
         };
         let file_suffix = host_and_file_tuple.1;
-        let db_config_location = download_dir().join(format!("redis_{file_suffix}.ini"));
+        let db_config_location = upload_host_dir(&file_suffix).join("redis.ini");
         let log_member_config = self.build_log_config();
         if let Ok(mut my_ini) = my_ini_rs {
             if !file_suffix.eq("local") {
@@ -494,7 +494,6 @@ impl Deployment {
         let cass_config_vec = cassandra_hosts
             .iter()
             .map(|host| {
-                fs::create_dir_all(upload_dir().join(host)).expect("create upload dir failed");
                 let host_value = Value::String(host.to_string());
                 cass_conf_map.insert(String::from("listen_address"), host_value.clone());
                 cass_conf_map.insert(
@@ -503,7 +502,7 @@ impl Deployment {
                 );
                 cass_conf_map.insert(String::from("broadcast_rpc_address"), host_value.clone());
                 cass_conf_map.insert(String::from("broadcast_address"), host_value);
-                let config_path = upload_dir().join(host).join("cassandra.yaml");
+                let config_path = upload_host_dir(&host).join("cassandra.yaml");
                 let new_config_file = File::create(config_path.as_path()).unwrap();
                 let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
                 assert!(gen_config_write.is_ok());
@@ -530,9 +529,7 @@ impl Deployment {
                 let jvm_cnf = jvm_temp
                     .clone()
                     .replace("_GC_SETTINGS_PLACEHOLDER_", &gc_setting);
-                let cnf_path = upload_dir()
-                    .join(host)
-                    .join(format!("jvm11-server.options"));
+                let cnf_path = upload_host_dir(&host).join("jvm11-server.options");
                 File::create(cnf_path.as_path())
                     .unwrap()
                     .write_all(jvm_cnf.as_bytes())

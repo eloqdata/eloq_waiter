@@ -40,30 +40,30 @@ pub enum TxCtlCmd {
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
 macro_rules! mono_start_cmd {
-    ($remote_install_home:expr, $host:expr, $product:expr) => {
+    ($remote_install_home:expr, $product:expr) => {
         match $product {
             Product::Monograph => format!(
                 r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
     export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    {}/{}/install/bin/mysqld --defaults-file={}/my_{}.cnf > {}/{}/logs/mysqld_start_{}.log 2>&1 &"#,
+    {}/{}/install/bin/mysqld --defaults-file={}/my.cnf > {}/{}/logs/mysqld_start_{}.log 2>&1 &"#,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home, $host,
+                $remote_install_home,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR, process::id()
             ),
             Product::Redis => format!(
                 r#"mkdir -p {}/{}/logs && cd {}/{} && \
     export LD_LIBRARY_PATH={}/{}/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    {}/{}/redis_server --config={}/redis_{}.ini > {}/{}/logs/redis_{}.log 2>&1 &"#,
+    {}/{}/redis_server --config={}/redis.ini > {}/{}/logs/redis_{}.log 2>&1 &"#,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home, $host,
+                $remote_install_home,
                 $remote_install_home, REDIS_TX_SERVICE_DIR, process::id()
             ),
         }
@@ -71,7 +71,7 @@ macro_rules! mono_start_cmd {
 }
 
 macro_rules! monograph_cmd {
-    ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $host:expr, $product:expr) => {{
+    ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $product:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
         let pid_cmd = match $product {
             Product::Monograph => format!(
@@ -85,9 +85,7 @@ macro_rules! monograph_cmd {
         };
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
-            "TxCtlCmd::Start" => {
-                TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $host, $product))
-            }
+            "TxCtlCmd::Start" => TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $product)),
             "TxCtlCmd::ForceStop" => {
                 TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", pid_cmd, output_pid))
             }
@@ -332,7 +330,6 @@ impl MonographTxCtlTask {
                             TxCtlCmd::Start,
                             remote_install_dir,
                             conn_user.clone(),
-                            host.to_string(),
                             product
                         ),
                         HashMap::default(),
@@ -342,7 +339,6 @@ impl MonographTxCtlTask {
                             TxCtlCmd::Status,
                             remote_install_dir,
                             conn_user.clone(),
-                            host.to_string(),
                             product
                         ),
                         HashMap::from([
@@ -361,7 +357,6 @@ impl MonographTxCtlTask {
                                     TxCtlCmd::ForceStop,
                                     remote_install_dir,
                                     conn_user.clone(),
-                                    host.to_string(),
                                     product
                                 ),
                                 HashMap::default(),
@@ -372,7 +367,6 @@ impl MonographTxCtlTask {
                                     TxCtlCmd::Stop,
                                     remote_install_dir,
                                     conn_user.clone(),
-                                    host.to_string(),
                                     product
                                 ),
                                 HashMap::default(),
@@ -413,14 +407,12 @@ impl MonographTxCtlTask {
         &self,
         ssh_conn: SSHSession,
         user: &str,
-        host: &str,
     ) -> anyhow::Result<ExecutionValue> {
         let remote_install_dir = self.config.install_dir();
         let check_status = monograph_cmd!(
             TxCtlCmd::Status,
             remote_install_dir,
             user.to_string(),
-            host.to_string(),
             self.config.product()
         );
         let cmd_val = check_status.cmd_value();
@@ -447,17 +439,9 @@ impl TaskExecutor for MonographTxCtlTask {
         let remote_install_dir = self.config.install_dir();
         let (host_value, user) = ssh_session.ssh_conn_info();
         let product = self.config.product();
-        let check_status_cmd = monograph_cmd!(
-            TxCtlCmd::Status,
-            remote_install_dir,
-            user,
-            host_value.clone(),
-            product
-        )
-        .cmd_value();
-        let check_process_status = self
-            .monograph_pid(ssh_session.clone(), user.as_str(), host_value.as_str())
-            .await;
+        let check_status_cmd =
+            monograph_cmd!(TxCtlCmd::Status, remote_install_dir, user, product).cmd_value();
+        let check_process_status = self.monograph_pid(ssh_session.clone(), user.as_str()).await;
         let ctl_cmd_ref = self.ctl_cmd.as_ref();
         let mono_ctl_rs = match ctl_cmd_ref {
             "status" => {

@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
-use std::{env, path::PathBuf};
+use std::{env, fs::create_dir_all, path::PathBuf};
 use strum_macros::AsRefStr;
 
 pub mod cmd_base;
@@ -224,6 +224,12 @@ pub fn download_file_path(download_files: Vec<String>) -> Vec<PathBuf> {
 
 pub fn upload_dir() -> PathBuf {
     home_path().join("upload")
+}
+
+pub fn upload_host_dir(host: &str) -> PathBuf {
+    let dir = upload_dir().join(host);
+    create_dir_all(dir.as_path()).expect("create upload directory for host");
+    dir
 }
 
 pub fn file_process_progress(file_name: String, process_chars: &str) -> ProgressBar {
