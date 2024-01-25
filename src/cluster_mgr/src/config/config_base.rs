@@ -1,4 +1,4 @@
-use crate::cli::{download_dir, ssh};
+use crate::cli::{ssh, upload_dir, upload_host_dir};
 use crate::config::connection::Connection;
 use crate::config::deployment::{Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
@@ -246,9 +246,8 @@ impl DeploymentConfig {
                 .map(|(key, cmd)| {
                     let host = &key.host;
                     let port = key.port;
-                    let cmd_file_name =
-                        format!("start_tx_log_{}.bash", format_args!("{host}_{port}"));
-                    let script_location = download_dir().join(cmd_file_name);
+                    let cmd_file_name = format!("start_tx_log_{}.bash", port);
+                    let script_location = upload_host_dir(&host).join(cmd_file_name);
                     if let Err(write_err) = fs::write(script_location.clone(), cmd) {
                         error!("Failed gen Log start command. cause by {write_err:#?}");
                         panic!("Failed gen Log start command");
@@ -263,8 +262,7 @@ impl DeploymentConfig {
     }
 
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
-        let download_dir = download_dir();
-        let my_local = download_dir.join("my_local.cnf");
+        let my_local = upload_dir().join("my_local.cnf");
         if !my_local.exists() {
             self.deployment
                 .gen_monograph_config_by_host(None, self.install_dir())?;
@@ -280,8 +278,7 @@ impl DeploymentConfig {
     }
 
     pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
-        let download_dir = download_dir();
-        let my_local = download_dir.join("redis_local.ini");
+        let my_local = upload_dir().join("redis_local.ini");
         if !my_local.exists() {
             self.deployment.gen_redis_config_by_host(None)?;
         }

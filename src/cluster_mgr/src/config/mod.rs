@@ -67,7 +67,7 @@ macro_rules! gen_db_script {
 macro_rules! gen_db_misc_files {
     ($self:ident,$build_func:ident, $script_template:expr) => {{
         let script = $self.$build_func()?;
-        let script_location = download_dir().join($script_template);
+        let script_location = upload_dir().join($script_template);
         std::fs::write(script_location.clone(), script).unwrap();
         Ok(script_location)
     }};

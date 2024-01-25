@@ -20,10 +20,12 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
+use std::cmp;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
+use tracing::warn;
 
 const GC_SETTING_CMS: &str = "
 -XX:+UseConcMarkSweepGC
@@ -305,16 +307,18 @@ impl Deployment {
         let set_ip_list = tx_host.is_some();
         let my_ini_rs = self.build_monograph_config(set_ip_list, install_dir);
 
-        let host_and_file_tuple = if let Some(host) = tx_host {
-            (host.clone(), host)
+        let (host, local, db_config_location) = if let Some(host) = tx_host {
+            (host.clone(), false, upload_host_dir(&host).join("my.cnf"))
         } else {
-            ("127.0.0.1".to_string(), "local".to_string())
+            (
+                "127.0.0.1".to_string(),
+                true,
+                upload_dir().join("my_local.cnf"),
+            )
         };
-        let file_suffix = host_and_file_tuple.1;
-        let db_config_location = upload_host_dir(&file_suffix).join("my.cnf");
         let log_member_config = self.build_log_config();
         if let Ok(mut my_ini) = my_ini_rs {
-            if !file_suffix.eq("local") {
+            if !local {
                 if let Some(config_map) = log_member_config {
                     config_map.iter().for_each(|(key, conf_val)| {
                         my_ini.set(CONFIG_MARIADB_SECTION, key, Some(conf_val.to_string()));
@@ -324,9 +328,9 @@ impl Deployment {
             my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_local_ip",
-                Some(format!("{}:{}", host_and_file_tuple.0, port)),
+                Some(format!("{}:{}", host, port)),
             );
-            if let Some(hw) = self.get_hardware(&host_and_file_tuple.0) {
+            if let Some(hw) = self.get_hardware(&host) {
                 let mut ncore = (hw.cpu * 3) / 8;
                 if ncore == 0 {
                     ncore = 1;
@@ -514,25 +518,35 @@ impl Deployment {
 
                 // Tune JVM for each cassandra node
                 // https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/operations/opsTuneJVM.html
-                let opt_path = upload_host_dir(&host).join(CASSANDRA_JVM_OPTION);
                 let jvm_opt = if tune_jvm {
-                    let mut gc_setting = GC_SETTING_CMS.to_owned();
+                    let mut gc_setting;
                     if let Some(hw) = self.get_hardware(&host) {
                         const GB: u32 = 1024; // *MiB
-                        if hw.memory >= 16 * GB {
-                            let heap = if hw.memory > 256 * GB {
+                        let h = if hw.memory < 16 * GB {
+                            gc_setting = GC_SETTING_CMS.to_owned();
+                            cmp::max(
+                                cmp::min(hw.memory / 2, 1 * GB),
+                                cmp::min(hw.memory / 4, 8 * GB),
+                            )
+                        } else {
+                            gc_setting = GC_SETTING_G1.to_owned();
+                            if hw.memory > 256 * GB {
                                 64 * GB
                             } else {
                                 hw.memory / 4
-                            };
-                            let heap_limit = format!("\n-Xms{}M\n-Xmx{}M\n", heap, heap);
-                            gc_setting = GC_SETTING_G1.to_owned() + &heap_limit;
-                        }
+                            }
+                        };
+                        let h_xm = format!("\n-Xms{}M\n-Xmx{}M\n", h, h);
+                        gc_setting.push_str(&h_xm);
+                    } else {
+                        warn!("hardware information for {} is missing", host);
+                        gc_setting = GC_SETTING_CMS.to_owned();
                     }
                     jvm_temp.clone().replace(JVM_SETTING_HOLDER, &gc_setting)
                 } else {
                     jvm_temp.clone()
                 };
+                let opt_path = upload_host_dir(&host).join(CASSANDRA_JVM_OPTION);
                 File::create(opt_path.as_path())
                     .unwrap()
                     .write_all(jvm_opt.as_bytes())

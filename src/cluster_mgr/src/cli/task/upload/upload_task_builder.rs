@@ -1,4 +1,3 @@
-use crate::cli::download_dir;
 use crate::cli::task::task_base::{TaskArgValue, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::upload::cass_conf_upload_builder::CassConfUploadBuilder;
 use crate::cli::task::upload::data_dir_upload_builder::DataDirUploadBuilder;
@@ -6,6 +5,7 @@ use crate::cli::task::upload::monitor_upload_builder::*;
 use crate::cli::task::upload::monograph_upload_builder::MonographUploadBuilder;
 use crate::cli::task::upload::tx_conf_upload_builder::TxConfUpload;
 use crate::cli::task::upload::upload_task::UploadTask;
+use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::{DeploymentConfig, UploadFile};
 use crate::config::connection::Connection;
 use crate::config::{CREATE_MONITOR_USER_SQL_FILE, MONOGRAPH_INSTALL_SCRIPT};
@@ -32,6 +32,7 @@ pub trait UploadTaskBuilder {
 pub(crate) const SCP_COMMAND: &str = "_scp_cmd_";
 pub(crate) const SOURCE_IP: &str = "_source_ip_";
 
+#[allow(dead_code)]
 const MONOGRAPH_TX_BASH_FILES: [&str; 3] = [
     "my_local.cnf",
     MONOGRAPH_INSTALL_SCRIPT,
@@ -113,18 +114,51 @@ pub(crate) fn get_source_host(host: Option<String>) -> String {
 }
 
 pub(crate) fn list_files_by_host(host: &str) -> Vec<String> {
-    let download_dir = download_dir();
-    WalkDir::new(download_dir)
+    // let common = WalkDir::new(upload_dir())
+    //     .into_iter()
+    //     .filter_map(|entry_rs| {
+    //         if let Ok(entry) = entry_rs {
+    //             if entry.file_type().is_file() {
+    //                 Some(entry)
+    //             } else {
+    //                 None
+    //             }
+    //         } else {
+    //             None
+    //         }
+    //     })
+    //     .map(|entry| entry.path().to_str().unwrap().to_string())
+    //     .collect_vec();
+    // ret.extend(common);
+
+    let mut ret = WalkDir::new(upload_host_dir(host))
         .min_depth(1)
         .into_iter()
-        .filter_entry(|entry| {
-            let file_name = entry.file_name();
-            let file_name_string = file_name.to_str().unwrap();
-            file_name_string.contains(host) || MONOGRAPH_TX_BASH_FILES.contains(&file_name_string)
-        })
         .filter_map(|entry_rs| entry_rs.ok())
         .map(|entry| entry.path().to_str().unwrap().to_string())
-        .collect_vec()
+        .collect_vec();
+    ret.push(
+        upload_dir()
+            .join("my_local.cnf")
+            .to_str()
+            .unwrap()
+            .to_owned(),
+    );
+    ret.push(
+        upload_dir()
+            .join(MONOGRAPH_INSTALL_SCRIPT)
+            .to_str()
+            .unwrap()
+            .to_owned(),
+    );
+    ret.push(
+        upload_dir()
+            .join(CREATE_MONITOR_USER_SQL_FILE)
+            .to_str()
+            .unwrap()
+            .to_owned(),
+    );
+    ret
 }
 
 pub(crate) fn build_task_instance(
