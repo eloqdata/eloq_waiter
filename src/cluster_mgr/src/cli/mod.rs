@@ -195,13 +195,11 @@ pub fn set_home_dir(home: &Option<PathBuf>) -> anyhow::Result<()> {
         return Err(anyhow!("Config path not exist: {} ", cnf_dir.display()));
     }
     env::set_var(CONFIG_PATH_DIR, cnf_dir);
-    if let Err(create_err) = std::fs::create_dir(download_dir()) {
-        let err_msg = create_err.to_string();
-        panic!("Create download path Error cause by {err_msg:?} ");
+    if !download_dir().exists() {
+        std::fs::create_dir(download_dir())?;
     }
-    if let Err(create_err) = std::fs::create_dir(upload_dir()) {
-        let err_msg = create_err.to_string();
-        panic!("Create upload path Error cause by {err_msg:?} ");
+    if !upload_dir().exists() {
+        std::fs::create_dir(upload_dir())?;
     }
     Ok(())
 }
