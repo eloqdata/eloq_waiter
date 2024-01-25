@@ -28,7 +28,9 @@ pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
 pub const CASSANDRA_ENV_TEMPLATE: &str = "cassandra-env-template";
+pub const CASSANDRA_JVM_OPTION: &str = "jvm11-server.options";
 pub const CASSANDRA_JVM_TEMPLATE: &str = "jvm11-server.template";
+pub const JVM_SETTING_HOLDER: &str = "_GC_SETTINGS_PLACEHOLDER_";
 pub const PROMETHEUS_CONFIG_TEMPLATE: &str = "mono_prometheus.yaml";
 
 pub const GRAFANA_DASHBOARDS_CONFIG_TEMPLATE: &str = "grafana_dashboards.yaml";

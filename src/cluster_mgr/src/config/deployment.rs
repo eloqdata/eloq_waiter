@@ -1,4 +1,4 @@
-use crate::cli::{download_dir, upload_host_dir};
+use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
     MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
@@ -9,9 +9,9 @@ use crate::config::storage_service_config::StorageService;
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
     config_template, load_yaml_config_template, DownloadUrl, CASSANDRA_CONF_TEMPLATE,
-    CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER, CONFIG_SECTION_LOCAL,
-    CONFIG_SECTION_STORE, MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE,
-    REDIS_CONF_TEMPLATE, RESOURCE_REPO,
+    CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER,
+    CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
+    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
 };
 use anyhow::anyhow;
 use configparser::ini::Ini;
@@ -466,11 +466,12 @@ impl Deployment {
             .storage_service
             .gen_cassandra_env(install_dir, self.monitor.as_ref())?;
         let cass_env_sh = if has_cassandra_monitor {
-            Some(download_dir().join("cassandra-env.sh"))
+            Some(upload_dir().join("cassandra-env.sh"))
         } else {
             None
         };
         let jvm_temp = fs::read_to_string(config_template(CASSANDRA_JVM_TEMPLATE)?)?;
+        let tune_jvm = jvm_temp.contains(JVM_SETTING_HOLDER);
         let cass = self.storage_service.cassandra.as_ref().unwrap();
         // cassandra.yaml config object
         let mut cass_conf_map = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
@@ -513,28 +514,30 @@ impl Deployment {
 
                 // Tune JVM for each cassandra node
                 // https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/operations/opsTuneJVM.html
-                let mut gc_setting = GC_SETTING_CMS.to_owned();
-                if let Some(hw) = self.get_hardware(&host) {
-                    const GB: u32 = 1024; // *MiB
-                    if hw.memory >= 16 * GB {
-                        let heap = if hw.memory > 256 * GB {
-                            64 * GB
-                        } else {
-                            hw.memory / 4
-                        };
-                        let heap_set = format!("\n-Xms{}M\n-Xmx{}M\n", heap, heap);
-                        gc_setting = GC_SETTING_G1.to_owned() + &heap_set;
+                let opt_path = upload_host_dir(&host).join(CASSANDRA_JVM_OPTION);
+                let jvm_opt = if tune_jvm {
+                    let mut gc_setting = GC_SETTING_CMS.to_owned();
+                    if let Some(hw) = self.get_hardware(&host) {
+                        const GB: u32 = 1024; // *MiB
+                        if hw.memory >= 16 * GB {
+                            let heap = if hw.memory > 256 * GB {
+                                64 * GB
+                            } else {
+                                hw.memory / 4
+                            };
+                            let heap_limit = format!("\n-Xms{}M\n-Xmx{}M\n", heap, heap);
+                            gc_setting = GC_SETTING_G1.to_owned() + &heap_limit;
+                        }
                     }
-                }
-                let jvm_cnf = jvm_temp
-                    .clone()
-                    .replace("_GC_SETTINGS_PLACEHOLDER_", &gc_setting);
-                let cnf_path = upload_host_dir(&host).join("jvm11-server.options");
-                File::create(cnf_path.as_path())
+                    jvm_temp.clone().replace(JVM_SETTING_HOLDER, &gc_setting)
+                } else {
+                    jvm_temp.clone()
+                };
+                File::create(opt_path.as_path())
                     .unwrap()
-                    .write_all(jvm_cnf.as_bytes())
+                    .write_all(jvm_opt.as_bytes())
                     .unwrap();
-                config_path_vec.push(cnf_path);
+                config_path_vec.push(opt_path);
                 (host.to_string(), config_path_vec)
             })
             .collect::<HashMap<String, Vec<PathBuf>>>();

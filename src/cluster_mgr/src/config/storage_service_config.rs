@@ -1,4 +1,4 @@
-use crate::cli::download_dir;
+use crate::cli::upload_dir;
 use crate::config::config_base::CASSANDRA_COLLECTOR_AGENT_FILE_KEY;
 use crate::config::monitor::Monitor;
 use crate::config::{config_template, StorageProvider, CASSANDRA_ENV_TEMPLATE};
@@ -52,7 +52,7 @@ impl StorageService {
                     r#"JVM_OPTS="$JVM_OPTS -javaagent:${MCAC_ROOT}/lib/datastax-mcac-agent.jar""#;
 
                 let cass_env_file_path = config_template(CASSANDRA_ENV_TEMPLATE)?;
-                let final_cass_env = download_dir().join("cassandra-env.sh");
+                let final_cass_env = upload_dir().join("cassandra-env.sh");
                 fs::copy(cass_env_file_path, final_cass_env.clone())?;
                 let mut cass_env_file = File::options()
                     .write(true)
