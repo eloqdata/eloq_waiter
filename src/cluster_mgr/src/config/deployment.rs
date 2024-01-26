@@ -307,18 +307,14 @@ impl Deployment {
         let set_ip_list = tx_host.is_some();
         let my_ini_rs = self.build_monograph_config(set_ip_list, install_dir);
 
-        let (host, local, db_config_location) = if let Some(host) = tx_host {
-            (host.clone(), false, upload_host_dir(&host).join("my.cnf"))
+        let (host, db_config_location) = if let Some(host) = tx_host {
+            (host.clone(), upload_host_dir(&host).join("my.cnf"))
         } else {
-            (
-                "127.0.0.1".to_string(),
-                true,
-                upload_dir().join("my_local.cnf"),
-            )
+            ("127.0.0.1".to_string(), upload_dir().join("my_local.cnf"))
         };
         let log_member_config = self.build_log_config();
         if let Ok(mut my_ini) = my_ini_rs {
-            if !local {
+            if set_ip_list {
                 if let Some(config_map) = log_member_config {
                     config_map.iter().for_each(|(key, conf_val)| {
                         my_ini.set(CONFIG_MARIADB_SECTION, key, Some(conf_val.to_string()));
@@ -394,17 +390,17 @@ impl Deployment {
         let port = self.port.monograph_port.start;
         let set_ip_list = tx_host.is_some();
         let my_ini_rs = self.build_redis_config(set_ip_list);
-
-        let host_and_file_tuple = if let Some(host) = tx_host {
-            (host.clone(), host)
+        let (host, db_config_location) = if let Some(host) = tx_host {
+            (host.clone(), upload_host_dir(&host).join("redis.ini"))
         } else {
-            ("127.0.0.1".to_string(), "local".to_string())
+            (
+                "127.0.0.1".to_string(),
+                upload_dir().join("redis_local.ini"),
+            )
         };
-        let file_suffix = host_and_file_tuple.1;
-        let db_config_location = upload_host_dir(&file_suffix).join("redis.ini");
         let log_member_config = self.build_log_config();
         if let Ok(mut my_ini) = my_ini_rs {
-            if !file_suffix.eq("local") {
+            if set_ip_list {
                 if let Some(config_map) = log_member_config {
                     config_map.iter().for_each(|(key, conf_val)| {
                         my_ini.set(CONFIG_SECTION_CLUSTER, key, Some(conf_val.to_string()));
@@ -414,9 +410,9 @@ impl Deployment {
             my_ini.set(
                 CONFIG_SECTION_LOCAL,
                 "ip",
-                Some(format!("{}:{}", host_and_file_tuple.0, port)),
+                Some(format!("{}:{}", host, port)),
             );
-            if let Some(hw) = self.get_hardware(&host_and_file_tuple.0) {
+            if let Some(hw) = self.get_hardware(&host) {
                 let ncore = if hw.cpu >= 4 { hw.cpu / 4 } else { 1 };
                 my_ini.set(CONFIG_SECTION_LOCAL, "core_number", Some(ncore.to_string()));
             }
