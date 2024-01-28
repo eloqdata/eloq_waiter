@@ -247,7 +247,7 @@ impl DeploymentConfig {
                     let host = &key.host;
                     let port = key.port;
                     let cmd_file_name = format!("start_tx_log_{}.bash", port);
-                    let script_location = upload_host_dir(&host).join(cmd_file_name);
+                    let script_location = upload_host_dir(host).join(cmd_file_name);
                     if let Err(write_err) = fs::write(script_location.clone(), cmd) {
                         error!("Failed gen Log start command. cause by {write_err:#?}");
                         panic!("Failed gen Log start command");
