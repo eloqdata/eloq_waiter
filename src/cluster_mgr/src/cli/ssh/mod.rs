@@ -142,6 +142,17 @@ impl SSHSession {
         Ok(cmd_res)
     }
 
+    pub async fn execute(&self, command: &str) -> anyhow::Result<String> {
+        let ret = self
+            .command(command, SSHCommandOption::CollectOutput)
+            .await?;
+        if TaskArgValue::into_inner_value::<i32>(ret.get(CMD_STATUS).unwrap().clone()) != 0 {
+            return Err(anyhow!("SSH command failed"));
+        }
+        let output = TaskArgValue::into_inner_value::<String>(ret.get(CMD_OUTPUT).unwrap().clone());
+        Ok(output.trim_end().to_owned())
+    }
+
     pub async fn parallel(
         key: String,
         user: &str,

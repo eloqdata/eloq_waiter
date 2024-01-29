@@ -6,7 +6,7 @@ use crate::cli::task::task_base::{
     TaskInstance,
 };
 use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
-use crate::cli::{CommandArgs, CMD_OUTPUT, CMD_STATUS};
+use crate::cli::{CommandArgs, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::DeploymentPackage;
 use crate::get_ctl_cmd_string;
@@ -213,12 +213,7 @@ impl CassandraCtlTask {
         ssh_conn: SSHSession,
         task_host: TaskHost,
     ) -> anyhow::Result<ExecutionValue> {
-        let out = ssh_conn.command(JAVA_HOME, CollectOutput).await?;
-        if TaskArgValue::into_inner_value::<i32>(out.get(CMD_STATUS).unwrap().clone()) != 0 {
-            return Err(anyhow!("can not get JAVA_HOME"));
-        }
-        let java_home =
-            TaskArgValue::into_inner_value::<String>(out.get(CMD_OUTPUT).unwrap().clone());
+        let java_home = ssh_conn.execute(JAVA_HOME).await?;
         let conn_user = task_host.ssh_conn_tuple().0;
         let cassandra_home = self.cassandra_home();
         let cassandra_process =
@@ -229,7 +224,8 @@ impl CassandraCtlTask {
             for line in output.lines() {
                 let p_info_pair = line.split('+').collect_vec();
                 println!(
-                    "CassandraCtlTask JAVA_HOME={java_home} check_process_info={p_info_pair:#?}"
+                    "CassandraCtlTask JAVA_HOME={} check_process_info={:#?}",
+                    java_home, p_info_pair
                 );
                 if p_info_pair.is_empty() || p_info_pair.len() == 1 {
                     continue;
