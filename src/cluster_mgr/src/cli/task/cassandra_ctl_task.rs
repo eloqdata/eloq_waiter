@@ -3,10 +3,10 @@ use crate::cli::ssh::SSHSession;
 use crate::cli::task::cassandra_op_task::{CassandraOpTask, CASS_CQL_STMT};
 use crate::cli::task::task_base::{
     CmdErr::CassandraCtlErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
-    TaskInstance, REMOTE_ENV_PROPS,
+    TaskInstance,
 };
 use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
-use crate::cli::{CommandArgs, CMD_STATUS};
+use crate::cli::{CommandArgs, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::DeploymentPackage;
 use crate::get_ctl_cmd_string;
@@ -21,14 +21,12 @@ use tracing::{error, info, warn};
 use users::{get_current_gid, get_current_uid};
 
 pub(crate) const CASSANDRA_CMD_STR: &str = "cassandra_cmd";
+const JAVA_HOME: &str = "dirname $(dirname `readlink -f /etc/alternatives/java`)";
 
 #[macro_export]
 macro_rules! cassandra_cmd {
     ($cmd:ty, $cassandra_home:expr, $conn_user:expr) => {{
-        use $crate::cli::task::task_base::REMOTE_ENV_PROPS;
         let cmd_var = stringify!($cmd);
-        let remote_env_props = REMOTE_ENV_PROPS.as_ref().unwrap();
-        let java_home = remote_env_props.get("JAVA_HOME").unwrap();
         let cmd_user = $conn_user;
         let echo_cmd=format!("ps uxwe -u {} | grep {} | grep -v grep", cmd_user, $cassandra_home);
         match cmd_var {
@@ -38,8 +36,8 @@ macro_rules! cassandra_cmd {
                     opts.push_str(" -R");
                 }
                 CassandraCmd::Start(format!(
-                    r#"mkdir -p {}/logs && cd {} && export JAVA_HOME={}; {}/bin/cassandra {} > {}/logs/cassandra_start.log 2>&1 &"#,
-                    $cassandra_home, $cassandra_home, java_home, $cassandra_home, opts, $cassandra_home
+                    r#"mkdir -p {}/logs && cd {} && export JAVA_HOME=$({}); {}/bin/cassandra {} > {}/logs/cassandra_start.log 2>&1 &"#,
+                    $cassandra_home, $cassandra_home, JAVA_HOME, $cassandra_home, opts, $cassandra_home
                 ))
             }
             "CassandraCmd::Status" => CassandraCmd::Status("select keyspace_name,durable_writes from system_schema.keyspaces".to_string()),
@@ -215,13 +213,16 @@ impl CassandraCtlTask {
         ssh_conn: SSHSession,
         task_host: TaskHost,
     ) -> anyhow::Result<ExecutionValue> {
+        let out = ssh_conn.command(JAVA_HOME, CollectOutput).await?;
+        if TaskArgValue::into_inner_value::<i32>(out.get(CMD_STATUS).unwrap().clone()) != 0 {
+            return Err(anyhow!("can not get JAVA_HOME"));
+        }
+        let java_home =
+            TaskArgValue::into_inner_value::<String>(out.get(CMD_OUTPUT).unwrap().clone());
         let conn_user = task_host.ssh_conn_tuple().0;
         let cassandra_home = self.cassandra_home();
-        let remote_env_props = REMOTE_ENV_PROPS.as_ref().unwrap();
-        let java_home = remote_env_props.get("JAVA_HOME").unwrap();
         let cassandra_process =
             cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, conn_user);
-
         let process_info = cassandra_process.cmd_value();
         check_pid(process_info, ssh_conn, |output| -> Option<i32> {
             let mut pid = None;
@@ -237,7 +238,7 @@ impl CassandraCtlTask {
                     .into_iter()
                     .filter(|split| {
                         let p_info = split.split_whitespace().collect_vec();
-                        p_info[1].contains(java_home)
+                        p_info[1].contains(&java_home)
                     })
                     .map(|p_info| p_info.split_whitespace().collect_vec()[0])
                     .collect_vec();

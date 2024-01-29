@@ -13,7 +13,7 @@ use crate::config::{
     CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
     MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -48,6 +48,7 @@ const GC_SETTING_G1: &str = "
 -XX:MaxGCPauseMillis=300
 -XX:InitiatingHeapOccupancyPercent=70
 ";
+const GB: u32 = 1024; // *MiB
 
 #[macro_export]
 macro_rules! download_urls {
@@ -324,26 +325,44 @@ impl Deployment {
             "monograph_local_ip",
             Some(format!("{}:{}", host, port)),
         );
-        if let Some(hw) = self.get_hardware(&host) {
-            let mut ncore = (hw.cpu * 3) / 8;
-            if ncore == 0 {
-                ncore = 1;
+        let opt_hw = self.get_hardware(&host);
+        if opt_hw.is_none() {
+            warn!("hardware information for {host} is missing");
+        }
+        let key = "thread_pool_size";
+        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
+            let mut v;
+            if let Some(hw) = opt_hw {
+                v = (hw.cpu * 3) / 8;
+                if v == 0 {
+                    v = 1;
+                }
+            } else {
+                v = 1;
             }
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "thread_pool_size",
-                Some(ncore.to_string()),
-            );
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "monograph_core_num",
-                Some(ncore.to_string()),
-            );
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "monograph_node_memory_limit_mb",
-                Some(((hw.memory * 6) / 10).to_string()),
-            );
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
+        }
+        let key = "monograph_core_num";
+        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
+            let mut v;
+            if let Some(hw) = opt_hw {
+                v = (hw.cpu * 3) / 8;
+                if v == 0 {
+                    v = 1;
+                }
+            } else {
+                v = 1;
+            }
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
+        }
+        let key = "monograph_node_memory_limit_mb";
+        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
+            let v = if let Some(hw) = opt_hw {
+                (hw.memory * 6) / 10
+            } else {
+                GB
+            };
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
         }
         my_ini.write(db_config_location.as_path())?;
         Ok(db_config_location)
@@ -351,13 +370,14 @@ impl Deployment {
 
     pub fn build_redis_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut redis_ini = Ini::new();
+        redis_ini
+            .load(config_template(REDIS_CONF_TEMPLATE)?)
+            .unwrap();
         if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
-            redis_ini
-                .load(config_template(REDIS_CONF_TEMPLATE)?.as_path())
-                .unwrap();
-
             let cassandra_hosts = cassandra.host.join(",");
             redis_ini.set(CONFIG_SECTION_STORE, "host", Some(cassandra_hosts));
+        } else if redis_ini.get(CONFIG_SECTION_STORE, "host").is_none() {
+            return Err(anyhow!("cassandra host is not confiured"));
         }
         let use_port = self.port.monograph_port.start;
         let monograph_hosts = &self.tx_service.host;
@@ -401,10 +421,69 @@ impl Deployment {
             "ip",
             Some(format!("{}:{}", host, port)),
         );
-        if let Some(hw) = self.get_hardware(&host) {
-            let ncore = if hw.cpu >= 4 { hw.cpu / 4 } else { 1 };
-            my_ini.set(CONFIG_SECTION_LOCAL, "core_number", Some(ncore.to_string()));
+
+        let opt_hw = self.get_hardware(&host);
+        if opt_hw.is_none() {
+            warn!("hardware information for {host} is missing");
         }
+        let key = "core_number";
+        let core_tx;
+        if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
+            core_tx = v.parse()?;
+            if core_tx == 0 || (opt_hw.is_some() && opt_hw.unwrap().cpu < core_tx) {
+                bail!("invalid config {}={} for host {}", key, core_tx, host);
+            }
+        } else {
+            if let Some(hw) = opt_hw {
+                assert!(hw.cpu > 0);
+                core_tx = hw.cpu + 3 / 4;
+            } else {
+                core_tx = 1;
+            };
+            my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_tx.to_string()));
+        }
+        assert!(core_tx > 0);
+
+        let key = "bthread_concurrency";
+        let mut core_bt = 0;
+        if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
+            core_bt = v.parse()?;
+            if core_bt == 0 || (opt_hw.is_some() && opt_hw.unwrap().cpu < core_bt) {
+                bail!("invalid config {}={}for host {}", key, core_bt, host);
+            }
+        } else {
+            if let Some(hw) = opt_hw {
+                assert!(core_tx <= hw.cpu);
+                core_bt = hw.cpu - core_tx;
+            }
+            if core_bt == 0 {
+                core_bt = 1;
+            }
+            my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_bt.to_string()));
+        }
+        assert!(core_bt > 0);
+
+        let key = "event_dispatcher_num";
+        if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
+            let core_io = v.parse()?;
+            if core_io == 0 || (opt_hw.is_some() && opt_hw.unwrap().cpu < core_io) {
+                bail!("invalid config {}={} for host {}", key, core_io, host);
+            }
+        } else {
+            let core_io = (core_bt + 5) / 6;
+            my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_io.to_string()));
+        }
+
+        let key = "node_memory_limit_mb";
+        if my_ini.get(CONFIG_SECTION_LOCAL, key).is_none() {
+            let v = if let Some(hw) = opt_hw {
+                (hw.memory * 4) / 5
+            } else {
+                GB
+            };
+            my_ini.set(CONFIG_SECTION_LOCAL, key, Some(v.to_string()));
+        }
+
         my_ini.write(db_config_location.as_path())?;
         Ok(db_config_location)
     }
@@ -499,7 +578,6 @@ impl Deployment {
                 let jvm_opt = if tune_jvm {
                     let mut gc_setting;
                     if let Some(hw) = self.get_hardware(host) {
-                        const GB: u32 = 1024; // *MiB
                         let h = if hw.memory < 16 * GB {
                             gc_setting = GC_SETTING_CMS.to_owned();
                             cmp::max(cmp::min(hw.memory / 2, GB), cmp::min(hw.memory / 4, 8 * GB))
