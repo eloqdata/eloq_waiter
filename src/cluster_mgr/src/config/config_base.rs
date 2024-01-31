@@ -308,7 +308,9 @@ impl DeploymentConfig {
                 self.deployment.port.mysql_port
             ),
             Product::Redis => format!(
-                "redis-cli -h {} -p 6379",
+                "{}/{}/redis-cli -h {} -p 6379",
+                self.install_dir(),
+                REDIS_TX_SERVICE_DIR,
                 self.deployment.tx_service.host.first().unwrap()
             ),
         }
