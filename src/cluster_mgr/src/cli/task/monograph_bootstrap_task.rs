@@ -112,22 +112,21 @@ impl TaskExecutor for MonographInstall {
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let install_dir = self.config.install_dir();
-        let bootstarp_sh;
-        match self.config.product() {
+        let bootstarp_sh = match self.config.product() {
             Product::Monograph => {
                 let txsv_dir = format!("{}/{}", install_dir, MONOGRAPH_TX_SERVICE_DIR);
-                bootstarp_sh = format!(
+                format!(
                     r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/install/lib:$LD_LIBRARY_PATH; \
                     /bin/bash {}/{} > {txsv_dir}/logs/bootstrap.log 2>&1 "#,
                     install_dir, MONOGRAPH_INSTALL_SCRIPT,
-                );
+                )
             }
             Product::Redis => {
                 let txsv_dir = format!("{}/{}", install_dir, REDIS_TX_SERVICE_DIR);
-                bootstarp_sh = format!(
+                format!(
                     r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
                     {txsv_dir}/redis_server --config={install_dir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
-                );
+                )
             }
         };
         let install_rs = ssh_session.command(&bootstarp_sh, CollectOutput).await?;

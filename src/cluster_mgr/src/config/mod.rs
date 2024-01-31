@@ -230,7 +230,7 @@ pub fn cassandra_used_ports() -> Vec<(String, u16)> {
     let cass_cnf =
         load_yaml_config_template(CASSANDRA_CONF_TEMPLATE).expect("cassandra config invalid");
     let mut used = vec![];
-    for name in vec!["native_transport_port", "storage_port", "ssl_storage_port"] {
+    for name in ["native_transport_port", "storage_port", "ssl_storage_port"] {
         let port = cass_cnf
             .get(name)
             .expect("port is not configured")
