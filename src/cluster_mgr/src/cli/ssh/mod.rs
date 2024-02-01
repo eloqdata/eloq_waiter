@@ -11,6 +11,7 @@ use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -174,7 +175,7 @@ impl SSHSession {
         port: usize,
         hosts: Vec<String>,
         content: &str,
-    ) -> HashMap<String, String> {
+    ) -> anyhow::Result<Vec<(String, String)>> {
         let mut joins = vec![];
         hosts.into_iter().for_each(|host| {
             let task_host = TaskHost::Remote {
@@ -185,20 +186,19 @@ impl SSHSession {
             let key_path = key.clone();
             let c = content.to_owned();
             let join = tokio::task::spawn(async move {
-                let ssh_session = Self::from_task_host(task_host, key_path)
-                    .await
-                    .expect("SSH failed");
-                let output = ssh_session.execute(&c).await.expect("Execute failed");
-                ssh_session.close().await.expect("Close failed");
-                (host, output)
+                let sess = Self::from_task_host(task_host, key_path).await?;
+                let output = sess.execute(&c).await?;
+                sess.close().await?;
+                anyhow::Ok((host, output))
             });
             joins.push(join);
         });
-        futures::future::join_all(joins)
-            .await
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .collect::<HashMap<String, String>>()
+        let mut all_out = vec![];
+        for join_res in futures::future::join_all(joins).await {
+            let out = join_res??;
+            all_out.push(out);
+        }
+        Ok(all_out)
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {

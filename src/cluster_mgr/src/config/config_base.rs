@@ -583,20 +583,18 @@ impl DeploymentConfig {
             self.get_unique_host_list(),
             &hw_sh,
         )
-        .await
+        .await?
         .into_iter()
         .map(|(host, out)| {
             let hw = out.trim().split(',').collect::<Vec<&str>>();
             info!("{} hardware: cpu={}, memory={}Mib", host, hw[0], hw[1]);
-            (
-                host,
-                Hardware {
-                    cpu: hw[0].parse().unwrap(),
-                    memory: hw[1].parse().unwrap(),
-                },
-            )
+            let hw = Hardware {
+                cpu: hw[0].parse().unwrap(),
+                memory: hw[1].parse().unwrap(),
+            };
+            (host, hw)
         })
-        .collect::<HashMap<String, Hardware>>();
+        .collect();
         Ok(hw_info)
     }
 }
