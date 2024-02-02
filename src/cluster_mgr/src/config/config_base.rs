@@ -574,9 +574,9 @@ impl DeploymentConfig {
             .collect_vec()
     }
 
-    pub async fn scan_hardware(&self) -> anyhow::Result<HashMap<String, Hardware>> {
+    pub async fn scan_hardware(&mut self) -> anyhow::Result<()> {
         let hw_sh = tokio::fs::read_to_string(config_template("hardware.sh")?).await?;
-        let hw_info = ssh::SSHSession::parallel(
+        let mut hw_info = ssh::SSHSession::parallel(
             self.connection.ssh_auth_key().unwrap(),
             &self.connection.username,
             self.connection.ssh_port() as usize,
@@ -594,8 +594,14 @@ impl DeploymentConfig {
             };
             (host, hw)
         })
-        .collect();
-        Ok(hw_info)
+        .collect::<HashMap<String, Hardware>>();
+
+        // user configured hardware info will override scan result
+        if let Some(hw) = self.deployment.hardware.take() {
+            hw_info.extend(hw);
+        }
+        self.deployment.hardware = Some(hw_info);
+        Ok(())
     }
 }
 

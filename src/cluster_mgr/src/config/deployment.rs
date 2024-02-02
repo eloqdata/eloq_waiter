@@ -163,7 +163,11 @@ impl Deployment {
     }
 
     pub fn get_hardware(&self, host: &str) -> Option<&Hardware> {
-        self.hardware.as_ref().unwrap().get(host)
+        if let Some(all_hw) = self.hardware.as_ref() {
+            all_hw.get(host)
+        } else {
+            None
+        }
     }
 
     pub fn product(&self) -> Product {
