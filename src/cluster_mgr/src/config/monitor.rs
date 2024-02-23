@@ -94,11 +94,11 @@ pub struct Monitor {
 
 impl Monitor {
     pub fn download_links(&self) -> anyhow::Result<Vec<DownloadUrl>> {
-        let download_links = self.download_links_as_amp()?;
+        let download_links = self.download_links_as_map()?;
         Ok(download_links.into_values().collect_vec())
     }
 
-    pub fn download_links_as_amp(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
+    pub fn download_links_as_map(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut links = HashMap::new();
         download_urls!(links,
             {PROMETHEUS_FILE_KEY, self.prometheus.download_url},

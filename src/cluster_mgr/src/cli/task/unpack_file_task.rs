@@ -15,7 +15,7 @@ use tracing::info;
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
-pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 7] = [
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
     "apache-cassandra",
     "prometheus",
     "grafana",
@@ -23,6 +23,7 @@ pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 7] = [
     "mysqld_exporter",
     "datastax-mcac-agent",
     "monograph-logserver",
+    "codis",
 ];
 
 #[derive(Debug, Clone)]

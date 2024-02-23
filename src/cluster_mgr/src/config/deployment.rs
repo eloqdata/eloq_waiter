@@ -8,12 +8,12 @@ use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{Cassandra, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, load_yaml_config_template, DownloadUrl, CASSANDRA_CONF_TEMPLATE,
-    CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER,
-    CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
-    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
+    config_template, get_cassandra_port, load_yaml_config_template, DownloadUrl,
+    CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION,
+    CONFIG_SECTION_CLUSTER, CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER,
+    MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Ok};
 use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -106,6 +106,30 @@ pub struct Hardware {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct Codis {
+    pub dashboard: String,
+    pub proxy: Vec<String>,
+}
+
+impl Codis {
+    pub fn download_url() -> String {
+        format!("{}/codis/codis.tar.gz", RESOURCE_REPO)
+    }
+    pub fn dir(install_dir: String) -> String {
+        format!("{install_dir}/codis")
+    }
+    pub fn dashboard_cfg(ins_dir: String, cass: &Cassandra) -> anyhow::Result<String> {
+        let port = get_cassandra_port()?;
+        let addr = cass.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
+        let cmd = format!(
+            "sed -i 's/127.0.0.1:9042/{addr}/g' {}/dashboard.toml",
+            Self::dir(ins_dir)
+        );
+        Ok(cmd)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
     pub product: Option<Product>,
     pub version: Option<String>,
@@ -118,6 +142,7 @@ pub struct Deployment {
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
     pub monitor: Option<Monitor>,
+    pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
 }
 
@@ -528,7 +553,10 @@ impl Deployment {
     pub fn all_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut db_image_download_links = self.monograph_download_links()?;
         if let Some(monitor_srv) = self.monitor.as_ref() {
-            db_image_download_links.extend(monitor_srv.download_links_as_amp()?);
+            db_image_download_links.extend(monitor_srv.download_links_as_map()?);
+        }
+        if self.codis.is_some() {
+            download_urls!(db_image_download_links, {"codis", Codis::download_url()});
         }
         Ok(db_image_download_links)
     }

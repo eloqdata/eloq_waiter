@@ -58,7 +58,7 @@ impl TaskGroup for InstallDBTaskGroup {
                     }
                 }
             }
-            _ => unreachable!(),
+            StorageProvider::DynamoDB => {}
         };
         match storage_provider {
             StorageProvider::Cassandra => {

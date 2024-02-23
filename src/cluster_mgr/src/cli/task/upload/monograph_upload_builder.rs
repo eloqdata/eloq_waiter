@@ -24,6 +24,7 @@ impl MonographUploadBuilder {
         let tx_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         let log_hosts = config.get_host_list(DeploymentPackage::MonographLog);
         let storage_hosts = config.get_host_list(DeploymentPackage::Storage);
+        let codis_hosts = config.get_host_list(DeploymentPackage::Codis);
         let install_dir = config.install_dir();
         monograph_download_links
             .iter()
@@ -34,6 +35,7 @@ impl MonographUploadBuilder {
                         &tx_hosts.clone()[..],
                         &log_hosts.clone()[..],
                         &storage_hosts.clone()[..],
+                        &codis_hosts.clone()[..],
                     ]
                     .concat(),
                     MONOGRAPH_LOG_FILE_KEY => log_hosts.clone(),
@@ -42,6 +44,7 @@ impl MonographUploadBuilder {
                     }
                     PROMETHEUS_FILE_KEY => config.get_host_list(DeploymentPackage::Prometheus),
                     GRAFANA_FILE_KEY => config.get_host_list(DeploymentPackage::Grafana),
+                    "codis" => codis_hosts.clone(),
                     _ => unreachable!(),
                 };
                 (dest_hosts, download_url)

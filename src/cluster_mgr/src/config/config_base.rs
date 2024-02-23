@@ -21,6 +21,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
+use super::deployment::Codis;
+
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
 pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
 pub const MONOGRAPH_LOG_SERVICE_DIR: &str = "monograph-log-service-release";
@@ -96,7 +98,7 @@ impl DeploymentConfig {
         let tx_image = &self.deployment.get_tx_image();
         let log_image = &self.deployment.log_image;
         let monitor_link = if let Some(monitor) = monitor_opt {
-            monitor.download_links_as_amp().unwrap()
+            monitor.download_links_as_map().unwrap()
         } else {
             HashMap::default()
         };
@@ -145,6 +147,11 @@ impl DeploymentConfig {
                     }
                     DeploymentPackage::Grafana => {
                         extract_monitor_link!(monitor_link, GRAFANA_FILE_KEY, unpack_files);
+                    }
+                    DeploymentPackage::Codis => {
+                        extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
+                        let link = DownloadUrl::from_url_str(&Codis::download_url()).unwrap();
+                        unpack_files.push(link);
                     }
                 }
 
@@ -408,6 +415,10 @@ impl DeploymentConfig {
                 DeploymentPackage::Grafana,
                 self.get_host_list(DeploymentPackage::Grafana),
             ),
+            (
+                DeploymentPackage::Codis,
+                self.get_host_list(DeploymentPackage::Codis),
+            ),
         ])
     }
 
@@ -446,6 +457,15 @@ impl DeploymentConfig {
             }
             DeploymentPackage::Grafana => {
                 extract_monitor_host!(deployment, grafana)
+            }
+            DeploymentPackage::Codis => {
+                if let Some(codis) = &deployment.codis {
+                    let mut hosts = codis.proxy.clone();
+                    hosts.push(codis.dashboard.clone());
+                    hosts
+                } else {
+                    vec![]
+                }
             }
         }
     }

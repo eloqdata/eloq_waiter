@@ -166,6 +166,8 @@ pub enum DeploymentPackage {
     Grafana,
     #[strum(serialize = "monograph_log")]
     MonographLog,
+    #[strum(serialize = "codis")]
+    Codis,
 }
 
 pub fn config_path_string(path: Option<String>) -> anyhow::Result<String> {
