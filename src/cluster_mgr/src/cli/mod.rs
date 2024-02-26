@@ -1,4 +1,4 @@
-use crate::config::CONFIG_PATH_DIR;
+use crate::config::{deployment::Product, CONFIG_PATH_DIR};
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -178,11 +178,11 @@ pub enum CommandArgs {
         #[arg(short, long, value_name = "CLUSTER NAME")]
         cluster: String,
     },
-    #[command(long_about = "Launch a demo quickly.\ncluster_mgr demo --product monograph")]
+    #[command(long_about = "Launch a demo quickly.\ncluster_mgr demo --product eloq-sql")]
     #[strum(serialize = "demo")]
     Demo {
         #[arg(short, long, value_name = "Product")]
-        product: String,
+        product: Product,
     },
 }
 

@@ -4,10 +4,10 @@ connection:
   auth:
     keypair: "/home/ubuntu/.ssh/ed25519_mono"
 deployment:
-  cluster_name: "demo-monograph"
-  product: "Monograph"
+  product: "EloqSQL"
   version: "latest"
-  install_dir: "/tmp"
+  cluster_name: "mono-poc"
+  install_dir: "/data/opt"
   port:
     mysql_port: 3300
     monograph_port:
@@ -18,7 +18,9 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/tmp/logDisk_demoMonograph"
+          - "/data1/opt/log_data"
+          - "/data2/opt/log_data"
+          - "/data3/opt/log_data"
     replica: 1
   tx_service:
     host:
@@ -49,7 +51,3 @@ deployment:
     cassandra_collector:
       mcac_agent: "https://github.com/datastax/metric-collector-for-apache-cassandra/releases/download/v0.3.4/datastax-mcac-agent-0.3.4-4.1-beta1.tar.gz"
       mcac_port: 9103
-  hardware:
-    127.0.0.1:
-      cpu: 2
-      memory: 2048

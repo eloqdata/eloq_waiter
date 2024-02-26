@@ -114,7 +114,7 @@ pub(crate) fn list_files_by_host(host: &str, product: Product) -> Vec<String> {
         .filter_map(|entry_rs| entry_rs.ok())
         .map(|entry| entry.into_path())
         .collect_vec();
-    if product == Product::Monograph {
+    if product == Product::EloqSQL {
         paths.push(upload_dir().join("my_local.cnf"));
         paths.push(upload_dir().join(MONOGRAPH_INSTALL_SCRIPT));
         paths.push(upload_dir().join(CREATE_MONITOR_USER_SQL_FILE));

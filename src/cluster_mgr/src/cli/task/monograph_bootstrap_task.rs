@@ -49,8 +49,8 @@ impl MonographInstall {
 
     pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
         let keyspace = match self.config.product() {
-            Product::Monograph => self.config.get_monograph_keyspace()?,
-            Product::Redis => self.config.get_redis_keyspace()?,
+            Product::EloqSQL => self.config.get_monograph_keyspace()?,
+            Product::EloqKV => self.config.get_redis_keyspace()?,
         };
         let keyspace_cql = format!(
             r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
@@ -113,7 +113,7 @@ impl TaskExecutor for MonographInstall {
                 .await?;
         let install_dir = self.config.install_dir();
         let bootstarp_sh = match self.config.product() {
-            Product::Monograph => {
+            Product::EloqSQL => {
                 let txsv_dir = format!("{}/{}", install_dir, MONOGRAPH_TX_SERVICE_DIR);
                 format!(
                     r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/install/lib:$LD_LIBRARY_PATH; \
@@ -121,7 +121,7 @@ impl TaskExecutor for MonographInstall {
                     install_dir, MONOGRAPH_INSTALL_SCRIPT,
                 )
             }
-            Product::Redis => {
+            Product::EloqKV => {
                 let txsv_dir = format!("{}/{}", install_dir, REDIS_TX_SERVICE_DIR);
                 format!(
                     r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \

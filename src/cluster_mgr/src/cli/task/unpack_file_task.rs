@@ -73,8 +73,8 @@ impl UnpackFileTask {
                     MONOGRAPH_LOG_SERVICE_DIR.to_string()
                 } else if curr_file_name.eq(&tx_image) {
                     match config.product() {
-                        Product::Monograph => MONOGRAPH_TX_SERVICE_DIR.to_string(),
-                        Product::Redis => REDIS_TX_SERVICE_DIR.to_string(),
+                        Product::EloqSQL => MONOGRAPH_TX_SERVICE_DIR.to_string(),
+                        Product::EloqKV => REDIS_TX_SERVICE_DIR.to_string(),
                     }
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
