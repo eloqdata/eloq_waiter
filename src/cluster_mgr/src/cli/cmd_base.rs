@@ -102,7 +102,7 @@ impl CommandExecutor {
                 let topology = format!(
                     "{}/demo-{}.yaml",
                     env::var(CONFIG_PATH_DIR)?,
-                    product.to_lowercase()
+                    product.to_string()
                 );
                 let mut config = DeploymentConfig::load(Some(topology)).unwrap();
                 config.connection.username = whoami::username();

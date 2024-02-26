@@ -42,7 +42,7 @@ get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 macro_rules! mono_start_cmd {
     ($remote_install_home:expr, $product:expr) => {
         match $product {
-            Product::Monograph => format!(
+            Product::EloqSQL => format!(
                 r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
     export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
@@ -56,7 +56,7 @@ macro_rules! mono_start_cmd {
                 $remote_install_home,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR, process::id()
             ),
-            Product::Redis => format!(
+            Product::EloqKV => format!(
                 r#"mkdir -p {}/{}/logs && cd {}/{} && \
     export LD_LIBRARY_PATH={}/{}/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
@@ -78,11 +78,11 @@ macro_rules! monograph_cmd {
     ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $product:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
         let pid_cmd = match $product {
-            Product::Monograph => format!(
+            Product::EloqSQL => format!(
                 r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
                 $user, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR
             ),
-            Product::Redis => format!(
+            Product::EloqKV => format!(
                 r#"ps uxwe -u {} | grep {}/{}/redis_server | grep -v grep | "#,
                 $user, $remote_install_home, REDIS_TX_SERVICE_DIR
             ),
@@ -469,7 +469,7 @@ impl TaskExecutor for MonographTxCtlTask {
                 let wait_secs =
                     TaskArgValue::into_inner_value::<i32>(task_arg.get(WAIT_SECS).unwrap().clone());
                 match self.config.product() {
-                    Product::Monograph => {
+                    Product::EloqSQL => {
                         let db_user = TaskArgValue::into_inner_value::<String>(
                             task_arg.get(MONO_DB_USER).unwrap().clone(),
                         );
@@ -477,7 +477,7 @@ impl TaskExecutor for MonographTxCtlTask {
                             let db_pwd = TaskArgValue::into_inner_value::<String>(
                                 task_arg.get(MONO_DB_PWD).unwrap().clone(),
                             );
-                            let mysql_port = self.config.deployment.port.mysql_port;
+                            let mysql_port = self.config.deployment.port.mysql_port.unwrap();
                             MySQLProbe::new(host_value, mysql_port, db_user, db_pwd)
                                 .probe(wait_secs)
                                 .await
@@ -487,7 +487,7 @@ impl TaskExecutor for MonographTxCtlTask {
                             check_process_status
                         }
                     }
-                    Product::Redis => {
+                    Product::EloqKV => {
                         if wait_secs >= 0 {
                             RedisProbe::new(host_value).probe(wait_secs).await
                         } else {

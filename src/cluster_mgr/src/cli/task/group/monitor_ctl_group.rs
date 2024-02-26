@@ -31,12 +31,12 @@ impl TaskGroup for MonitorCtlTaskGroup {
         };
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
-        if monitor_ctl_cmd.to_lowercase().eq("start") && config.product() == Product::Monograph {
+        if monitor_ctl_cmd.to_lowercase().eq("start") && config.product() == Product::EloqSQL {
             let monitor_opt = config.deployment.monitor.as_ref();
             assert!(monitor_opt.is_some());
             let monitor = monitor_opt.unwrap();
             let install_dir = config.install_dir();
-            let mysql_port = config.deployment.port.mysql_port;
+            let mysql_port = config.deployment.port.mysql_port.unwrap();
             let create_monitor_user_cmd =
                 monitor.create_monitor_user_cmd(install_dir.clone(), mysql_port);
 

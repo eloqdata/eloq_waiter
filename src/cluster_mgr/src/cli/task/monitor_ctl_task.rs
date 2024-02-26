@@ -201,8 +201,8 @@ impl MonitorCtlTask {
                     || pkg_copy.eq(&DeploymentPackage::Storage)
             })
             .flat_map(|(pkg, hosts)| {
-                let mysql_expt = pkg.eq(&DeploymentPackage::MonographTx)
-                    && config.product() == Product::Monograph;
+                let mysql_expt =
+                    pkg.eq(&DeploymentPackage::MonographTx) && config.product() == Product::EloqSQL;
                 hosts
                     .iter()
                     .unique()

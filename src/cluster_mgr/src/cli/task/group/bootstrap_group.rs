@@ -73,7 +73,7 @@ impl TaskGroup for InstallDBTaskGroup {
         barrier.push(monograph_install.len());
         executable.extend(monograph_install);
 
-        if config.product() == Product::Monograph {
+        if config.product() == Product::EloqSQL {
             let upload_data_dir_task = upload_tasks(UploadTaskBuilderType::DataDir, &config);
             if !upload_data_dir_task.is_empty() {
                 barrier.push(upload_data_dir_task.len());
