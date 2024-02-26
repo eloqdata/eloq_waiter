@@ -46,14 +46,16 @@ MONO_CLI_MGR_REST_API="mono_cluster_mgr_rest_dest"
 WORKING_DIR=${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}
 PROJECT_DIR=${CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY}
 TARGET="$WORKING_DIR"/target/release/rest_api
+CLUSTER_MGR_RELEASE="$WORKING_DIR"/target/release/cluster_mgr
 function build_rest_pkg() {
    mkdir -p "$MONO_CLI_MGR_REST_API" && mkdir -p "$MONO_CLI_MGR_REST_API"/config
    cp -r ${PROJECT_DIR}/src/cluster_mgr/config/* "$MONO_CLI_MGR_REST_API/config"
    cp "$TARGET" "$MONO_CLI_MGR_REST_API"
+   cp "$CLUSTER_MGR_RELEASE" "$MONO_CLI_MGR_REST_API"
 }
 build_rest_pkg
 '''
-dependencies = ["rest_api_build"]
+dependencies = ["cluster_mgr_build", "rest_api_build"]
 
 [tasks.devtools_pkg]
 script = '''
