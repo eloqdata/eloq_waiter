@@ -4,12 +4,11 @@ connection:
   auth:
     keypair: "/home/ubuntu/.ssh/ed25519_mono"
 deployment:
-  product: "Monograph" # Monograph | Redis
+  product: "EloqKV"
   version: "latest"
   cluster_name: "mono-poc"
   install_dir: "/data/opt"
   port:
-    mysql_port: 3300
     monograph_port:
       start: 8000
       end: 8009

@@ -4,8 +4,8 @@ connection:
   auth:
     keypair: "/home/ubuntu/.ssh/ed25519_mono"
 deployment:
-  cluster_name: "demo-redis"
-  product: "Redis"
+  cluster_name: "demo-sql"
+  product: "EloqSQL"
   version: "latest"
   install_dir: "/tmp"
   port:
@@ -18,7 +18,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/tmp/logDisk_demoRedis"
+          - "/tmp/logDisk_demoSQL"
     replica: 1
   tx_service:
     host:

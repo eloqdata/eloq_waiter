@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
+use strum_macros::Display;
 use tracing::{error, warn};
 
 const GC_SETTING_CMS: &str = "
@@ -61,13 +62,21 @@ macro_rules! download_urls {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Port {
-    pub mysql_port: u16,
+    pub mysql_port: Option<u16>,
     pub monograph_port: MonographPort,
 }
 
 impl Port {
     pub fn contains(&self, p: u16) -> bool {
-        p == self.mysql_port || (p >= self.monograph_port.start && p <= self.monograph_port.end)
+        if p >= self.monograph_port.start && p <= self.monograph_port.end {
+            return true;
+        }
+        if let Some(mysql_port) = self.mysql_port {
+            if mysql_port == p {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -82,12 +91,12 @@ pub struct MonographService {
     pub host: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
 pub enum Product {
-    #[serde(alias = "monograph", alias = "MONOGRAPH")]
-    Monograph,
-    #[serde(alias = "redis", alias = "REDIS")]
-    Redis,
+    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL", alias = "sql")]
+    EloqSQL,
+    #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV", alias = "kv")]
+    EloqKV,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -125,7 +134,7 @@ impl Deployment {
         }
         let version = self.version.as_ref().unwrap();
         match self.product() {
-            Product::Monograph => {
+            Product::EloqSQL => {
                 if self.tx_image.is_none() {
                     let store = self.storage_service.provider().unwrap().to_string();
                     self.tx_image = Some(format!(
@@ -141,7 +150,7 @@ impl Deployment {
                     ));
                 }
             }
-            Product::Redis => {
+            Product::EloqKV => {
                 if self.tx_image.is_none() {
                     self.tx_image = Some(format!(
                         "{}/mono-release-ci-redis/monograph_redis.tar.gz",
@@ -174,7 +183,7 @@ impl Deployment {
         if let Some(p) = self.product.clone() {
             p
         } else {
-            Product::Monograph
+            Product::EloqSQL
         }
     }
 
@@ -195,12 +204,12 @@ impl Deployment {
             .into_iter()
             .join(",");
         let key_list = match self.product() {
-            Product::Monograph => "monograph_txlog_service_list".to_string(),
-            Product::Redis => "txlog_service_list".to_string(),
+            Product::EloqSQL => "monograph_txlog_service_list".to_string(),
+            Product::EloqKV => "txlog_service_list".to_string(),
         };
         let key_replica = match self.product() {
-            Product::Monograph => "monograph_txlog_group_replica_num".to_string(),
-            Product::Redis => "txlog_group_replica_num".to_string(),
+            Product::EloqSQL => "monograph_txlog_group_replica_num".to_string(),
+            Product::EloqKV => "txlog_group_replica_num".to_string(),
         };
         HashMap::from([
             (key_replica, replica_num.to_string()),
@@ -282,13 +291,13 @@ impl Deployment {
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "port",
-            Some(self.port.mysql_port.to_string()),
+            Some(self.port.mysql_port.unwrap().to_string()),
         );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "socket",
-            Some(format!("/tmp/mysql{}.sock", self.port.mysql_port)),
+            Some(format!("/tmp/mysql{}.sock", self.port.mysql_port.unwrap())),
         );
 
         let use_port = self.port.monograph_port.start;

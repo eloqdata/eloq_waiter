@@ -178,14 +178,14 @@ impl DeploymentConfig {
     pub fn gen_all_monograph_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
         let install_dir = self.install_dir();
         let mut path_vec = match self.product() {
-            Product::Monograph => vec![self
+            Product::EloqSQL => vec![self
                 .deployment
                 .gen_monograph_config_by_host(None, install_dir.clone())?],
-            Product::Redis => vec![self.deployment.gen_redis_config_by_host(None)?],
+            Product::EloqKV => vec![self.deployment.gen_redis_config_by_host(None)?],
         };
         let db_hosts = &self.deployment.tx_service.host;
         let all_config_path = match self.product() {
-            Product::Monograph => db_hosts
+            Product::EloqSQL => db_hosts
                 .iter()
                 .map(|host| {
                     self.deployment
@@ -193,7 +193,7 @@ impl DeploymentConfig {
                         .unwrap()
                 })
                 .collect_vec(),
-            Product::Redis => db_hosts
+            Product::EloqKV => db_hosts
                 .iter()
                 .map(|host| {
                     self.deployment
@@ -209,7 +209,7 @@ impl DeploymentConfig {
     pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let deployment_ref = &self.deployment;
         if let Some(monitor) = deployment_ref.monitor.as_ref() {
-            let mysql_port = deployment_ref.port.mysql_port;
+            let mysql_port = deployment_ref.port.mysql_port.unwrap();
             let db_hosts = &deployment_ref.tx_service.host;
             let config_path = db_hosts
                 .iter()
@@ -300,14 +300,14 @@ impl DeploymentConfig {
 
     pub fn client_conn(&self) -> String {
         match self.product() {
-            Product::Monograph => format!(
+            Product::EloqSQL => format!(
                 "{}/{}/install/bin/mariadb --user={} -S /tmp/mysql{}.sock",
                 self.install_dir(),
                 MONOGRAPH_TX_SERVICE_DIR,
                 self.connection.username,
-                self.deployment.port.mysql_port
+                self.deployment.port.mysql_port.unwrap()
             ),
-            Product::Redis => format!(
+            Product::EloqKV => format!(
                 "{}/{}/redis-cli -h {} -p 6379",
                 self.install_dir(),
                 REDIS_TX_SERVICE_DIR,
