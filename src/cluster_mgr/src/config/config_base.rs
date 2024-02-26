@@ -314,12 +314,9 @@ impl DeploymentConfig {
                 self.connection.username,
                 self.deployment.port.mysql_port.unwrap()
             ),
-            Product::EloqKV => format!(
-                "{}/{}/redis-cli -h {} -p 6379",
-                self.install_dir(),
-                REDIS_TX_SERVICE_DIR,
-                self.deployment.tx_service.host.first().unwrap()
-            ),
+            Product::EloqKV => {
+                format!("{}/{}/redis_cli", self.install_dir(), REDIS_TX_SERVICE_DIR)
+            }
         }
     }
 
