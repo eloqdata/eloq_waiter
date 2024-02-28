@@ -315,7 +315,6 @@ impl DeploymentConfig {
                 self.deployment.cs_conn_port()
             ),
             Product::EloqKV => {
-                // format!("{}/{}/redis-cli", self.install_dir(), REDIS_TX_SERVICE_DIR)
                 let (host, port) = if let Some(codis) = &self.deployment.codis {
                     (codis.proxy.first().unwrap(), 19000)
                 } else {
@@ -324,7 +323,11 @@ impl DeploymentConfig {
                         self.deployment.cs_conn_port(),
                     )
                 };
-                format!("redis-cli -h {} -p {}", host, port)
+                let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
+                format!(
+                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {}/redis_cli -server {}:{}",
+                    redis_dir, redis_dir, host, port
+                )
             }
         }
     }
