@@ -126,9 +126,10 @@ impl Codis {
             .expect("codis only support cassandra coordinator");
         let port = get_cassandra_port()?;
         let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
+        let keyspace = config.get_redis_keyspace()?;
         let cmds = format!(
             "sed -i 's/coordinator_addr.*/coordinator_addr = \"{addr}\"/g ; s/coordinator_keyspace.*/coordinator_keyspace = \"{}\"/g' {}/dashboard.toml",
-            config.cluster_name, Self::dir(&config.install_dir())
+            keyspace, Self::dir(&config.install_dir())
         );
         Ok(cmds)
     }
@@ -232,6 +233,35 @@ impl Deployment {
         format!("{}/{}", &self.install_dir, self.cluster_name)
     }
 
+    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
+        let my_local = upload_dir().join("my_local.cnf");
+        if !my_local.exists() {
+            self.gen_monograph_config_by_host(None, self.install_dir())?;
+        }
+        let mut my_ini_local = Ini::new();
+        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
+        {
+            Ok(keyspace)
+        } else {
+            Ok("mono".to_string())
+        }
+    }
+
+    pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
+        let my_local = upload_dir().join("redis_local.ini");
+        if !my_local.exists() {
+            self.gen_redis_config_by_host(None)?;
+        }
+        let mut my_ini_local = Ini::new();
+        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        if let Some(keyspace) = my_ini_local.get(CONFIG_SECTION_STORE, "cass_keyspace") {
+            Ok(keyspace)
+        } else {
+            Ok("mono_redis".to_string())
+        }
+    }
+
     fn build_log_config(&self) -> HashMap<String, String> {
         let log_srv = self
             .log_service
@@ -313,11 +343,11 @@ impl Deployment {
                 Some(dynamodb.clone().endpoint),
             );
         }
-        mysql_ini.set(
-            CONFIG_MARIADB_SECTION,
-            "monograph_keyspace_name",
-            Some(self.cluster_name.clone()),
-        );
+        // mysql_ini.set(
+        //     CONFIG_MARIADB_SECTION,
+        //     "monograph_keyspace_name",
+        //     Some(self.cluster_name.clone()),
+        // );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
@@ -445,15 +475,15 @@ impl Deployment {
         if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
             let cassandra_hosts = cassandra.host.join(",");
             redis_ini.set(CONFIG_SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
-            redis_ini.set(
-                CONFIG_SECTION_STORE,
-                "cass_keyspace",
-                Some(self.cluster_name.clone()),
-            );
+            // redis_ini.set(
+            //     CONFIG_SECTION_STORE,
+            //     "cass_keyspace",
+            //     Some(self.cluster_name.clone()),
+            // );
         } else if redis_ini.get(CONFIG_SECTION_STORE, "cass_hosts").is_none() {
             return Err(anyhow!("cassandra host is not confiured"));
         }
-        let use_port = self.port.monograph_port.start;
+        let use_port = self.cs_conn_port();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts

@@ -49,8 +49,8 @@ impl MonographInstall {
 
     pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
         let keyspace = match self.config.product() {
-            Product::EloqSQL => self.config.get_monograph_keyspace()?,
-            Product::EloqKV => self.config.get_redis_keyspace()?,
+            Product::EloqSQL => self.config.deployment.get_monograph_keyspace()?,
+            Product::EloqKV => self.config.deployment.get_redis_keyspace()?,
         };
         let keyspace_cql = format!(
             r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
@@ -102,7 +102,7 @@ impl TaskExecutor for MonographInstall {
             _ => false,
         };
         if keyspace_exists {
-            let keyspace_name = self.config.get_monograph_keyspace()?;
+            let keyspace_name = self.config.deployment.get_monograph_keyspace()?;
             let format = r#"MonographDB keyspace already exists."#.red();
             println!("{} => {}", format, keyspace_name.red());
             return Ok(None);

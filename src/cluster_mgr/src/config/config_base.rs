@@ -3,14 +3,12 @@ use crate::config::connection::Connection;
 use crate::config::deployment::{Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
-    config_path_string, config_template, DeploymentPackage, StorageProvider,
-    CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, CONFIG_SECTION_STORE, MONOGRAPH_INSTALL_SCRIPT,
-    MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
+    config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
+    MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
 use anyhow::anyhow;
-use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -265,36 +263,6 @@ impl DeploymentConfig {
             Ok(Some(log_cmd_locations))
         } else {
             Ok(None)
-        }
-    }
-
-    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
-        let my_local = upload_dir().join("my_local.cnf");
-        if !my_local.exists() {
-            self.deployment
-                .gen_monograph_config_by_host(None, self.install_dir())?;
-        }
-        let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
-        {
-            Ok(keyspace)
-        } else {
-            Ok("mono".to_string())
-        }
-    }
-
-    pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
-        let my_local = upload_dir().join("redis_local.ini");
-        if !my_local.exists() {
-            self.deployment.gen_redis_config_by_host(None)?;
-        }
-        let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(CONFIG_SECTION_STORE, "cass_keyspace") {
-            Ok(keyspace)
-        } else {
-            Ok("mono_redis".to_string())
         }
     }
 
