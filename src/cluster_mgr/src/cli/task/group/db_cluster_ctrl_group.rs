@@ -1,4 +1,5 @@
 use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
+use crate::cli::task::codis_task::{self, CodisTask};
 use crate::cli::task::group::{CtrlDBTaskGroup, TaskGroup};
 use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
@@ -6,7 +7,7 @@ use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
-use crate::config::StorageProvider;
+use crate::config::{deployment, StorageProvider};
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -78,6 +79,24 @@ impl TaskGroup for CtrlDBTaskGroup {
                 executable.extend(log_probe_tasks.into_iter());
             }
             executable.extend(tx_srv_tasks.into_iter());
+        }
+
+        if config.deployment.product() == deployment::Product::EloqKV
+            && config.deployment.codis.is_some()
+        {
+            let codis_tasks = if cmd_ref == "start" {
+                CodisTask::from_config(&config, codis_task::Operation::Start)
+            } else if cmd_ref == "stop" {
+                CodisTask::from_config(&config, codis_task::Operation::Stop)
+            } else {
+                IndexMap::default()
+            };
+            if !codis_tasks.is_empty() {
+                // start dashboard firstly, and then start all proxy servers
+                barrier.push(1);
+                barrier.push(codis_tasks.len() - 1);
+                executable.extend(codis_tasks);
+            }
         }
 
         let final_barrier = if is_start_cmd { Some(barrier) } else { None };

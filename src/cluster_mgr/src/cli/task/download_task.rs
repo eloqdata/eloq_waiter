@@ -4,6 +4,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::{download_dir, file_process_progress, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
+use crate::config::deployment::Codis;
 use crate::config::DownloadUrl;
 use anyhow::{anyhow, Ok};
 use futures::stream::StreamExt;
@@ -63,6 +64,10 @@ impl DownloadTask {
                 .map(|download_url| download_url.get_url())
                 .collect_vec();
             download_url_vec.extend(monitor_download_string_vec);
+        }
+
+        if config.deployment.codis.is_some() {
+            download_url_vec.push(Codis::download_url());
         }
 
         let mpg_bar = MultiProgress::new();
