@@ -8,12 +8,12 @@ use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{Cassandra, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, load_yaml_config_template, DownloadUrl, CASSANDRA_CONF_TEMPLATE,
-    CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER,
-    CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
-    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
+    config_template, get_cassandra_port, load_yaml_config_template, DownloadUrl,
+    CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CONFIG_MARIADB_SECTION,
+    CONFIG_SECTION_CLUSTER, CONFIG_SECTION_LOCAL, CONFIG_SECTION_STORE, JVM_SETTING_HOLDER,
+    MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Ok};
 use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -62,7 +62,7 @@ macro_rules! download_urls {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Port {
-    pub mysql_port: Option<u16>,
+    pub cs_conn: Option<u16>,
     pub monograph_port: MonographPort,
 }
 
@@ -71,7 +71,7 @@ impl Port {
         if p >= self.monograph_port.start && p <= self.monograph_port.end {
             return true;
         }
-        if let Some(mysql_port) = self.mysql_port {
+        if let Some(mysql_port) = self.cs_conn {
             if mysql_port == p {
                 return true;
             }
@@ -106,6 +106,36 @@ pub struct Hardware {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct Codis {
+    pub dashboard: String,
+    pub proxy: Vec<String>,
+}
+
+impl Codis {
+    pub fn download_url() -> String {
+        format!("{}/codis/codis.tar.gz", RESOURCE_REPO)
+    }
+    pub fn dir(install_dir: &str) -> String {
+        format!("{install_dir}/codis")
+    }
+    pub fn dashboard_cfg(config: &Deployment) -> anyhow::Result<String> {
+        let coord = config
+            .storage_service
+            .cassandra
+            .as_ref()
+            .expect("codis only support cassandra coordinator");
+        let port = get_cassandra_port()?;
+        let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
+        let keyspace = config.get_redis_keyspace()?;
+        let cmds = format!(
+            "sed -i 's/coordinator_addr.*/coordinator_addr = \"{addr}\"/g ; s/coordinator_keyspace.*/coordinator_keyspace = \"{}\"/g' {}/dashboard.toml",
+            keyspace, Self::dir(&config.install_dir())
+        );
+        Ok(cmds)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
     pub product: Option<Product>,
     pub version: Option<String>,
@@ -118,6 +148,7 @@ pub struct Deployment {
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
     pub monitor: Option<Monitor>,
+    pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
 }
 
@@ -184,6 +215,50 @@ impl Deployment {
             p
         } else {
             Product::EloqSQL
+        }
+    }
+
+    pub fn cs_conn_port(&self) -> u16 {
+        if let Some(p) = self.port.cs_conn {
+            p
+        } else {
+            match self.product() {
+                Product::EloqSQL => 3306,
+                Product::EloqKV => 6379,
+            }
+        }
+    }
+
+    pub fn install_dir(&self) -> String {
+        format!("{}/{}", &self.install_dir, self.cluster_name)
+    }
+
+    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
+        let my_local = upload_dir().join("my_local.cnf");
+        if !my_local.exists() {
+            self.gen_monograph_config_by_host(None, self.install_dir())?;
+        }
+        let mut my_ini_local = Ini::new();
+        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
+        {
+            Ok(keyspace)
+        } else {
+            Ok("mono".to_string())
+        }
+    }
+
+    pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
+        let my_local = upload_dir().join("redis_local.ini");
+        if !my_local.exists() {
+            self.gen_redis_config_by_host(None)?;
+        }
+        let mut my_ini_local = Ini::new();
+        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        if let Some(keyspace) = my_ini_local.get(CONFIG_SECTION_STORE, "cass_keyspace") {
+            Ok(keyspace)
+        } else {
+            Ok("mono_redis".to_string())
         }
     }
 
@@ -268,6 +343,11 @@ impl Deployment {
                 Some(dynamodb.clone().endpoint),
             );
         }
+        // mysql_ini.set(
+        //     CONFIG_MARIADB_SECTION,
+        //     "monograph_keyspace_name",
+        //     Some(self.cluster_name.clone()),
+        // );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
@@ -291,13 +371,13 @@ impl Deployment {
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "port",
-            Some(self.port.mysql_port.unwrap().to_string()),
+            Some(self.cs_conn_port().to_string()),
         );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "socket",
-            Some(format!("/tmp/mysql{}.sock", self.port.mysql_port.unwrap())),
+            Some(format!("/tmp/mysql{}.sock", self.cs_conn_port())),
         );
 
         let use_port = self.port.monograph_port.start;
@@ -394,22 +474,27 @@ impl Deployment {
             .unwrap();
         if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
             let cassandra_hosts = cassandra.host.join(",");
-            redis_ini.set(CONFIG_SECTION_STORE, "host", Some(cassandra_hosts));
-        } else if redis_ini.get(CONFIG_SECTION_STORE, "host").is_none() {
+            redis_ini.set(CONFIG_SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+            // redis_ini.set(
+            //     CONFIG_SECTION_STORE,
+            //     "cass_keyspace",
+            //     Some(self.cluster_name.clone()),
+            // );
+        } else if redis_ini.get(CONFIG_SECTION_STORE, "cass_hosts").is_none() {
             return Err(anyhow!("cassandra host is not confiured"));
         }
-        let use_port = self.port.monograph_port.start;
+        let use_port = self.cs_conn_port();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts
                 .iter()
                 .map(|host| format!("{}:{}", host.clone(), use_port))
                 .join(",");
-            redis_ini.set(CONFIG_SECTION_CLUSTER, "ip_list", Some(ip_list));
+            redis_ini.set(CONFIG_SECTION_CLUSTER, "ip_port_list", Some(ip_list));
         } else {
             redis_ini.set(
                 CONFIG_SECTION_CLUSTER,
-                "ip_list",
+                "ip_port_list",
                 Some(format!("{}:{}", "127.0.0.1", use_port)),
             );
         }
@@ -417,7 +502,6 @@ impl Deployment {
     }
 
     pub fn gen_redis_config_by_host(&self, tx_host: Option<String>) -> anyhow::Result<PathBuf> {
-        let port = self.port.monograph_port.start;
         let is_host = tx_host.is_some();
         let mut my_ini = self.build_redis_config(is_host)?;
         let (host, db_config_location) = if let Some(host) = tx_host {
@@ -435,10 +519,11 @@ impl Deployment {
                     my_ini.set(CONFIG_SECTION_CLUSTER, &key, Some(conf_val));
                 });
         }
+        my_ini.set(CONFIG_SECTION_LOCAL, "ip", Some(host.clone()));
         my_ini.set(
             CONFIG_SECTION_LOCAL,
-            "ip",
-            Some(format!("{}:{}", host, port)),
+            "port",
+            Some(self.cs_conn_port().to_string()),
         );
 
         let opt_hw = self.get_hardware(&host);
@@ -528,7 +613,10 @@ impl Deployment {
     pub fn all_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut db_image_download_links = self.monograph_download_links()?;
         if let Some(monitor_srv) = self.monitor.as_ref() {
-            db_image_download_links.extend(monitor_srv.download_links_as_amp()?);
+            db_image_download_links.extend(monitor_srv.download_links_as_map()?);
+        }
+        if self.codis.is_some() {
+            download_urls!(db_image_download_links, {"codis", Codis::download_url()});
         }
         Ok(db_image_download_links)
     }

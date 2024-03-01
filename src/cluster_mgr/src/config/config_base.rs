@@ -3,14 +3,12 @@ use crate::config::connection::Connection;
 use crate::config::deployment::{Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
-    config_path_string, config_template, DeploymentPackage, StorageProvider,
-    CONFIG_MARIADB_SECTION, CONFIG_PATH_DIR, CONFIG_SECTION_STORE, MONOGRAPH_INSTALL_SCRIPT,
-    MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
+    config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
+    MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
 use anyhow::anyhow;
-use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,6 +18,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
+
+use super::deployment::Codis;
 
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
 pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
@@ -96,7 +96,7 @@ impl DeploymentConfig {
         let tx_image = &self.deployment.get_tx_image();
         let log_image = &self.deployment.log_image;
         let monitor_link = if let Some(monitor) = monitor_opt {
-            monitor.download_links_as_amp().unwrap()
+            monitor.download_links_as_map().unwrap()
         } else {
             HashMap::default()
         };
@@ -145,6 +145,11 @@ impl DeploymentConfig {
                     }
                     DeploymentPackage::Grafana => {
                         extract_monitor_link!(monitor_link, GRAFANA_FILE_KEY, unpack_files);
+                    }
+                    DeploymentPackage::Codis => {
+                        extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
+                        let link = DownloadUrl::from_url_str(&Codis::download_url()).unwrap();
+                        unpack_files.push(link);
                     }
                 }
 
@@ -209,7 +214,7 @@ impl DeploymentConfig {
     pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let deployment_ref = &self.deployment;
         if let Some(monitor) = deployment_ref.monitor.as_ref() {
-            let mysql_port = deployment_ref.port.mysql_port.unwrap();
+            let mysql_port = deployment_ref.cs_conn_port();
             let db_hosts = &deployment_ref.tx_service.host;
             let config_path = db_hosts
                 .iter()
@@ -261,41 +266,8 @@ impl DeploymentConfig {
         }
     }
 
-    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
-        let my_local = upload_dir().join("my_local.cnf");
-        if !my_local.exists() {
-            self.deployment
-                .gen_monograph_config_by_host(None, self.install_dir())?;
-        }
-        let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
-        {
-            Ok(keyspace)
-        } else {
-            Ok("mono".to_string())
-        }
-    }
-
-    pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
-        let my_local = upload_dir().join("redis_local.ini");
-        if !my_local.exists() {
-            self.deployment.gen_redis_config_by_host(None)?;
-        }
-        let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(CONFIG_SECTION_STORE, "keyspace") {
-            Ok(keyspace)
-        } else {
-            Ok("mono_redis".to_string())
-        }
-    }
-
     pub fn install_dir(&self) -> String {
-        format!(
-            "{}/{}",
-            &self.deployment.install_dir, self.deployment.cluster_name
-        )
+        self.deployment.install_dir()
     }
 
     pub fn client_conn(&self) -> String {
@@ -305,14 +277,23 @@ impl DeploymentConfig {
                 self.install_dir(),
                 MONOGRAPH_TX_SERVICE_DIR,
                 self.connection.username,
-                self.deployment.port.mysql_port.unwrap()
+                self.deployment.cs_conn_port()
             ),
-            Product::EloqKV => format!(
-                "{}/{}/redis-cli -h {} -p 6379",
-                self.install_dir(),
-                REDIS_TX_SERVICE_DIR,
-                self.deployment.tx_service.host.first().unwrap()
-            ),
+            Product::EloqKV => {
+                let (host, port) = if let Some(codis) = &self.deployment.codis {
+                    (codis.proxy.first().unwrap(), 19000)
+                } else {
+                    (
+                        self.deployment.tx_service.host.first().unwrap(),
+                        self.deployment.cs_conn_port(),
+                    )
+                };
+                let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
+                format!(
+                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {}/redis_cli -server {}:{}",
+                    redis_dir, redis_dir, host, port
+                )
+            }
         }
     }
 
@@ -408,6 +389,10 @@ impl DeploymentConfig {
                 DeploymentPackage::Grafana,
                 self.get_host_list(DeploymentPackage::Grafana),
             ),
+            (
+                DeploymentPackage::Codis,
+                self.get_host_list(DeploymentPackage::Codis),
+            ),
         ])
     }
 
@@ -418,7 +403,8 @@ impl DeploymentConfig {
             MonographLog,
             Storage,
             Grafana,
-            Prometheus
+            Prometheus,
+            Codis
         );
         all_hosts.iter().unique().cloned().collect_vec()
     }
@@ -446,6 +432,15 @@ impl DeploymentConfig {
             }
             DeploymentPackage::Grafana => {
                 extract_monitor_host!(deployment, grafana)
+            }
+            DeploymentPackage::Codis => {
+                if let Some(codis) = &deployment.codis {
+                    let mut hosts = codis.proxy.clone();
+                    hosts.push(codis.dashboard.clone());
+                    hosts
+                } else {
+                    vec![]
+                }
             }
         }
     }
