@@ -544,7 +544,7 @@ impl Deployment {
         } else {
             if let Some(hw) = opt_hw {
                 assert!(hw.cpu > 0);
-                core_tx = (hw.cpu + 4) / 5 * 4;
+                core_tx = (hw.cpu * 4 + 4) / 5;
             } else {
                 core_tx = 4;
             };
