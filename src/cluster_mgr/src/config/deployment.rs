@@ -586,8 +586,9 @@ impl Deployment {
             toml::Value::String(self.cluster_name.clone()),
         );
         // calculate backend_primary_parallel
-        let tx_hosts = &self.tx_service.host;
-        let ncpu = tx_hosts
+        let ncpu = &self
+            .tx_service
+            .host
             .iter()
             .map(|host| {
                 if let Some(hw) = self.get_hardware(host) {
@@ -596,11 +597,11 @@ impl Deployment {
                     4
                 }
             })
-            .sum::<u16>()
-            / tx_hosts.len() as u16;
+            .max()
+            .expect("tx-service hosts can't be empty");
         cnf.insert(
             "backend_primary_parallel".to_owned(),
-            toml::Value::Integer(ncpu as i64),
+            toml::Value::Integer(*ncpu as i64),
         );
         // write toml
         let path_proxy = upload_dir().join(CODIS_PROXY_CNF);
