@@ -161,8 +161,8 @@ impl SSHSession {
             .split('\n')
             .unique()
             .map(|s| {
+                info!("socket {}:{} is already used", self.host, s);
                 let port = s.parse::<u16>().expect("can't parse port number");
-                info!("socket {}:{} is already used", self.host, port);
                 port
             })
             .collect();
