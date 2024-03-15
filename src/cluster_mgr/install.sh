@@ -27,16 +27,19 @@ if [ -z "$arch" ]; then
     exit 1
 fi
 
+LINUX_ID=$(cat /etc/os-release | awk -F'=' '{ if ($1 == "ID") {print $2} }' | tr -d '"')
+VERSION_ID=$(cat /etc/os-release | awk -F'=' '{ if ($1 == "VERSION_ID") {print $2} }' | tr -d '".')
+
 if [ -z "$CLUSTER_MGR_HOME" ]; then
-    CLUSTER_MGR_HOME=${HOME}/.MonoWaiter
+    CLUSTER_MGR_HOME=${HOME}/.eloqwaiter
 fi
 bin_dir=$CLUSTER_MGR_HOME
 mkdir -p "$bin_dir"
 
 install_binary() {
-    curl "$repo/mono-waiter/waiter-cluster-mgr-ubuntu2004.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/waiter-cluster.tar.gz" || return 1
-    tar -zxf "/tmp/waiter-cluster.tar.gz" -C "$CLUSTER_MGR_HOME" --strip-components 1 --overwrite || return 1
-    rm "/tmp/waiter-cluster.tar.gz"
+    curl "$repo/mono-waiter/waiter-cluster-mgr-${LINUX_ID}${VERSION_ID}.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/eloqwaiter.tar.gz" || return 1
+    tar -zxf "/tmp/eloqwaiter.tar.gz" -C "$CLUSTER_MGR_HOME" --strip-components 1 --overwrite || return 1
+    rm "/tmp/eloqwaiter.tar.gz"
     return 0
 }
 
