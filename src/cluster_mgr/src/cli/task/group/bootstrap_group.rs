@@ -58,7 +58,7 @@ impl TaskGroup for InstallDBTaskGroup {
                     }
                 }
             }
-            StorageProvider::DynamoDB => {}
+            _ => {}
         };
         match storage_provider {
             StorageProvider::Cassandra => {
@@ -66,7 +66,7 @@ impl TaskGroup for InstallDBTaskGroup {
                 barrier.extend(CassandraCtlTask::barrier(cassandra_start.len()));
                 executable.extend(cassandra_start);
             }
-            StorageProvider::DynamoDB => {}
+            _ => {}
         }
         // Bootstrap
         let monograph_install = MonographInstall::from_config(&config, install_db_host);

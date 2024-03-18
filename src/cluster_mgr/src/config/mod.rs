@@ -99,6 +99,8 @@ pub enum StorageProvider {
     Cassandra,
     #[strum(serialize = "dynamodb")]
     DynamoDB,
+    #[strum(serialize = "rocksdb")]
+    RocksDB,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
