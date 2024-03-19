@@ -11,6 +11,7 @@ use std::io::Write;
 pub struct StorageService {
     pub cassandra: Option<Cassandra>,
     pub dynamodb: Option<Dynamodb>,
+    pub rocksdb: Option<RocksDB>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -32,12 +33,41 @@ pub struct Dynamodb {
     pub endpoint: String,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct RocksS3 {
+    pub aws_id: String,
+    pub aws_secret: String,
+    pub region: String,
+    pub bucket_name: String,
+    pub bucket_prefix: String,
+    pub target_file_size_base: String,
+    pub sst_file_cache_size: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct RocksGCP {
+    pub region: String,
+    pub bucket_name: String,
+    pub bucket_prefix: String,
+    pub target_file_size_base: String,
+    pub sst_file_cache_size: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum RocksDB {
+    Local,
+    S3(RocksS3),
+    GCS(RocksGCP),
+}
+
 impl StorageService {
     pub fn provider(&self) -> Option<StorageProvider> {
         if self.cassandra.is_some() {
             Some(StorageProvider::Cassandra)
         } else if self.dynamodb.is_some() {
             Some(StorageProvider::DynamoDB)
+        } else if self.rocksdb.is_some() {
+            Some(StorageProvider::RocksDB)
         } else {
             None
         }

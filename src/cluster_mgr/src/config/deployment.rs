@@ -5,17 +5,18 @@ use crate::config::config_base::{
 };
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
-use crate::config::storage_service_config::{Cassandra, StorageService};
+use crate::config::storage_service_config::{Cassandra, RocksDB, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, get_cassandra_port, load_yaml_config_template, DownloadUrl,
+    config_template, get_cassandra_port, load_yaml_config_template, DownloadUrl, StorageProvider,
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
     CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER, CONFIG_SECTION_LOCAL,
     CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
     MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
 };
-use anyhow::{anyhow, Ok};
+use anyhow::anyhow;
 use configparser::ini::Ini;
+use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use regex::Regex;
@@ -476,16 +477,77 @@ impl Deployment {
         redis_ini
             .load(config_template(REDIS_CONF_TEMPLATE)?)
             .unwrap();
-        if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
-            let cassandra_hosts = cassandra.host.join(",");
-            redis_ini.set(CONFIG_SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
-            // redis_ini.set(
-            //     CONFIG_SECTION_STORE,
-            //     "cass_keyspace",
-            //     Some(self.cluster_name.clone()),
-            // );
-        } else if redis_ini.get(CONFIG_SECTION_STORE, "cass_hosts").is_none() {
-            return Err(anyhow!("cassandra host is not confiured"));
+        match self.storage_service.provider().unwrap() {
+            StorageProvider::Cassandra => {
+                let cassandra_hosts = self
+                    .storage_service
+                    .cassandra
+                    .as_ref()
+                    .unwrap()
+                    .host
+                    .join(",");
+                redis_ini.set(CONFIG_SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+            }
+            StorageProvider::DynamoDB => panic!("not supported"),
+            StorageProvider::RocksDB => match self.storage_service.rocksdb.clone().unwrap() {
+                RocksDB::Local => {}
+                RocksDB::S3(s3) => {
+                    redis_ini.set(CONFIG_SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
+                    redis_ini.set(CONFIG_SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_region",
+                        Some(s3.region),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_bucket_name",
+                        Some(s3.bucket_name),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_bucket_prefix",
+                        Some(s3.bucket_prefix),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_target_file_size_base",
+                        Some(s3.target_file_size_base),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_sst_file_cache_size",
+                        Some(s3.sst_file_cache_size),
+                    );
+                }
+                RocksDB::GCS(gcs) => {
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_region",
+                        Some(gcs.region),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_bucket_name",
+                        Some(gcs.bucket_name),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_bucket_prefix",
+                        Some(gcs.bucket_prefix),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_target_file_size_base",
+                        Some(gcs.target_file_size_base),
+                    );
+                    redis_ini.set(
+                        CONFIG_SECTION_STORE,
+                        "kv_store_rocksdb_cloud_sst_file_cache_size",
+                        Some(gcs.sst_file_cache_size),
+                    );
+                }
+            },
         }
         let use_port = self.cs_conn_port();
         let monograph_hosts = &self.tx_service.host;
