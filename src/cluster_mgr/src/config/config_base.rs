@@ -453,25 +453,14 @@ impl DeploymentConfig {
         }
     }
 
-    fn validate_storage_service(&self) -> bool {
-        let storage_service = &self.deployment.storage_service;
-        storage_service.dynamodb.is_some() || storage_service.cassandra.is_some()
-    }
-
     pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
         let storage = &self.deployment.storage_service;
-        if !self.validate_storage_service() {
-            let err_msg = format!(
-                "DynamoDB Option={}, Cassandra option={}",
-                storage.dynamodb.is_some(),
-                storage.cassandra.is_some()
-            );
-            Err(anyhow!(ConfigErr::StorageConfigErr(err_msg)))
+        if let Some(sp) = storage.provider() {
+            Ok(sp)
         } else {
-            if storage.cassandra.is_some() {
-                return Ok(StorageProvider::Cassandra);
-            }
-            Ok(StorageProvider::DynamoDB)
+            Err(anyhow!(ConfigErr::StorageConfigErr(format!(
+                "storage provider is missing"
+            ))))
         }
     }
 
