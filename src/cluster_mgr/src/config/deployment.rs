@@ -187,7 +187,7 @@ impl Deployment {
                     self.tx_image = Some(format!("{prefix}/eloqsql-tx-release-bin.tar.gz"));
                 }
                 if self.log_image.is_none() && self.log_service.is_some() {
-                    self.tx_image = Some(format!("{prefix}/eloqsql-log-release-bin.tar.gz"));
+                    self.log_image = Some(format!("{prefix}/eloqsql-log-release-bin.tar.gz"));
                 }
             }
             Product::EloqKV => {
@@ -200,7 +200,7 @@ impl Deployment {
                     self.tx_image = Some(format!("{prefix}/eloqkv-tx-release-bin.tar.gz"));
                 }
                 if self.log_image.is_none() && self.log_service.is_some() {
-                    self.tx_image = Some(format!("{prefix}/eloqkv-log-release-bin.tar.gz"));
+                    self.log_image = Some(format!("{prefix}/eloqkv-log-release-bin.tar.gz"));
                 }
             }
         }
