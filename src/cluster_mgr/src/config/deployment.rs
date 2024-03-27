@@ -604,7 +604,7 @@ impl Deployment {
         if opt_hw.is_none() {
             warn!("hardware information for {host} is missing");
         }
-        const MIN_CORE_TX: u16 = 4;
+        const MIN_CORE_TX: u16 = 1;
         let key = "core_number";
         let mut core_tx = MIN_CORE_TX;
         if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
