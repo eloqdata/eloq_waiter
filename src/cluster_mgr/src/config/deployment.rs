@@ -174,6 +174,11 @@ impl Deployment {
         let os_name = sysinfo::System::name().unwrap().to_lowercase();
         let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
         let os_pretty = format!("{os_name}{os_version}");
+        let arch = match sysinfo::System::cpu_arch().unwrap().as_str() {
+            "aarch64" | "arm64" => "arm64",
+            "x86" | "x86_64" | "amd64" => "amd64",
+            _ => unreachable!(),
+        };
         let store = self.storage_service.pretty_name();
         let version = self.version.as_ref().unwrap();
         match self.product() {
@@ -184,10 +189,10 @@ impl Deployment {
                 prefix.push(version);
                 let prefix = prefix.as_path().to_str().unwrap();
                 if self.tx_image.is_none() {
-                    self.tx_image = Some(format!("{prefix}/eloqsql-tx-release-bin.tar.gz"));
+                    self.tx_image = Some(format!("{prefix}/eloqsql-{arch}.tar.gz"));
                 }
                 if self.log_image.is_none() && self.log_service.is_some() {
-                    self.log_image = Some(format!("{prefix}/eloqsql-log-release-bin.tar.gz"));
+                    self.log_image = Some(format!("{prefix}/log-service-{arch}.tar.gz"));
                 }
             }
             Product::EloqKV => {
@@ -197,10 +202,10 @@ impl Deployment {
                 prefix.push(version);
                 let prefix = prefix.as_path().to_str().unwrap();
                 if self.tx_image.is_none() {
-                    self.tx_image = Some(format!("{prefix}/eloqkv-tx-release-bin.tar.gz"));
+                    self.tx_image = Some(format!("{prefix}/eloqkv-{arch}.tar.gz"));
                 }
                 if self.log_image.is_none() && self.log_service.is_some() {
-                    self.log_image = Some(format!("{prefix}/eloqkv-log-release-bin.tar.gz"));
+                    self.log_image = Some(format!("{prefix}/log-service-{arch}.tar.gz"));
                 }
             }
         }
@@ -599,7 +604,7 @@ impl Deployment {
         if opt_hw.is_none() {
             warn!("hardware information for {host} is missing");
         }
-        const MIN_CORE_TX: u16 = 4;
+        const MIN_CORE_TX: u16 = 1;
         let key = "core_number";
         let mut core_tx = MIN_CORE_TX;
         if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
