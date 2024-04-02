@@ -12,7 +12,7 @@ use crate::config::{
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
     CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, CONFIG_SECTION_CLUSTER, CONFIG_SECTION_LOCAL,
     CONFIG_SECTION_STORE, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
-    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
+    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO, SET_FOR_ME,
 };
 use anyhow::anyhow;
 use configparser::ini::Ini;
@@ -60,6 +60,20 @@ macro_rules! download_urls {
         $(
           $download_link.insert($url_key.to_string(), DownloadUrl::from_url_str($url_value.as_str()).unwrap());
         )*
+    };
+}
+
+macro_rules! set_by_user {
+    ($opt_val:expr, $T:ty) => {
+        if let Some(v) = $opt_val {
+            if v == SET_FOR_ME {
+                None
+            } else {
+                Some(v.parse::<$T>()?)
+            }
+        } else {
+            None
+        }
     };
 }
 
@@ -441,34 +455,30 @@ impl Deployment {
         if opt_hw.is_none() {
             warn!("hardware information for {host} is missing");
         }
+
         let key = "thread_pool_size";
-        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
-            let mut v;
+        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        if val.is_none() {
+            let mut v = 1;
             if let Some(hw) = opt_hw {
-                v = (hw.cpu * 3) / 8;
-                if v == 0 {
-                    v = 1;
-                }
-            } else {
-                v = 1;
+                v = v.max((hw.cpu * 3) / 8);
             }
             my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
         }
+
         let key = "monograph_core_num";
-        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
-            let mut v;
+        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        if val.is_none() {
+            let mut v = 1;
             if let Some(hw) = opt_hw {
-                v = (hw.cpu * 3) / 8;
-                if v == 0 {
-                    v = 1;
-                }
-            } else {
-                v = 1;
+                v = v.max((hw.cpu * 3) / 8);
             }
             my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
         }
+
         let key = "monograph_node_memory_limit_mb";
-        if my_ini.get(CONFIG_MARIADB_SECTION, key).is_none() {
+        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u32);
+        if val.is_none() {
             let v = if let Some(hw) = opt_hw {
                 (hw.memory * 6) / 10
             } else {
@@ -604,29 +614,28 @@ impl Deployment {
         if opt_hw.is_none() {
             warn!("hardware information for {host} is missing");
         }
-        const MIN_CORE_TX: u16 = 1;
         let key = "core_number";
-        let mut core_tx = MIN_CORE_TX;
-        if let Some(v) = my_ini.get(CONFIG_SECTION_LOCAL, key) {
-            core_tx = v.parse()?;
-        } else if let Some(hw) = opt_hw {
-            assert!(hw.cpu > 0);
-            core_tx = (hw.cpu * 4 + 4) / 5;
+        let mut core_tx = 1; // minimal value
+        if let Some(val) = set_by_user!(my_ini.get(CONFIG_SECTION_LOCAL, key), u16) {
+            core_tx = val;
+        } else {
+            if let Some(hw) = opt_hw {
+                assert!(hw.cpu > 0);
+                core_tx = core_tx.max((hw.cpu * 4) / 5);
+            }
+            my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_tx.to_string()));
         }
-        if core_tx < MIN_CORE_TX {
-            warn!("bad config {}={} for {} {:?}", key, core_tx, host, opt_hw);
-            core_tx = MIN_CORE_TX;
-        }
-        my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_tx.to_string()));
 
         let key = "event_dispatcher_num";
-        if my_ini.get(CONFIG_SECTION_LOCAL, key).is_none() {
+        let val = set_by_user!(my_ini.get(CONFIG_SECTION_LOCAL, key), u16);
+        if val.is_none() {
             let core_io = (core_tx + 7) / 8;
             my_ini.set(CONFIG_SECTION_LOCAL, key, Some(core_io.to_string()));
         }
 
         let key = "node_memory_limit_mb";
-        if my_ini.get(CONFIG_SECTION_LOCAL, key).is_none() {
+        let val = set_by_user!(my_ini.get(CONFIG_SECTION_LOCAL, key), u32);
+        if val.is_none() {
             let v = if let Some(hw) = opt_hw {
                 (hw.memory * 4) / 5
             } else {
