@@ -1,5 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::{CommandArgs, HOME_DIR};
+use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::CONFIG_PATH_DIR;
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
@@ -104,15 +104,8 @@ impl CommandExecutor {
                     env::var(CONFIG_PATH_DIR)?,
                     product.to_string()
                 );
-                let mut config = DeploymentConfig::load(Some(topology))?;
-                config.connection.username = whoami::username();
-                config.connection.auth.keypair = Some(format!("{}/ed25519", env::var(HOME_DIR)?));
-                config.deployment.install_dir = env::var(HOME_DIR)?;
+                let config = DeploymentConfig::load(Some(topology))?;
                 self.save_deployment_config(&config, false).await?;
-                info!(
-                    "CmdExecutor Save DeploymentConfig successfully. username={}",
-                    config.connection.username
-                );
                 Ok(config)
             }
             CommandArgs::Install { cluster }

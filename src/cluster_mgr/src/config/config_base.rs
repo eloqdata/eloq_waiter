@@ -1,4 +1,4 @@
-use crate::cli::{ssh, upload_dir, upload_host_dir};
+use crate::cli::{ssh, upload_dir, upload_host_dir, HOME_DIR};
 use crate::config::connection::Connection;
 use crate::config::deployment::{Codis, Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
@@ -16,7 +16,7 @@ use std::env::current_exe;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{error, info};
 
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
@@ -359,9 +359,10 @@ impl DeploymentConfig {
     }
 
     fn read_config_from_file(path: String) -> anyhow::Result<Self> {
-        let open_file_handler = File::open(Path::new(path.as_str()))?;
-        let deployment_config =
-            serde_yaml::from_reader::<File, DeploymentConfig>(open_file_handler)?;
+        let content = fs::read_to_string(path)?
+            .replace("${USER}", &whoami::username())
+            .replace(&format!("${{{HOME_DIR}}}"), &std::env::var(HOME_DIR)?);
+        let deployment_config = serde_yaml::from_str::<DeploymentConfig>(&content)?;
         Ok(deployment_config)
     }
 
