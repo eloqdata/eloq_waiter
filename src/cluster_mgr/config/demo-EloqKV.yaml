@@ -1,13 +1,13 @@
 connection:
-  username: "ubuntu"
+  username: "${USER}"
   auth_type: "keypair"
   auth:
-    keypair: "/home/ubuntu/.ssh/ed25519_mono"
+    keypair: "${CLUSTER_MGR_HOME}/ed25519"
 deployment:
   cluster_name: "demo-kv"
   product: "EloqKV"
   version: "latest"
-  install_dir: "/tmp"
+  install_dir: "${CLUSTER_MGR_HOME}"
   port:
   log_service:
     nodes:
