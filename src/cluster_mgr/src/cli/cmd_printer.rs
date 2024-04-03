@@ -35,7 +35,7 @@ impl CmdPrinter {
         for row in self.data.borrow().clone() {
             println!("--------------------------");
             println!(
-                "TaskID: {}\n{}\n{}; {}",
+                "TaskID: {}\n{}\n{}; {}\n",
                 row.task_id, row.cmd, row.cmd_status, row.cmd_output
             )
         }

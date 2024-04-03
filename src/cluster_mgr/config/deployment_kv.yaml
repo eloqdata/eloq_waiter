@@ -1,13 +1,13 @@
 connection:
-  username: "monouser"
+  username: "${USER}"
   auth_type: "keypair"
   auth:
-    keypair: "/home/monouser/.ssh/id_rsa"
+    keypair: "/home/${USER}/.ssh/id_rsa"
 deployment:
   cluster_name: "eloqkv-cluster"
   product: "EloqKV"
   version: "latest"
-  install_dir: "/home/monouser/eloq"
+  install_dir: "/home/${USER}/eloq"
   port:
     cs_conn: 6389
   log_service:
@@ -15,7 +15,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/monouser/eloq/disk_kv"
+          - "/home/${USER}/eloq/disk_kv"
     replica: 1
   tx_service:
     host:

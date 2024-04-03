@@ -1,13 +1,13 @@
 connection:
-  username: "ubuntu"
+  username: "${USER}"
   auth_type: "keypair"
   auth:
-    keypair: "/home/ubuntu/.ssh/ed25519_mono"
+    keypair: "${CLUSTER_MGR_HOME}/ed25519"
 deployment:
   cluster_name: "demo-sql"
   product: "EloqSQL"
   version: "latest"
-  install_dir: "/tmp"
+  install_dir: "${CLUSTER_MGR_HOME}"
   port:
     monograph_port:
       start: 8000

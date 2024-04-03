@@ -23,8 +23,6 @@ monograph_enable_mvcc=off
 transaction_isolation=READ-COMMITTED
 monograph_cc_protocol=OCC
 monograph_keyspace_name=mono
-monograph_txlog_service_list=${OVERRIDE}
-monograph_txlog_group_replica_num=${OVERRIDE}
 monograph_core_num=${SET_FOR_ME}
 monograph_node_memory_limit_mb=${SET_FOR_ME}
 
