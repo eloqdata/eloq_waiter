@@ -8,11 +8,11 @@ use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{Cassandra, RocksDB, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, get_cassandra_port, load_yaml_config_template, DownloadUrl, StorageProvider,
-    CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
-    CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, JVM_SETTING_HOLDER, MONOGRAPH_CONF_DYNAMO_TEMPLATE,
-    MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO, SECTION_CLUSTER, SECTION_LOCAL,
-    SECTION_STORE, SET_FOR_ME,
+    config_template, get_cassandra_port, load_yaml_config_template, DeploymentPackage, DownloadUrl,
+    StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE,
+    CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, JVM_SETTING_HOLDER,
+    MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, RESOURCE_REPO,
+    SECTION_CLUSTER, SECTION_LOCAL, SECTION_STORE, SET_FOR_ME,
 };
 use anyhow::{anyhow, bail, Result};
 use configparser::ini::Ini;
@@ -22,7 +22,6 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
-use std::cmp;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -75,6 +74,16 @@ macro_rules! set_by_user {
             None
         }
     };
+}
+
+macro_rules! extract_monitor_host {
+    ($deployment_ref:expr, $monitor_components:ident) => {{
+        if let Some(monitor) = $deployment_ref.monitor.as_ref() {
+            vec![monitor.$monitor_components.host.clone()]
+        } else {
+            vec![]
+        }
+    }};
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -478,15 +487,20 @@ impl Deployment {
             my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
         }
 
+        let union_cass = self
+            .topology()
+            .get(&host)
+            .unwrap()
+            .contains(&DeploymentPackage::Storage);
         let key = "monograph_node_memory_limit_mb";
         let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u32);
         if val.is_none() {
-            let v = if let Some(hw) = opt_hw {
-                (hw.memory * 6) / 10
-            } else {
-                GB
-            };
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
+            let mut limit = opt_hw.map(|hw| (hw.memory * 3) / 5).unwrap_or(1 * GB);
+            if union_cass {
+                limit /= 2;
+            }
+            assert!(limit > 0);
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(limit.to_string()));
         }
         my_ini.write(db_config_location.as_path())?;
         Ok(db_config_location)
@@ -631,15 +645,20 @@ impl Deployment {
             ini.set(SECTION_LOCAL, key, Some(core_io.to_string()));
         }
 
+        let union_cass = self
+            .topology()
+            .get(&host)
+            .unwrap()
+            .contains(&DeploymentPackage::Storage);
         let key = "node_memory_limit_mb";
         let val = set_by_user!(ini.get(SECTION_LOCAL, key), u32);
         if val.is_none() {
-            let v = if let Some(hw) = opt_hw {
-                (hw.memory * 4) / 5
-            } else {
-                GB
-            };
-            ini.set(SECTION_LOCAL, key, Some(v.to_string()));
+            let mut limit = opt_hw.map(|hw| (hw.memory * 4) / 5).unwrap_or(1 * GB);
+            if union_cass {
+                limit /= 2;
+            }
+            assert!(limit > 0);
+            ini.set(SECTION_LOCAL, key, Some(limit.to_string()));
         }
 
         ini.write(db_config_location.as_path())?;
@@ -734,6 +753,68 @@ impl Deployment {
         Ok(db_image_download_links)
     }
 
+    pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
+        match service {
+            DeploymentPackage::Storage => {
+                if let Some(cassandra) = &self.storage_service.cassandra {
+                    cassandra.host.to_vec()
+                } else {
+                    vec![]
+                }
+            }
+            DeploymentPackage::MonographLog => {
+                if let Some(ref log_srv) = self.log_service {
+                    log_srv.log_host_unique()
+                } else {
+                    vec![]
+                }
+            }
+            DeploymentPackage::MonographTx => self.tx_service.host.to_vec(),
+            DeploymentPackage::Prometheus => {
+                extract_monitor_host!(self, prometheus)
+            }
+            DeploymentPackage::Grafana => {
+                extract_monitor_host!(self, grafana)
+            }
+            DeploymentPackage::Codis => {
+                if let Some(codis) = &self.codis {
+                    let mut hosts = codis.proxy.clone();
+                    hosts.push(codis.dashboard.clone());
+                    hosts
+                } else {
+                    vec![]
+                }
+            }
+        }
+    }
+
+    fn populate_topo(
+        &self,
+        topo: &mut HashMap<String, Vec<DeploymentPackage>>,
+        pkg: DeploymentPackage,
+    ) {
+        self.get_host_list(pkg.clone())
+            .into_iter()
+            .for_each(|host| {
+                if let Some(list) = topo.get_mut(&host) {
+                    list.push(pkg.clone());
+                } else {
+                    topo.insert(host, vec![pkg.clone()]);
+                }
+            });
+    }
+
+    pub fn topology(&self) -> HashMap<String, Vec<DeploymentPackage>> {
+        let mut topo: HashMap<String, Vec<DeploymentPackage>> = HashMap::new();
+        self.populate_topo(&mut topo, DeploymentPackage::MonographTx);
+        self.populate_topo(&mut topo, DeploymentPackage::Storage);
+        self.populate_topo(&mut topo, DeploymentPackage::Prometheus);
+        self.populate_topo(&mut topo, DeploymentPackage::Grafana);
+        self.populate_topo(&mut topo, DeploymentPackage::MonographLog);
+        self.populate_topo(&mut topo, DeploymentPackage::Codis);
+        topo
+    }
+
     // key is cassandra node IP, value config files path
     pub fn gen_cassandra_config(
         &self,
@@ -761,6 +842,7 @@ impl Deployment {
         } else {
             cass.clone().storage_cluster.unwrap()
         };
+        let nodes_topo = self.topology();
 
         cass_conf_map.insert("cluster_name".to_string(), Value::String(storage_cluster));
         let seeds = cass.host.iter().take(Cassandra::MAX_SEED).join(",");
@@ -796,23 +878,21 @@ impl Deployment {
                 // Tune JVM for each cassandra node
                 // https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/operations/opsTuneJVM.html
                 let jvm_opt = if tune_jvm {
-                    let mut gc_setting;
+                    let gc_setting;
                     if let Some(hw) = self.get_hardware(host) {
-                        let h = if hw.memory < 16 * GB {
-                            gc_setting = GC_SETTING_CMS.to_owned();
-                            cmp::max(cmp::min(hw.memory / 2, GB), cmp::min(hw.memory / 4, 8 * GB))
+                        let union = nodes_topo
+                            .get(host)
+                            .unwrap()
+                            .contains(&DeploymentPackage::MonographTx);
+                        let heap = if union { hw.memory / 4 } else { hw.memory / 2 }.min(64 * GB);
+                        let h_xm = format!("-Xms{}M\n-Xmx{}M", heap, heap);
+                        if heap < 16 * GB {
+                            gc_setting = format!("{GC_SETTING_CMS}\n{h_xm}");
                         } else {
-                            gc_setting = GC_SETTING_G1.to_owned();
-                            if hw.memory > 256 * GB {
-                                64 * GB
-                            } else {
-                                hw.memory / 4
-                            }
-                        };
-                        let h_xm = format!("\n-Xms{}M\n-Xmx{}M\n", h, h);
-                        gc_setting.push_str(&h_xm);
+                            gc_setting = format!("{GC_SETTING_G1}\n{h_xm}");
+                        }
                     } else {
-                        warn!("hardware information for {} is missing", host);
+                        warn!("cass node hardware information for {} is missing", host);
                         gc_setting = GC_SETTING_CMS.to_owned();
                     }
                     jvm_temp.clone().replace(JVM_SETTING_HOLDER, &gc_setting)
