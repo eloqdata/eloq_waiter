@@ -46,16 +46,6 @@ macro_rules! all_hosts_merge {
     }};
 }
 
-macro_rules! extract_monitor_host {
-    ($deployment_ref:expr, $monitor_components:ident) => {{
-        if let Some(monitor) = $deployment_ref.monitor.as_ref() {
-            vec![monitor.$monitor_components.host.clone()]
-        } else {
-            vec![]
-        }
-    }};
-}
-
 macro_rules! extract_monitor_link {
     ($monitor_links:expr, $monitor_fil_key:expr, $links_vec:expr) => {
         if let Some(download_url) = $monitor_links.get($monitor_fil_key) {
@@ -409,39 +399,7 @@ impl DeploymentConfig {
     }
 
     pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
-        let deployment = &self.deployment;
-        match service {
-            DeploymentPackage::Storage => {
-                if let Some(cassandra) = &deployment.storage_service.cassandra {
-                    cassandra.host.to_vec()
-                } else {
-                    vec![]
-                }
-            }
-            DeploymentPackage::MonographLog => {
-                if let Some(ref log_srv) = deployment.log_service {
-                    log_srv.log_host_unique()
-                } else {
-                    vec![]
-                }
-            }
-            DeploymentPackage::MonographTx => deployment.tx_service.host.to_vec(),
-            DeploymentPackage::Prometheus => {
-                extract_monitor_host!(deployment, prometheus)
-            }
-            DeploymentPackage::Grafana => {
-                extract_monitor_host!(deployment, grafana)
-            }
-            DeploymentPackage::Codis => {
-                if let Some(codis) = &deployment.codis {
-                    let mut hosts = codis.proxy.clone();
-                    hosts.push(codis.dashboard.clone());
-                    hosts
-                } else {
-                    vec![]
-                }
-            }
-        }
+        self.deployment.get_host_list(service)
     }
 
     pub fn load_from_string(config_content: String) -> anyhow::Result<Self> {
