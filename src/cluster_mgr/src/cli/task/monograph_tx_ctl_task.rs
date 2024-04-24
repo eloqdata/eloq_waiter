@@ -46,7 +46,7 @@ macro_rules! mono_start_cmd {
                 r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
     export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    export LD_PRELOAD={}/{}/install/lib/libmimalloc.so; \
+    export LD_PRELOAD={}/{}/install/lib/libmimalloc.so.2; \
     {}/{}/install/bin/mysqld --defaults-file={}/my.cnf > {}/{}/logs/mysqld_start_{}.log 2>&1 &"#,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
                 $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
@@ -60,7 +60,7 @@ macro_rules! mono_start_cmd {
                 r#"mkdir -p {}/{}/logs && cd {}/{} && \
     export LD_LIBRARY_PATH={}/{}/lib:$LD_LIBRARY_PATH; \
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    export LD_PRELOAD={}/{}/lib/libmimalloc.so; \
+    export LD_PRELOAD={}/{}/lib/libmimalloc.so.2; \
     {}/{}/redis_server --config={}/redis.ini > {}/{}/logs/redis_{}.log 2>&1 &"#,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
                 $remote_install_home, REDIS_TX_SERVICE_DIR,
