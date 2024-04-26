@@ -163,6 +163,11 @@ impl TaskController {
             let rs = self
                 .run_task_split(task_group_string.clone(), task_split, config.clone())
                 .await?;
+            rs.iter().for_each(|pair| {
+                if !pair.result.is_success() {
+                    panic!("failed task found")
+                }
+            });
             task_result_vec.push(rs);
         }
         self.tx.send(TaskResultPair {

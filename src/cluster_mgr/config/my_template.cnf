@@ -25,6 +25,6 @@ monograph_ip_list=${OVERRIDE}
 monograph_enable_mvcc=off
 transaction_isolation=READ-COMMITTED
 monograph_cc_protocol=OCC
-monograph_enable_collect_metrics=true
+monograph_enable_metrics=true
 monograph_core_num=${SET_FOR_ME}
 monograph_node_memory_limit_mb=${SET_FOR_ME}
