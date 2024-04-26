@@ -205,33 +205,25 @@ impl Deployment {
         };
         let store = self.storage_service.pretty_name();
         let version = self.version.as_ref().unwrap();
+        let log_tarball = format!("log-service-{version}-{arch}.tar.gz");
+        let tx_tarball;
         match self.product() {
             Product::EloqSQL => {
                 prefix.push("eloqsql");
-                prefix.push(os_pretty);
-                prefix.push(store);
-                prefix.push(version);
-                let prefix = prefix.as_path().to_str().unwrap();
-                if self.tx_image.is_none() {
-                    self.tx_image = Some(format!("{prefix}/eloqsql-{arch}.tar.gz"));
-                }
-                if self.log_image.is_none() && self.log_service.is_some() {
-                    self.log_image = Some(format!("{prefix}/log-service-{arch}.tar.gz"));
-                }
+                tx_tarball = format!("eloqsql-{version}-{arch}.tar.gz");
             }
             Product::EloqKV => {
                 prefix.push("eloqkv");
-                prefix.push(os_pretty);
-                prefix.push(store);
-                prefix.push(version);
-                let prefix = prefix.as_path().to_str().unwrap();
-                if self.tx_image.is_none() {
-                    self.tx_image = Some(format!("{prefix}/eloqkv-{arch}.tar.gz"));
-                }
-                if self.log_image.is_none() && self.log_service.is_some() {
-                    self.log_image = Some(format!("{prefix}/log-service-{arch}.tar.gz"));
-                }
+                tx_tarball = format!("eloqkv-{version}-{arch}.tar.gz");
             }
+        }
+        prefix.push(os_pretty);
+        let prefix = prefix.as_path().to_str().unwrap();
+        if self.tx_image.is_none() {
+            self.tx_image = Some(format!("{prefix}/{store}/{tx_tarball}"));
+        }
+        if self.log_image.is_none() && self.log_service.is_some() {
+            self.log_image = Some(format!("{prefix}/logservice/{log_tarball}"));
         }
         Ok(())
     }
