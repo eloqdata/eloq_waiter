@@ -7,7 +7,8 @@ use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -165,6 +166,7 @@ impl CommandExecutor {
                 command: _,
                 topology_file,
             } => Ok(DeploymentConfig::load(Some(topology_file))?),
+            CommandArgs::List => unreachable!(),
         }
     }
 
@@ -173,6 +175,14 @@ impl CommandExecutor {
         cmd: CommandArgs,
         deployment_config: Option<DeploymentConfig>,
     ) -> anyhow::Result<()> {
+        match cmd {
+            CommandArgs::List => {
+                return self.list_clusters().await;
+            }
+            _ => {}
+        }
+
+        // Generate and run tasks
         let cmd_ref = cmd.as_ref();
         let config = match deployment_config {
             Some(mut config) => {
@@ -194,6 +204,7 @@ impl CommandExecutor {
         recv_rs_and_print_join.await?;
         println!(r#"all tasks complete.task_size={}"#, rs.len());
 
+        // After all tasks finished
         match cmd {
             CommandArgs::Launch { topology_file: _ }
             | CommandArgs::Demo {
@@ -219,6 +230,20 @@ impl CommandExecutor {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    async fn list_clusters(&self) -> Result<()> {
+        let list = self
+            .state_mgr
+            .list_deployments()
+            .await?
+            .iter()
+            .map(|cluster| cluster.abstract_info())
+            .collect_vec();
+
+        let table = tabled::Table::new(list);
+        println!("{table}\n");
         Ok(())
     }
 }

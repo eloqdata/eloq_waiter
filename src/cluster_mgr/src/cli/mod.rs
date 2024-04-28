@@ -186,6 +186,9 @@ pub enum CommandArgs {
         #[arg(short, long, default_value = "cassandra")]
         store: StorageProvider,
     },
+    #[command(long_about = "List created clusters")]
+    #[strum(serialize = "list")]
+    List,
 }
 
 pub const HOME_DIR: &str = "CLUSTER_MGR_HOME";

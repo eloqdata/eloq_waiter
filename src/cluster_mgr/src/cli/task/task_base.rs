@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::string::ToString;
-use tabled::{display::ExpandedDisplay, Tabled};
 use thiserror::Error;
 use tracing::{debug, error, info};
 use ExecutionValue as LastResult;
@@ -238,7 +237,7 @@ pub(crate) fn init_finish_signal() -> &'static LastResult {
     })
 }
 
-#[derive(Clone, Debug, Tabled, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, tabled::Tabled, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TaskId {
     pub cmd: String,
     pub task: String,
@@ -250,8 +249,8 @@ impl TaskId {
         format!("host={},cmd={},task={}", self.host, self.cmd, self.task)
     }
 
-    pub fn pretty_string(&self) -> ExpandedDisplay {
-        ExpandedDisplay::new([self.clone()])
+    pub fn pretty_string(&self) -> String {
+        self.format_string()
     }
 
     pub fn as_json_string(&self) -> String {
