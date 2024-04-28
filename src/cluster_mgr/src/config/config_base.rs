@@ -540,6 +540,23 @@ impl DeploymentConfig {
         self.deployment.hardware = Some(hw_info);
         Ok(())
     }
+
+    pub fn abstract_info(&self) -> DeployAbstract {
+        DeployAbstract {
+            name: self.deployment.cluster_name.clone(),
+            product: self.deployment.product(),
+            version: self.deployment.version.clone().unwrap_or_default(),
+            user: self.connection.username.clone(),
+        }
+    }
+}
+
+#[derive(tabled::Tabled, Clone, Debug)]
+pub struct DeployAbstract {
+    name: String,
+    product: Product,
+    version: String,
+    user: String,
 }
 
 #[cfg(test)]
