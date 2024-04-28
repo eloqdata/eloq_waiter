@@ -152,6 +152,7 @@ impl CommandExecutor {
                 command: _,
                 cluster,
             }
+            | CommandArgs::Inspect { cluster }
             | CommandArgs::Remove { cluster } => {
                 let config = self
                     .state_mgr
@@ -202,7 +203,7 @@ impl CommandExecutor {
         });
         let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
         recv_rs_and_print_join.await?;
-        println!(r#"all tasks complete.task_size={}"#, rs.len());
+        info!(r#"all tasks complete.task_size={}"#, rs.len());
 
         // After all tasks finished
         match cmd {
@@ -227,6 +228,9 @@ impl CommandExecutor {
             CommandArgs::Remove { cluster } => {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
                 info!("cluster state cleared rows={}", n);
+            }
+            CommandArgs::Inspect { cluster: _ } => {
+                println!("{:#?}", config);
             }
             _ => {}
         }

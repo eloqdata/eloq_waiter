@@ -394,11 +394,18 @@ impl TaskMgr {
         cmd_args: CommandArgs,
         config: &DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let group_key = cmd_args.as_ref();
-
+        let group = cmd_args.as_ref();
         let task_groups = init_task_group();
-        let run_group = task_groups.get(group_key).unwrap();
-        run_group.tasks(cmd_args, config.clone()).await
+        if let Some(run_group) = task_groups.get(group) {
+            run_group.tasks(cmd_args, config.clone()).await
+        } else {
+            info!("command group {group} has no tasks");
+            Ok(TaskExecutionContext {
+                task_group: group.to_owned(),
+                barrier: None,
+                executable: IndexMap::new(),
+            })
+        }
     }
 
     pub async fn run_tasks(

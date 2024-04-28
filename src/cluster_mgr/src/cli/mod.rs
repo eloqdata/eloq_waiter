@@ -189,6 +189,12 @@ pub enum CommandArgs {
     #[command(long_about = "List created clusters")]
     #[strum(serialize = "list")]
     List,
+    #[command(long_about = "Inspect cluster configuration")]
+    #[strum(serialize = "inspect")]
+    Inspect {
+        #[arg(short, long, value_name = "CLUSTER NAME")]
+        cluster: String,
+    },
 }
 
 pub const HOME_DIR: &str = "CLUSTER_MGR_HOME";
