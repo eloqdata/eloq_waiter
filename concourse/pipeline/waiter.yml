@@ -2,6 +2,8 @@ jobs:
   - name: test-ubuntu2004
     serial: true
     plan:
+      - get: alarm-clock
+        trigger: true
       - get: waiter_src
       - get: image_ubuntu2004
       - task: install-test
@@ -11,6 +13,8 @@ jobs:
   - name: test-ubuntu1804
     serial: true
     plan:
+      - get: alarm-clock
+        trigger: true
       - get: waiter_src
       - get: image_ubuntu1804
       - task: install-test
@@ -75,3 +79,11 @@ resources:
       password: Mono_cz158#
       repository: monographdb/monograph-dev-ci-centos7
       tag: latest
+
+  - name: alarm-clock
+    type: time
+    source:
+      start: 4:00 AM
+      stop: 4:00 AM
+      location: Asia/Shanghai
+      days: [Monday, Wednesday, Friday]
