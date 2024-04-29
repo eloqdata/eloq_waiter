@@ -15,7 +15,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/tmp/logDisk_demoKV"
+          - "/tmp/disl_wal_eloqkv"
     replica: 1
   tx_service:
     host:
