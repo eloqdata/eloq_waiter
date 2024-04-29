@@ -18,7 +18,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/${USER}/eloq/disk_sql"
+          - "/home/${USER}/eloq/disk_wal_sql"
     replica: 1
   tx_service:
     host:

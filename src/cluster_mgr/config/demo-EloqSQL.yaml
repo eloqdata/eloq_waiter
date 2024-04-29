@@ -18,7 +18,7 @@ deployment:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/tmp/logDisk_demoSQL"
+          - "/tmp/disl_wal_eloqsql"
     replica: 1
   tx_service:
     host:
