@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::vec;
-use tracing::error;
 use users::get_current_uid;
 
 #[derive(Clone, Debug)]
