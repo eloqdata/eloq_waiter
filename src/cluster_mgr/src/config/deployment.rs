@@ -183,16 +183,18 @@ pub struct Deployment {
 impl Deployment {
     // Populate tx_image and log_image according to version number
     pub fn set_image(&mut self) -> Result<()> {
-        if self.version.is_none() || self.version.as_ref().unwrap().to_lowercase() == "latest" {
+        if self.version.is_none() {
             self.version = Some("latest".to_owned());
-        } else if self.version.as_ref().unwrap().to_lowercase() == "nightly" {
-            self.version = Some("nightly".to_owned());
-        } else {
+        }
+        self.version.as_mut().unwrap().make_ascii_lowercase();
+        let ver = self.version.as_ref().unwrap();
+        if ver != "latest" || ver != "nightly" || ver != "debug" {
             let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
-            if !re.is_match(self.version.as_ref().unwrap()) {
-                panic!("Invalid version {}", self.version.as_ref().unwrap());
+            if !re.is_match(ver) {
+                bail!("Invalid version {}", ver);
             }
         }
+
         let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
         let os_name = sysinfo::System::distribution_id();
         let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
