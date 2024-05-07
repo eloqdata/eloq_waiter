@@ -8,7 +8,7 @@ use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuil
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
-use crate::config::{DeploymentPackage, StorageProvider};
+use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
 use tracing::info;
 
@@ -36,9 +36,8 @@ impl TaskGroup for InstallDBTaskGroup {
         };
         let mut barrier = vec![];
         let mut executable = IndexMap::new();
-        let storage_provider = config.get_monograph_storage()?;
-        match storage_provider {
-            StorageProvider::Cassandra => {
+        if let Some(cass) = &config.deployment.storage_service.cassandra {
+            if cass.internal().is_some() {
                 let upload_cass_config_task =
                     upload_tasks(UploadTaskBuilderType::CassConf, &config);
                 barrier.push(upload_cass_config_task.len());
@@ -58,16 +57,10 @@ impl TaskGroup for InstallDBTaskGroup {
                         executable.extend(update_http_port_task);
                     }
                 }
-            }
-            _ => {}
-        };
-        match storage_provider {
-            StorageProvider::Cassandra => {
                 let cassandra_start = CassandraCtlTask::from_config(install_cmd, &config);
                 barrier.extend(CassandraCtlTask::barrier(cassandra_start.len()));
                 executable.extend(cassandra_start);
             }
-            _ => {}
         }
         // Bootstrap
         let monograph_install = MonographInstall::from_config(&config, install_db_host);

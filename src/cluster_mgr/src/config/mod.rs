@@ -241,15 +241,6 @@ pub fn load_yaml_config_template(template_name: &str) -> anyhow::Result<HashMap<
     Ok(yaml_map)
 }
 
-pub fn get_cassandra_port() -> anyhow::Result<u16> {
-    let port = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?
-        .get("native_transport_port")
-        .expect("native_transport_port is not configured")
-        .as_u64()
-        .expect("native_transport_port is invalid");
-    Ok(port as u16)
-}
-
 pub fn cassandra_used_ports() -> Vec<(String, u16)> {
     let cass_cnf =
         load_yaml_config_template(CASSANDRA_CONF_TEMPLATE).expect("cassandra config invalid");

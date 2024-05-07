@@ -8,9 +8,9 @@ use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{Cassandra, RocksDB, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, get_cassandra_port, load_yaml_config_template, DeploymentPackage, DownloadUrl,
-    StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE,
-    CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
+    config_template, load_yaml_config_template, DeploymentPackage, DownloadUrl, StorageProvider,
+    CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
+    CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
     MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, SECTION_CLUSTER,
     SECTION_LOCAL, SECTION_STORE, SET_FOR_ME,
 };
@@ -152,7 +152,7 @@ impl Codis {
             .cassandra
             .as_ref()
             .expect("codis only support cassandra coordinator");
-        let port = get_cassandra_port()?;
+        let port = coord.client_port()?;
         let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
         let keyspace = config.get_redis_keyspace()?;
         let cmds = format!(
@@ -188,7 +188,7 @@ impl Deployment {
         }
         self.version.as_mut().unwrap().make_ascii_lowercase();
         let ver = self.version.as_ref().unwrap();
-        if ver != "latest" || ver != "nightly" || ver != "debug" {
+        if ver != "latest" && ver != "nightly" && ver != "debug" {
             let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
             if !re.is_match(ver) {
                 bail!("Invalid version {}", ver);
@@ -337,17 +337,26 @@ impl Deployment {
         install_dir: String,
     ) -> anyhow::Result<Ini> {
         let mut mysql_ini = Ini::new();
-        if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
+        if let Some(cass) = self.storage_service.cassandra.as_ref() {
             mysql_ini
                 .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
                 .unwrap();
-
-            let cassandra_hosts = cassandra.host.join(",");
+            let hosts = cass.host.join(",");
+            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_hosts", Some(hosts));
+            let port = cass.client_port()?;
             mysql_ini.set(
                 CONFIG_MARIADB_SECTION,
-                "monograph_cass_hosts",
-                Some(cassandra_hosts),
+                "monograph_cass_port",
+                Some(port.to_string()),
             );
+            if let Some(conn) = cass.external() {
+                if let Some(user) = conn.user.clone() {
+                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_user", Some(user));
+                }
+                if let Some(pwd) = conn.password.clone() {
+                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_password", Some(pwd));
+                }
+            }
         } else {
             mysql_ini
                 .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
@@ -529,14 +538,19 @@ impl Deployment {
             .unwrap();
         match self.storage_service.provider().unwrap() {
             StorageProvider::Cassandra => {
-                let cassandra_hosts = self
-                    .storage_service
-                    .cassandra
-                    .as_ref()
-                    .unwrap()
-                    .host
-                    .join(",");
+                let cass = self.storage_service.cassandra.as_ref().unwrap();
+                let cassandra_hosts = cass.host.join(",");
                 redis_ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+                let port = cass.client_port()?;
+                redis_ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
+                if let Some(conn) = cass.external() {
+                    if let Some(user) = conn.user.clone() {
+                        redis_ini.set(SECTION_STORE, "cass_user", Some(user));
+                    }
+                    if let Some(pwd) = conn.password.clone() {
+                        redis_ini.set(SECTION_STORE, "cass_password", Some(pwd));
+                    }
+                }
             }
             StorageProvider::Dynamo => panic!("not supported"),
             StorageProvider::Rocks => match self.storage_service.rocksdb.clone().unwrap() {
@@ -734,7 +748,7 @@ impl Deployment {
             .cassandra
             .as_ref()
             .expect("codis only support cassandra coordinator");
-        let port = get_cassandra_port()?;
+        let port = coord.client_port()?;
         let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
         let keyspace = self.get_redis_keyspace()?;
         cnf.insert("coordinator_addr".to_owned(), toml::Value::String(addr));
@@ -759,9 +773,11 @@ impl Deployment {
             );
         }
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
-            download_urls!(links,
-                {CASSANDRA_FILE_KEY, cass.download_url}
-            );
+            if let Some(cassdp) = cass.internal() {
+                download_urls!(links,
+                    {CASSANDRA_FILE_KEY, cassdp.download_url}
+                );
+            }
         }
         Ok(links)
     }
@@ -781,10 +797,11 @@ impl Deployment {
         match service {
             DeploymentPackage::Storage => {
                 if let Some(cassandra) = &self.storage_service.cassandra {
-                    cassandra.host.to_vec()
-                } else {
-                    vec![]
+                    if cassandra.internal().is_some() {
+                        return cassandra.host.to_vec();
+                    }
                 }
+                vec![]
             }
             DeploymentPackage::MonographLog => {
                 if let Some(ref log_srv) = self.log_service {
@@ -861,10 +878,10 @@ impl Deployment {
         let cass = self.storage_service.cassandra.as_ref().unwrap();
         // cassandra.yaml config object
         let mut cass_conf_map = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
-        let storage_cluster = if cass.storage_cluster.is_none() {
-            format!("{cluster_name}_cass_cluster")
+        let storage_cluster = if let Some(cassdp) = cass.internal() {
+            cassdp.cluster_name.clone().unwrap_or(cluster_name)
         } else {
-            cass.clone().storage_cluster.unwrap()
+            unreachable!()
         };
         let nodes_topo = self.topology();
 

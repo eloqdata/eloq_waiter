@@ -44,15 +44,17 @@ impl TaskGroup for CheckTaskGroup {
         let input = HashMap::new();
         make_check_tasks!(DeploymentPackage::MonographTx, config, input, executable);
         make_check_tasks!(DeploymentPackage::MonographLog, config, input, executable);
-        if config.deployment.storage_service.cassandra.is_some() {
-            let input = cassandra_used_ports()
-                .into_iter()
-                .map(|(name, port)| {
-                    info!("cassandra used port {} for {}", port, name);
-                    (port.to_string(), TaskArgValue::Str(name))
-                })
-                .collect::<HashMap<String, TaskArgValue>>();
-            make_check_tasks!(DeploymentPackage::Storage, config, input, executable);
+        if let Some(cass) = &config.deployment.storage_service.cassandra {
+            if cass.internal().is_some() {
+                let input = cassandra_used_ports()
+                    .into_iter()
+                    .map(|(name, port)| {
+                        info!("cassandra used port {} for {}", port, name);
+                        (port.to_string(), TaskArgValue::Str(name))
+                    })
+                    .collect::<HashMap<String, TaskArgValue>>();
+                make_check_tasks!(DeploymentPackage::Storage, config, input, executable);
+            }
         }
         if config.deployment.monitor.is_some() {
             make_check_tasks!(DeploymentPackage::Prometheus, config, input, executable);

@@ -9,7 +9,7 @@ use crate::config::config_base::{
     DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
 };
 use crate::config::deployment::Product;
-use crate::config::{DeploymentPackage, StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
+use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -55,14 +55,17 @@ impl MonographInstall {
         let keyspace_cql = format!(
             r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
         );
-        let cass_host = self
+        let cass = self
             .config
-            .get_host_list(DeploymentPackage::Storage)
-            .first()
-            .unwrap()
-            .clone();
+            .deployment
+            .storage_service
+            .cassandra
+            .as_ref()
+            .unwrap();
+        let cass_host = cass.host.first().unwrap().clone();
         let cassandra_op_task = CassandraOpTask::new(
             cass_host.clone(),
+            cass.client_port()?,
             TaskId {
                 cmd: "install".to_string(),
                 task: "cassandra_op".to_string(),

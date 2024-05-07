@@ -280,11 +280,20 @@ impl CassandraCtlTask {
         );
         let start_rs = ssh_conn.command(start_cmd.as_str(), CollectOutput).await?;
         let curr_cass_host = ssh_info.0;
+        let cass_port = self
+            .config
+            .deployment
+            .storage_service
+            .cassandra
+            .as_ref()
+            .unwrap()
+            .client_port()?;
         let sleep_duration = Duration::from_secs(2);
         let mut timeout_remaining = Duration::from_secs(5 * 60);
         loop {
             let cassandra_op = CassandraOpTask::new(
                 curr_cass_host.clone(),
+                cass_port,
                 TaskId {
                     cmd: "start".to_string(),
                     task: "check-cassandra-status".to_string(),

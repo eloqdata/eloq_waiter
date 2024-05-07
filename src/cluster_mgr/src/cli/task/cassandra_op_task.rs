@@ -1,6 +1,5 @@
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::get_cassandra_port;
 use async_trait::async_trait;
 use cdrs_tokio::authenticators::NoneAuthenticatorProvider;
 use cdrs_tokio::cluster::session::{Session, SessionBuilder, TcpSessionBuilder};
@@ -19,11 +18,16 @@ pub(crate) const CASS_CQL_STMT: &str = "_CASS_CQL_STMT_";
 pub struct CassandraOpTask {
     task_id: TaskId,
     cass_host: String,
+    port: u16,
 }
 
 impl CassandraOpTask {
-    pub fn new(cass_host: String, task_id: TaskId) -> Self {
-        Self { cass_host, task_id }
+    pub fn new(cass_host: String, port: u16, task_id: TaskId) -> Self {
+        Self {
+            cass_host,
+            port,
+            task_id,
+        }
     }
 
     pub async fn cassandra_session(
@@ -35,13 +39,8 @@ impl CassandraOpTask {
             RoundRobinLoadBalancingStrategy<TransportTcp, TcpConnectionManager>,
         >,
     > {
-        //let cass_hosts = self.config.get_host_list(DeploymentPackage::Storage);
-        let client_transport_port = get_cassandra_port()?;
-        let contact_point =
-            NodeAddress::from(format!("{}:{client_transport_port}", self.cass_host));
-
+        let contact_point = NodeAddress::from(format!("{}:{}", self.cass_host, self.port));
         println!("CassandraOpTask contact_points={:#?}", contact_point);
-
         let cluster_config = NodeTcpConfigBuilder::new()
             .with_authenticator_provider(Arc::new(NoneAuthenticatorProvider {}))
             .with_contact_point(contact_point)

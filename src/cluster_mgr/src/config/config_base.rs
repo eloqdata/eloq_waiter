@@ -95,19 +95,22 @@ impl DeploymentConfig {
                 match pkg {
                     DeploymentPackage::Storage => {
                         if let Some(cassandra) = cassandra_opt {
-                            let cass_url =
-                                DownloadUrl::from_url_str(cassandra.download_url.as_str()).unwrap();
-                            unpack_files.push(cass_url);
-                            extract_monitor_link!(
-                                monitor_link,
-                                NODE_EXPORTER_FILE_KEY,
-                                unpack_files
-                            );
-                            extract_monitor_link!(
-                                monitor_link,
-                                CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
-                                unpack_files
-                            );
+                            if let Some(cassdply) = cassandra.internal() {
+                                let cass_url =
+                                    DownloadUrl::from_url_str(cassdply.download_url.as_str())
+                                        .unwrap();
+                                unpack_files.push(cass_url);
+                                extract_monitor_link!(
+                                    monitor_link,
+                                    NODE_EXPORTER_FILE_KEY,
+                                    unpack_files
+                                );
+                                extract_monitor_link!(
+                                    monitor_link,
+                                    CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
+                                    unpack_files
+                                );
+                            }
                         }
                     }
                     DeploymentPackage::MonographTx => {

@@ -1,7 +1,7 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
-use crate::config::storage_service_config::{Cassandra, RocksDB};
+use crate::config::storage_service_config::{CassDeploy, CassKind, Cassandra, RocksDB};
 use crate::config::{StorageProvider, CONFIG_PATH_DIR, DOWNLOAD_SRC};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
@@ -121,8 +121,10 @@ impl CommandExecutor {
                         );
                         config.deployment.storage_service.cassandra = Some(Cassandra {
                             host: vec!["127.0.0.1".to_owned()],
-                            download_url,
-                            storage_cluster: None,
+                            kind: CassKind::Internal(CassDeploy {
+                                download_url,
+                                cluster_name: None,
+                            }),
                         });
                     }
                     StorageProvider::Dynamo => unimplemented!(),
