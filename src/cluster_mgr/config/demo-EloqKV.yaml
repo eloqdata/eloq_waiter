@@ -14,12 +14,10 @@ deployment:
     nodes:
       - host: 127.0.0.1
         port: 9000
-        data_dir:
-          - "/tmp/disl_wal_eloqkv"
+        data_dir: ["/tmp/disk_wal_eloqkv"]
     replica: 1
   tx_service:
-    host:
-      - 127.0.0.1
+    host: [127.0.0.1]
   storage_service:
   monitor:
     data_dir: ""

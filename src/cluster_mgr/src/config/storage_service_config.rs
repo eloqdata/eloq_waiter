@@ -5,6 +5,7 @@ use crate::config::{
     config_template, load_yaml_config_template, StorageProvider, CASSANDRA_CONF_TEMPLATE,
     CASSANDRA_ENV_TEMPLATE,
 };
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::File;
@@ -19,7 +20,7 @@ pub struct StorageService {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct CassConnect {
-    pub port: u16,
+    pub port: Option<u16>,
     pub user: Option<String>,
     pub password: Option<String>,
 }
@@ -59,7 +60,7 @@ impl Cassandra {
         }
     }
 
-    pub fn client_port(&self) -> anyhow::Result<u16> {
+    pub fn client_port(&self) -> Result<u16> {
         match &self.kind {
             CassKind::Internal(_) => {
                 let port = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?
@@ -69,7 +70,7 @@ impl Cassandra {
                     .expect("native_transport_port is invalid");
                 Ok(port as u16)
             }
-            CassKind::External(conn) => Ok(conn.port),
+            CassKind::External(conn) => Ok(conn.port.unwrap_or(9042)),
         }
     }
 }

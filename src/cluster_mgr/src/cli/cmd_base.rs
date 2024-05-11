@@ -1,17 +1,19 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
-use crate::config::storage_service_config::{CassDeploy, CassKind, Cassandra, RocksDB};
+use crate::config::storage_service_config::{
+    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
+};
 use crate::config::{StorageProvider, CONFIG_PATH_DIR, DOWNLOAD_SRC};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
 use std::env;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -44,11 +46,7 @@ impl CommandExecutor {
         &self.state_mgr
     }
 
-    async fn save_deployment_config(
-        &self,
-        config: &DeploymentConfig,
-        upsert: bool,
-    ) -> anyhow::Result<()> {
+    async fn save_deployment_config(&self, config: &DeploymentConfig, upsert: bool) -> Result<()> {
         let deployment_operation = self
             .state_mgr
             .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
@@ -62,12 +60,10 @@ impl CommandExecutor {
                 })
             })
             .await?;
-        if !deployment_entity.is_empty() && !upsert {
-            warn!(
-                "current cluster {} already exists. do nothing",
-                curr_cluster
-            );
-            return Ok(());
+        if !deployment_entity.is_empty() {
+            if !upsert {
+                bail!("cluster {} already exists", curr_cluster);
+            }
         }
         let all_hosts = config.get_unique_host_list().join(";");
         let config_string = config.config_to_string();
@@ -109,37 +105,53 @@ impl CommandExecutor {
                 store,
                 version,
                 skip_deps: _,
+                limited,
+                ext_cass,
+                ext_cass_port,
+                ext_cass_user,
+                ext_cass_pwd,
             } => {
                 let dir = env::var(CONFIG_PATH_DIR)?;
                 let topology = format!("{dir}/demo-{product}.yaml");
                 let mut config = DeploymentConfig::load(Some(topology))?;
+                let deploy = &mut config.deployment;
                 match store {
                     StorageProvider::Cassandra => {
-                        let download_url = format!(
-                            "{}/others/apache-cassandra-4.1.3-bin.tar.gz",
-                            DOWNLOAD_SRC.as_str()
-                        );
-                        config.deployment.storage_service.cassandra = Some(Cassandra {
-                            host: vec!["127.0.0.1".to_owned()],
-                            kind: CassKind::Internal(CassDeploy {
+                        let host;
+                        let kind;
+                        if !ext_cass.is_empty() {
+                            host = ext_cass;
+                            kind = CassKind::External(CassConnect {
+                                port: ext_cass_port,
+                                user: ext_cass_user,
+                                password: ext_cass_pwd,
+                            });
+                        } else {
+                            host = vec!["127.0.0.1".to_owned()];
+                            let download_url = format!(
+                                "{}/others/apache-cassandra-4.1.3-bin.tar.gz",
+                                DOWNLOAD_SRC.as_str()
+                            );
+                            kind = CassKind::Internal(CassDeploy {
                                 download_url,
                                 cluster_name: None,
-                            }),
-                        });
+                            });
+                        };
+                        deploy.storage_service.cassandra = Some(Cassandra { host, kind });
                     }
                     StorageProvider::Dynamo => unimplemented!(),
                     StorageProvider::Rocks => {
-                        config.deployment.storage_service.rocksdb = Some(RocksDB::Local);
+                        deploy.storage_service.rocksdb = Some(RocksDB::Local);
                     }
                 }
-                config.deployment.version.replace(version);
-                config.deployment.set_image()?;
+                deploy.version.replace(version);
+                deploy.set_image()?;
                 // add kv-store name to cluster name suffix
                 let name_suffix = format!("-{store}");
-                config.deployment.cluster_name.push_str(&name_suffix);
+                deploy.cluster_name.push_str(&name_suffix);
                 // add an unique number (pid) to WAL directory
-                config
-                    .deployment
+                let pid = std::process::id().to_string();
+                deploy
                     .log_service
                     .as_mut()
                     .unwrap()
@@ -149,7 +161,11 @@ impl CommandExecutor {
                     .data_dir
                     .first_mut()
                     .unwrap()
-                    .push_str(std::process::id().to_string().as_str());
+                    .push_str(&pid);
+                if !limited {
+                    deploy.hardware = None;
+                    config.scan_hardware().await?;
+                }
                 self.save_deployment_config(&config, false).await?;
                 Ok(config)
             }
@@ -179,7 +195,7 @@ impl CommandExecutor {
                 command: _,
                 cluster,
             }
-            | CommandArgs::Inspect { cluster }
+            | CommandArgs::Inspect { cluster, yaml: _ }
             | CommandArgs::Remove { cluster } => {
                 let config = self
                     .state_mgr
@@ -243,6 +259,11 @@ impl CommandExecutor {
                 store: _,
                 version: _,
                 skip_deps: _,
+                limited: _,
+                ext_cass: _,
+                ext_cass_port: _,
+                ext_cass_user: _,
+                ext_cass_pwd: _,
             } => {
                 println!("Launch cluster finished, Enjoy!");
                 println!("Connect to server: \n\t{}", config.client_conn());
@@ -261,8 +282,12 @@ impl CommandExecutor {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
                 info!("cluster state cleared rows={}", n);
             }
-            CommandArgs::Inspect { cluster: _ } => {
-                println!("{:#?}", config);
+            CommandArgs::Inspect { cluster: _, yaml } => {
+                if yaml {
+                    println!("{}", config.config_to_string())
+                } else {
+                    println!("{:#?}", config);
+                }
             }
             _ => {}
         }

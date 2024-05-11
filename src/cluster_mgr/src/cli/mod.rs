@@ -187,8 +187,18 @@ pub enum CommandArgs {
         store: StorageProvider,
         #[arg(short, long, default_value = "latest")]
         version: String,
-        #[arg(short, long, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         skip_deps: bool,
+        #[arg(long, default_value_t = true)]
+        limited: bool,
+        #[arg(long, value_delimiter = ';', value_name = "CONTACT-POINTS")]
+        ext_cass: Vec<String>,
+        #[arg(long)]
+        ext_cass_port: Option<u16>,
+        #[arg(long)]
+        ext_cass_user: Option<String>,
+        #[arg(long)]
+        ext_cass_pwd: Option<String>,
     },
     #[command(long_about = "List created clusters")]
     #[strum(serialize = "list")]
@@ -196,8 +206,10 @@ pub enum CommandArgs {
     #[command(long_about = "Inspect cluster configuration")]
     #[strum(serialize = "inspect")]
     Inspect {
-        #[arg(short, long, value_name = "CLUSTER NAME")]
+        #[arg(short, long, value_name = "CLUSTER-NAME")]
         cluster: String,
+        #[arg(short, long, default_value_t = false)]
+        yaml: bool,
     },
 }
 

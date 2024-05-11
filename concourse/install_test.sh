@@ -23,6 +23,8 @@ bash waiter_src/concourse/install.sh
 export PATH="$PATH:$CLUSTER_MGR_HOME"
 BASE_PATH=${PATH}
 
+echo ">>> Test Demo command"
+
 # test eloq-sql
 cluster_mgr demo --product eloq-sql --version nightly
 export PATH="${BASE_PATH}:${CLUSTER_MGR_HOME}/demo-sql-cassandra/monograph-tx-service-release/install/bin"
@@ -65,6 +67,7 @@ cluster_mgr monitor --command stop --cluster demo-kv-rocksdb
 cluster_mgr list
 cluster_mgr stop --cluster demo-kv-rocksdb --all
 
+echo ">>> Test Launch command"
 cat ${HOME}/.ssh/id_rsa.pub >>${HOME}/.ssh/authorized_keys
 
 sleep 15
@@ -132,3 +135,24 @@ cluster_mgr inspect --cluster eloqkv-cluster
 cluster_mgr list
 cluster_mgr remove --cluster eloqsql-cluster
 cluster_mgr remove --cluster eloqkv-cluster
+
+echo ">>> Test debug version"
+CASSANDRA_ADDR="172.31.41.177"
+
+sleep 15
+cluster_mgr demo --product eloq-sql --version debug --skip-deps --ext-cass ${CASSANDRA_ADDR}
+export PATH="${BASE_PATH}:${CLUSTER_MGR_HOME}/demo-sql-cassandra/monograph-tx-service-release/install/bin"
+cluster_mgr status --cluster demo-sql-cassandra --wait 5
+mariadb -S /tmp/mysql3316.sock --execute "SHOW DATABASES"
+cluster_mgr monitor --command stop --cluster demo-sql-cassandra
+cluster_mgr stop --cluster demo-sql-cassandra --all
+cluster_mgr remove --cluster demo-sql-cassandra
+
+sleep 15
+cluster_mgr demo --product eloq-kv --version debug --skip-deps --ext-cass ${CASSANDRA_ADDR}
+export PATH="${BASE_PATH}:${CLUSTER_MGR_HOME}/demo-kv-cassandra/monograph_redis"
+cluster_mgr status --cluster demo-kv-cassandra --wait 5
+redis_cli -server 127.0.0.1:6389 incr mycounter
+cluster_mgr monitor --command stop --cluster demo-kv-cassandra
+cluster_mgr stop --cluster demo-kv-cassandra --all
+cluster_mgr remove --cluster demo-kv-cassandra
