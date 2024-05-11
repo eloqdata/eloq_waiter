@@ -4,7 +4,7 @@ use crate::config::deployment::{Codis, Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
-    MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
+    MONOGRAPH_INSTALL_SCRIPT, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
@@ -18,6 +18,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
+use tracing_subscriber::fmt::format;
 
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
 pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
@@ -32,6 +33,12 @@ pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
 pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
 pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
 pub const DEPLOYMENT_CHECK_SUCCESS_TASK: &str = "deploy_check_success_task";
+
+pub const ASAN_OPTIONS: &str = "abort_on_error=0:disable_coredump=0:halt_on_error=0";
+
+pub fn export_asan(log: &str) -> String {
+    format!("export ASAN_OPTIONS={ASAN_OPTIONS}:log_path={log}")
+}
 
 macro_rules! all_hosts_merge {
     ($config_ref:expr, $($pkg_name:ident $(,)?)*) => {{
@@ -293,24 +300,16 @@ impl DeploymentConfig {
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
-        let install_db_template = config_template(MONOGRAPH_INSTALL_TEMPLATE)?;
+        let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
         let remote_install_dir = self.install_dir();
-
+        let tx_dir = format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}");
+        let expt_asan = export_asan(&format!("{tx_dir}/logs"));
         let rs = fs::read_to_string(install_db_template.as_path())?;
         let final_script = rs
-            .replace(
-                "_CASSANDRA_STORAGE_BIN",
-                format!("{}/{}", remote_install_dir, "apache-cassandra/bin").as_str(),
-            )
-            .replace(
-                "_MONOGRAPH_DB_HOME",
-                format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install",).as_str(),
-            )
-            .replace(
-                "_MY_CONF",
-                format!("{remote_install_dir}/my_local.cnf").as_str(),
-            )
-            .replace("_MY_CLUSTER_HOME", remote_install_dir.as_str());
+            .replace("${INSTALL_DIR}", &format!("{tx_dir}/install",))
+            .replace("${EXPORT_ASAN}", &expt_asan)
+            .replace("${BS_INI}", &format!("{remote_install_dir}/my_local.cnf"))
+            .replace("${DATA_DIR}", &format!("{remote_install_dir}/datafarm"));
         Ok(final_script)
     }
 
@@ -328,12 +327,12 @@ impl DeploymentConfig {
                         .map(|cmd_items| {
                             let curr_member = &cmd_items.log_member;
                             let cmd_script = log_start_template
-                                .replace("_MY_LOG_INSTALL_DIR", log_home_dir.as_str())
-                                .replace("_GROUP_MEMBERS", &cmd_items.group_members_config)
-                                .replace("_GROUP_ID", curr_member.group_id.to_string().as_str())
-                                .replace("_NODE_ID", curr_member.node_id.to_string().as_str())
-                                .replace("_STORAGE_DIR", curr_member.storage_path.as_str());
-
+                                .replace("${LOG_INSTALL_DIR}", log_home_dir.as_str())
+                                .replace("${GROUP_MEMBERS}", &cmd_items.group_members_config)
+                                .replace("${GROUP_ID}", curr_member.group_id.to_string().as_str())
+                                .replace("${NODE_ID}", curr_member.node_id.to_string().as_str())
+                                .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
+                                .replace("${ADD_ASAN_OPTS}", ASAN_OPTIONS);
                             (
                                 LogProcessKey {
                                     host: host.clone(),

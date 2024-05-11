@@ -9,7 +9,7 @@ use crate::cli::task::task_utils::{
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
+    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
 };
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
@@ -40,38 +40,31 @@ pub enum TxCtlCmd {
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
 macro_rules! mono_start_cmd {
-    ($remote_install_home:expr, $product:expr) => {
+    ($remote_install_home:expr, $product:expr) => {{
+        let tx_dir = match $product {
+            Product::EloqSQL => format!("{}/{}", $remote_install_home, MONOGRAPH_TX_SERVICE_DIR),
+            Product::EloqKV => format!("{}/{}", $remote_install_home, REDIS_TX_SERVICE_DIR),
+        };
+        let asan_opts = export_asan(&format!("{}/logs/asan", tx_dir));
         match $product {
             Product::EloqSQL => format!(
-                r#"mkdir -p {}/{}/logs && cd {}/{}/install && \
-    export LD_LIBRARY_PATH={}/{}/install/lib:$LD_LIBRARY_PATH; \
-    export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    export LD_PRELOAD={}/{}/install/lib/libmimalloc.so.2; \
-    {}/{}/install/bin/mysqld --defaults-file={}/my.cnf > {}/{}/logs/mysqld_start_{}.log 2>&1 &"#,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR,
-                $remote_install_home,
-                $remote_install_home, MONOGRAPH_TX_SERVICE_DIR, process::id()
+                r#"mkdir -p {}/logs && cd {}/install && \
+                {}; export LD_LIBRARY_PATH={}/install/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/install/lib/libmimalloc.so.2; \
+                {}/install/bin/mysqld --defaults-file={}/my.cnf > {}/logs/mysqld_start_{}.log 2>&1 &"#,
+                tx_dir, tx_dir,
+                asan_opts, tx_dir, tx_dir,
+                tx_dir, $remote_install_home, tx_dir, process::id()
             ),
             Product::EloqKV => format!(
-                r#"mkdir -p {}/{}/logs && cd {}/{} && \
-    export LD_LIBRARY_PATH={}/{}/lib:$LD_LIBRARY_PATH; \
-    export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0; \
-    export LD_PRELOAD={}/{}/lib/libmimalloc.so.2; \
-    {}/{}/redis_server --config={}/redis.ini > {}/{}/logs/redis_{}.log 2>&1 &"#,
-                $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home, REDIS_TX_SERVICE_DIR,
-                $remote_install_home,
-                $remote_install_home, REDIS_TX_SERVICE_DIR, process::id()
+                r#"mkdir -p {}/logs && cd {} && \
+                {}; export LD_LIBRARY_PATH={}/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/lib/libmimalloc.so.2; \    
+                {}/redis_server --config={}/redis.ini > {}/logs/redis_{}.log 2>&1 &"#,
+                tx_dir, tx_dir,
+                asan_opts, tx_dir, tx_dir,
+                tx_dir, $remote_install_home, tx_dir, process::id()
             ),
         }
-    };
+    }};
 }
 
 macro_rules! monograph_cmd {

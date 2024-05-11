@@ -6,7 +6,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::CMD_OUTPUT;
 use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
+    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
 };
 use crate::config::deployment::Product;
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
@@ -114,21 +114,20 @@ impl TaskExecutor for MonographInstall {
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
-        let install_dir = self.config.install_dir();
+        let insdir = self.config.install_dir();
         let bootstarp_sh = match self.config.product() {
             Product::EloqSQL => {
-                let txsv_dir = format!("{}/{}", install_dir, MONOGRAPH_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, MONOGRAPH_TX_SERVICE_DIR);
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/install/lib:$LD_LIBRARY_PATH; \
-                    /bin/bash {}/{} > {txsv_dir}/logs/bootstrap.log 2>&1 "#,
-                    install_dir, MONOGRAPH_INSTALL_SCRIPT,
+                    "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {txsv_dir}/logs/bootstrap.log 2>&1 ",
                 )
             }
             Product::EloqKV => {
-                let txsv_dir = format!("{}/{}", install_dir, REDIS_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
+                let expt_asan = export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"));
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {txsv_dir}/redis_server --config={install_dir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    r#"mkdir -p {txsv_dir}/logs; export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
+                    {expt_asan}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
                 )
             }
         };

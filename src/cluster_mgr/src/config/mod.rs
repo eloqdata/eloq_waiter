@@ -27,8 +27,7 @@ pub const REDIS_CONF_TEMPLATE: &str = "redis_template.ini";
 pub const CODIS_PROXY_CNF: &str = "codis_proxy.toml";
 pub const CODIS_DASHBOARD_CNF: &str = "codis_dashboard.toml";
 
-pub const START_LOG_TEMPLATE: &str = "start_tx_log.template";
-pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
+pub const START_LOG_TEMPLATE: &str = "start_tx_log.bash";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
 pub const CASSANDRA_ENV_TEMPLATE: &str = "cassandra-env-template";
