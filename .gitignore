@@ -7,7 +7,6 @@
 EloqWaiter/
 EloqWaiterRest/
 mono_devtools_dist/
-*.bash
 #*.json
 *.log
 # JetBrains

@@ -18,7 +18,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
-use tracing_subscriber::fmt::format;
 
 pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
 pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
