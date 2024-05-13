@@ -25,6 +25,11 @@ impl TaskGroup for LaunchTaskGroup {
                 store: _,
                 version: _,
                 skip_deps,
+                limited: _,
+                ext_cass: _,
+                ext_cass_port: _,
+                ext_cass_user: _,
+                ext_cass_pwd: _,
             } => {
                 let topo = format!("{}/demo-{product}.yaml", env::var(CONFIG_PATH_DIR)?);
                 (skip_deps, topo)

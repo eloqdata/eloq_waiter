@@ -8,9 +8,9 @@ use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{Cassandra, RocksDB, StorageService};
 use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
-    config_template, get_cassandra_port, load_yaml_config_template, DeploymentPackage, DownloadUrl,
-    StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE,
-    CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
+    config_template, load_yaml_config_template, DeploymentPackage, DownloadUrl, StorageProvider,
+    CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
+    CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
     MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, SECTION_CLUSTER,
     SECTION_LOCAL, SECTION_STORE, SET_FOR_ME,
 };
@@ -117,6 +117,8 @@ pub struct MonographPort {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct MonographService {
     pub host: Vec<String>,
+    pub port: Option<u16>,
+    pub client_port: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
@@ -152,7 +154,7 @@ impl Codis {
             .cassandra
             .as_ref()
             .expect("codis only support cassandra coordinator");
-        let port = get_cassandra_port()?;
+        let port = coord.client_port()?;
         let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
         let keyspace = config.get_redis_keyspace()?;
         let cmds = format!(
@@ -171,7 +173,6 @@ pub struct Deployment {
     pub log_image: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
-    pub port: Port,
     pub tx_service: MonographService,
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
@@ -183,16 +184,18 @@ pub struct Deployment {
 impl Deployment {
     // Populate tx_image and log_image according to version number
     pub fn set_image(&mut self) -> Result<()> {
-        if self.version.is_none() || self.version.as_ref().unwrap().to_lowercase() == "latest" {
+        if self.version.is_none() {
             self.version = Some("latest".to_owned());
-        } else if self.version.as_ref().unwrap().to_lowercase() == "nightly" {
-            self.version = Some("nightly".to_owned());
-        } else {
+        }
+        self.version.as_mut().unwrap().make_ascii_lowercase();
+        let ver = self.version.as_ref().unwrap();
+        if ver != "latest" && ver != "nightly" && ver != "debug" {
             let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
-            if !re.is_match(self.version.as_ref().unwrap()) {
-                panic!("Invalid version {}", self.version.as_ref().unwrap());
+            if !re.is_match(ver) {
+                bail!("Invalid version {}", ver);
             }
         }
+
         let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
         let os_name = sysinfo::System::distribution_id();
         let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
@@ -248,15 +251,8 @@ impl Deployment {
         }
     }
 
-    pub fn cs_conn_port(&self) -> u16 {
-        if let Some(p) = self.port.cs_conn {
-            p
-        } else {
-            match self.product() {
-                Product::EloqSQL => 3306,
-                Product::EloqKV => 6379,
-            }
-        }
+    pub fn client_port(&self) -> u16 {
+        self.tx_service.client_port
     }
 
     pub fn install_dir(&self) -> String {
@@ -289,6 +285,13 @@ impl Deployment {
             Ok(keyspace)
         } else {
             Ok("mono_redis".to_string())
+        }
+    }
+
+    pub fn get_keyspace(&self) -> Result<String> {
+        match self.product() {
+            Product::EloqSQL => self.get_monograph_keyspace(),
+            Product::EloqKV => self.get_redis_keyspace(),
         }
     }
 
@@ -335,17 +338,26 @@ impl Deployment {
         install_dir: String,
     ) -> anyhow::Result<Ini> {
         let mut mysql_ini = Ini::new();
-        if let Some(cassandra) = self.storage_service.cassandra.as_ref() {
+        if let Some(cass) = self.storage_service.cassandra.as_ref() {
             mysql_ini
                 .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
                 .unwrap();
-
-            let cassandra_hosts = cassandra.host.join(",");
+            let hosts = cass.host.join(",");
+            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_hosts", Some(hosts));
+            let port = cass.client_port()?;
             mysql_ini.set(
                 CONFIG_MARIADB_SECTION,
-                "monograph_cass_hosts",
-                Some(cassandra_hosts),
+                "monograph_cass_port",
+                Some(port.to_string()),
             );
+            if let Some(conn) = cass.external() {
+                if let Some(user) = conn.user.clone() {
+                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_user", Some(user));
+                }
+                if let Some(pwd) = conn.password.clone() {
+                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_password", Some(pwd));
+                }
+            }
         } else {
             mysql_ini
                 .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
@@ -401,16 +413,16 @@ impl Deployment {
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "port",
-            Some(self.cs_conn_port().to_string()),
+            Some(self.client_port().to_string()),
         );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "socket",
-            Some(format!("/tmp/mysql{}.sock", self.cs_conn_port())),
+            Some(format!("/tmp/mysql{}.sock", self.client_port())),
         );
 
-        let use_port = self.port.monograph_port.as_ref().unwrap().start;
+        let use_port = self.tx_service.port.unwrap();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts
@@ -433,7 +445,7 @@ impl Deployment {
         tx_host: Option<String>,
         install_dir: String,
     ) -> anyhow::Result<PathBuf> {
-        let port = self.port.monograph_port.as_ref().unwrap().start;
+        let port = self.tx_service.port.unwrap();
         let is_host = tx_host.is_some();
         let mut my_ini = self.build_monograph_config(is_host, install_dir)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
@@ -527,14 +539,19 @@ impl Deployment {
             .unwrap();
         match self.storage_service.provider().unwrap() {
             StorageProvider::Cassandra => {
-                let cassandra_hosts = self
-                    .storage_service
-                    .cassandra
-                    .as_ref()
-                    .unwrap()
-                    .host
-                    .join(",");
+                let cass = self.storage_service.cassandra.as_ref().unwrap();
+                let cassandra_hosts = cass.host.join(",");
                 redis_ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+                let port = cass.client_port()?;
+                redis_ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
+                if let Some(conn) = cass.external() {
+                    if let Some(user) = conn.user.clone() {
+                        redis_ini.set(SECTION_STORE, "cass_user", Some(user));
+                    }
+                    if let Some(pwd) = conn.password.clone() {
+                        redis_ini.set(SECTION_STORE, "cass_password", Some(pwd));
+                    }
+                }
             }
             StorageProvider::Dynamo => panic!("not supported"),
             StorageProvider::Rocks => match self.storage_service.rocksdb.clone().unwrap() {
@@ -597,7 +614,7 @@ impl Deployment {
                 }
             },
         }
-        let use_port = self.cs_conn_port();
+        let use_port = self.client_port();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts
@@ -622,7 +639,7 @@ impl Deployment {
             (host.clone(), upload_host_dir(&host).join("redis.ini"))
         } else {
             ini.set(SECTION_LOCAL, "ip", Some("127.0.0.1".to_owned()));
-            ini.set(SECTION_LOCAL, "port", Some(self.cs_conn_port().to_string()));
+            ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
             ini.set(SECTION_LOCAL, "core_number", Some("1".to_owned()));
             ini.set(SECTION_LOCAL, "event_dispatcher_num", Some("1".to_owned()));
             ini.set(
@@ -642,7 +659,7 @@ impl Deployment {
                 });
         }
         ini.set(SECTION_LOCAL, "ip", Some(host.clone()));
-        ini.set(SECTION_LOCAL, "port", Some(self.cs_conn_port().to_string()));
+        ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
 
         let opt_hw = self.get_hardware(&host);
         if opt_hw.is_none() {
@@ -732,7 +749,7 @@ impl Deployment {
             .cassandra
             .as_ref()
             .expect("codis only support cassandra coordinator");
-        let port = get_cassandra_port()?;
+        let port = coord.client_port()?;
         let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
         let keyspace = self.get_redis_keyspace()?;
         cnf.insert("coordinator_addr".to_owned(), toml::Value::String(addr));
@@ -757,9 +774,11 @@ impl Deployment {
             );
         }
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
-            download_urls!(links,
-                {CASSANDRA_FILE_KEY, cass.download_url}
-            );
+            if let Some(cassdp) = cass.internal() {
+                download_urls!(links,
+                    {CASSANDRA_FILE_KEY, cassdp.download_url}
+                );
+            }
         }
         Ok(links)
     }
@@ -779,10 +798,11 @@ impl Deployment {
         match service {
             DeploymentPackage::Storage => {
                 if let Some(cassandra) = &self.storage_service.cassandra {
-                    cassandra.host.to_vec()
-                } else {
-                    vec![]
+                    if cassandra.internal().is_some() {
+                        return cassandra.host.to_vec();
+                    }
                 }
+                vec![]
             }
             DeploymentPackage::MonographLog => {
                 if let Some(ref log_srv) = self.log_service {
@@ -859,10 +879,10 @@ impl Deployment {
         let cass = self.storage_service.cassandra.as_ref().unwrap();
         // cassandra.yaml config object
         let mut cass_conf_map = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
-        let storage_cluster = if cass.storage_cluster.is_none() {
-            format!("{cluster_name}_cass_cluster")
+        let storage_cluster = if let Some(cassdp) = cass.internal() {
+            cassdp.cluster_name.clone().unwrap_or(cluster_name)
         } else {
-            cass.clone().storage_cluster.unwrap()
+            unreachable!()
         };
         let nodes_topo = self.topology();
 

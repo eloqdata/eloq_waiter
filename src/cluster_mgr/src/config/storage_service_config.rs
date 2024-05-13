@@ -1,7 +1,11 @@
 use crate::cli::upload_dir;
 use crate::config::config_base::CASSANDRA_COLLECTOR_AGENT_FILE_KEY;
 use crate::config::monitor::Monitor;
-use crate::config::{config_template, StorageProvider, CASSANDRA_ENV_TEMPLATE};
+use crate::config::{
+    config_template, load_yaml_config_template, StorageProvider, CASSANDRA_CONF_TEMPLATE,
+    CASSANDRA_ENV_TEMPLATE,
+};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::File;
@@ -15,14 +19,60 @@ pub struct StorageService {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct CassConnect {
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub password: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct CassDeploy {
+    pub download_url: String,
+    pub cluster_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum CassKind {
+    Internal(CassDeploy),
+    External(CassConnect),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Cassandra {
     pub host: Vec<String>,
-    pub download_url: String,
-    pub storage_cluster: Option<String>,
+    pub kind: CassKind,
 }
 
 impl Cassandra {
     pub const MAX_SEED: usize = 3;
+    pub fn internal(&self) -> Option<&CassDeploy> {
+        if let CassKind::Internal(deploy) = &self.kind {
+            Some(deploy)
+        } else {
+            None
+        }
+    }
+    pub fn external(&self) -> Option<&CassConnect> {
+        if let CassKind::External(conn) = &self.kind {
+            Some(conn)
+        } else {
+            None
+        }
+    }
+
+    pub fn client_port(&self) -> Result<u16> {
+        match &self.kind {
+            CassKind::Internal(_) => {
+                let port = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?
+                    .get("native_transport_port")
+                    .expect("native_transport_port is not configured")
+                    .as_u64()
+                    .expect("native_transport_port is invalid");
+                Ok(port as u16)
+            }
+            CassKind::External(conn) => Ok(conn.port.unwrap_or(9042)),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

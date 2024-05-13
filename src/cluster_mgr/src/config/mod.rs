@@ -27,8 +27,7 @@ pub const REDIS_CONF_TEMPLATE: &str = "redis_template.ini";
 pub const CODIS_PROXY_CNF: &str = "codis_proxy.toml";
 pub const CODIS_DASHBOARD_CNF: &str = "codis_dashboard.toml";
 
-pub const START_LOG_TEMPLATE: &str = "start_tx_log.template";
-pub const MONOGRAPH_INSTALL_TEMPLATE: &str = "monograph_install_db.template";
+pub const START_LOG_TEMPLATE: &str = "start_tx_log.bash";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
 pub const CASSANDRA_ENV_TEMPLATE: &str = "cassandra-env-template";
@@ -239,15 +238,6 @@ pub fn load_yaml_config_template(template_name: &str) -> anyhow::Result<HashMap<
     let cass_opened_file = File::open(cass_template_path_buf.as_path())?;
     let yaml_map = serde_yaml::from_reader::<File, HashMap<String, Value>>(cass_opened_file)?;
     Ok(yaml_map)
-}
-
-pub fn get_cassandra_port() -> anyhow::Result<u16> {
-    let port = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?
-        .get("native_transport_port")
-        .expect("native_transport_port is not configured")
-        .as_u64()
-        .expect("native_transport_port is invalid");
-    Ok(port as u16)
 }
 
 pub fn cassandra_used_ports() -> Vec<(String, u16)> {
