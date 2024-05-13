@@ -294,6 +294,13 @@ impl Deployment {
         }
     }
 
+    pub fn get_keyspace(&self) -> Result<String> {
+        match self.product() {
+            Product::EloqSQL => self.get_monograph_keyspace(),
+            Product::EloqKV => self.get_redis_keyspace(),
+        }
+    }
+
     fn build_log_config(&self) -> HashMap<String, String> {
         let log_srv = self
             .log_service

@@ -1,6 +1,6 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
-use crate::cli::task::cassandra_op_task::{CassandraOpTask, CASS_CQL_STMT};
+use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
@@ -48,11 +48,8 @@ impl MonographInstall {
     }
 
     pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
-        let keyspace = match self.config.product() {
-            Product::EloqSQL => self.config.deployment.get_monograph_keyspace()?,
-            Product::EloqKV => self.config.deployment.get_redis_keyspace()?,
-        };
-        let keyspace_cql = format!(
+        let keyspace = self.config.deployment.get_keyspace()?;
+        let cql = format!(
             r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
         );
         let cass = self
@@ -63,20 +60,15 @@ impl MonographInstall {
             .as_ref()
             .unwrap();
         let cass_host = cass.host.first().unwrap().clone();
-        let cassandra_op_task = CassandraOpTask::new(
-            cass_host.clone(),
-            cass.client_port()?,
-            TaskId {
-                cmd: "install".to_string(),
-                task: "cassandra_op".to_string(),
-                host: "_local".to_string(),
-            },
-        );
+        let id = TaskId {
+            cmd: "install".to_string(),
+            task: "cassandra_op".to_string(),
+            host: "_local".to_string(),
+        };
+        let cassandra_op_task =
+            CassandraOpTask::new(id, cass_host.clone(), cass.client_port()?, cql);
         let cassandra_op_task_rs = cassandra_op_task
-            .execute(
-                TaskHost::Local,
-                HashMap::from([(CASS_CQL_STMT.to_string(), TaskArgValue::Str(keyspace_cql))]),
-            )
+            .execute(TaskHost::Local, HashMap::default())
             .await?
             .unwrap();
         let mono_keyspace_value = TaskArgValue::into_inner_value::<String>(
