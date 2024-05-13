@@ -1,6 +1,6 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
-use crate::cli::task::cassandra_op_task::{CassandraOpTask, CASS_CQL_STMT};
+use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::task_base::{
     CmdErr::CassandraCtlErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
     TaskInstance,
@@ -280,28 +280,28 @@ impl CassandraCtlTask {
         );
         let start_rs = ssh_conn.command(start_cmd.as_str(), CollectOutput).await?;
         let curr_cass_host = ssh_info.0;
+        let cass_port = self
+            .config
+            .deployment
+            .storage_service
+            .cassandra
+            .as_ref()
+            .unwrap()
+            .client_port()?;
         let sleep_duration = Duration::from_secs(2);
         let mut timeout_remaining = Duration::from_secs(5 * 60);
+        let id = TaskId {
+            cmd: "start".to_string(),
+            task: "check-cassandra-status".to_string(),
+            host: "_local".to_string(),
+        };
+        let cql = check_status.cmd_value();
+        let cassandra_op = CassandraOpTask::new(id, curr_cass_host.clone(), cass_port, cql);
         loop {
-            let cassandra_op = CassandraOpTask::new(
-                curr_cass_host.clone(),
-                TaskId {
-                    cmd: "start".to_string(),
-                    task: "check-cassandra-status".to_string(),
-                    host: "_local".to_string(),
-                },
-            );
             let op_status = cassandra_op
-                .execute(
-                    TaskHost::Local,
-                    HashMap::from([(
-                        CASS_CQL_STMT.to_string(),
-                        TaskArgValue::Str(check_status.cmd_value()),
-                    )]),
-                )
+                .execute(TaskHost::Local, HashMap::default())
                 .await?
                 .unwrap();
-
             let status_value = op_status.get(CMD_STATUS).unwrap();
             let status_code = TaskArgValue::into_inner_value::<i32>(status_value.clone());
             if status_code == 0 {

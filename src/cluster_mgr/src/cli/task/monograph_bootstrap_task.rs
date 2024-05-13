@@ -1,15 +1,15 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
-use crate::cli::task::cassandra_op_task::{CassandraOpTask, CASS_CQL_STMT};
+use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
 use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
+    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
 };
 use crate::config::deployment::Product;
-use crate::config::{DeploymentPackage, StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
+use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -48,32 +48,27 @@ impl MonographInstall {
     }
 
     pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
-        let keyspace = match self.config.product() {
-            Product::EloqSQL => self.config.deployment.get_monograph_keyspace()?,
-            Product::EloqKV => self.config.deployment.get_redis_keyspace()?,
-        };
-        let keyspace_cql = format!(
+        let keyspace = self.config.deployment.get_keyspace()?;
+        let cql = format!(
             r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
         );
-        let cass_host = self
+        let cass = self
             .config
-            .get_host_list(DeploymentPackage::Storage)
-            .first()
-            .unwrap()
-            .clone();
-        let cassandra_op_task = CassandraOpTask::new(
-            cass_host.clone(),
-            TaskId {
-                cmd: "install".to_string(),
-                task: "cassandra_op".to_string(),
-                host: "_local".to_string(),
-            },
-        );
+            .deployment
+            .storage_service
+            .cassandra
+            .as_ref()
+            .unwrap();
+        let cass_host = cass.host.first().unwrap().clone();
+        let id = TaskId {
+            cmd: "install".to_string(),
+            task: "cassandra_op".to_string(),
+            host: "_local".to_string(),
+        };
+        let cassandra_op_task =
+            CassandraOpTask::new(id, cass_host.clone(), cass.client_port()?, cql);
         let cassandra_op_task_rs = cassandra_op_task
-            .execute(
-                TaskHost::Local,
-                HashMap::from([(CASS_CQL_STMT.to_string(), TaskArgValue::Str(keyspace_cql))]),
-            )
+            .execute(TaskHost::Local, HashMap::default())
             .await?
             .unwrap();
         let mono_keyspace_value = TaskArgValue::into_inner_value::<String>(
@@ -111,21 +106,20 @@ impl TaskExecutor for MonographInstall {
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
-        let install_dir = self.config.install_dir();
+        let insdir = self.config.install_dir();
         let bootstarp_sh = match self.config.product() {
             Product::EloqSQL => {
-                let txsv_dir = format!("{}/{}", install_dir, MONOGRAPH_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, MONOGRAPH_TX_SERVICE_DIR);
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/install/lib:$LD_LIBRARY_PATH; \
-                    /bin/bash {}/{} > {txsv_dir}/logs/bootstrap.log 2>&1 "#,
-                    install_dir, MONOGRAPH_INSTALL_SCRIPT,
+                    "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {txsv_dir}/logs/bootstrap.log 2>&1 ",
                 )
             }
             Product::EloqKV => {
-                let txsv_dir = format!("{}/{}", install_dir, REDIS_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
+                let expt_asan = export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"));
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {txsv_dir}/redis_server --config={install_dir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    r#"mkdir -p {txsv_dir}/logs; export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
+                    {expt_asan}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
                 )
             }
         };

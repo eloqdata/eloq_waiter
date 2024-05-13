@@ -1,6 +1,5 @@
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::get_cassandra_port;
 use async_trait::async_trait;
 use cdrs_tokio::authenticators::NoneAuthenticatorProvider;
 use cdrs_tokio::cluster::session::{Session, SessionBuilder, TcpSessionBuilder};
@@ -13,17 +12,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
 
-pub(crate) const CASS_CQL_STMT: &str = "_CASS_CQL_STMT_";
-
 #[derive(Clone, Debug)]
 pub struct CassandraOpTask {
     task_id: TaskId,
     cass_host: String,
+    port: u16,
+    cql: String,
 }
 
 impl CassandraOpTask {
-    pub fn new(cass_host: String, task_id: TaskId) -> Self {
-        Self { cass_host, task_id }
+    pub fn new(task_id: TaskId, cass_host: String, port: u16, cql: String) -> Self {
+        Self {
+            task_id,
+            cass_host,
+            port,
+            cql,
+        }
     }
 
     pub async fn cassandra_session(
@@ -35,13 +39,8 @@ impl CassandraOpTask {
             RoundRobinLoadBalancingStrategy<TransportTcp, TcpConnectionManager>,
         >,
     > {
-        //let cass_hosts = self.config.get_host_list(DeploymentPackage::Storage);
-        let client_transport_port = get_cassandra_port()?;
-        let contact_point =
-            NodeAddress::from(format!("{}:{client_transport_port}", self.cass_host));
-
+        let contact_point = NodeAddress::from(format!("{}:{}", self.cass_host, self.port));
         println!("CassandraOpTask contact_points={:#?}", contact_point);
-
         let cluster_config = NodeTcpConfigBuilder::new()
             .with_authenticator_provider(Arc::new(NoneAuthenticatorProvider {}))
             .with_contact_point(contact_point)
@@ -69,22 +68,16 @@ impl TaskExecutor for CassandraOpTask {
     async fn execute(
         &self,
         _task_host: TaskHost,
-        task_arg: HashMap<String, TaskArgValue>,
+        _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        let cql_stmt_input = task_arg.get(CASS_CQL_STMT);
-        assert!(cql_stmt_input.is_some());
         let session = self.cassandra_session().await.unwrap();
         let mut task_result = HashMap::new();
-        let cql_stmt = TaskArgValue::into_inner_value::<String>(cql_stmt_input.unwrap().clone());
-        task_result.insert(CMD.to_string(), TaskArgValue::Str(cql_stmt.clone()));
+        task_result.insert(CMD.to_string(), TaskArgValue::Str(self.cql.clone()));
 
-        let query_rs = session.query(cql_stmt.as_str()).await;
+        let query_rs = session.query(&self.cql).await;
         if let Err(query_err) = query_rs {
             let err_msg = query_err.to_string();
-            error!(
-                "Error querying cassandra stmt={}, error msg ={}",
-                cql_stmt, err_msg
-            );
+            error!("query cassandra failed cql={}: {}", self.cql, err_msg);
             task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
             task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err_msg));
             return Ok(Some(task_result));

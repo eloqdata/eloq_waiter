@@ -4,7 +4,7 @@ use crate::config::deployment::{Codis, Deployment, Hardware, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
-    MONOGRAPH_INSTALL_SCRIPT, MONOGRAPH_INSTALL_TEMPLATE, START_LOG_TEMPLATE,
+    MONOGRAPH_INSTALL_SCRIPT, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
@@ -32,6 +32,12 @@ pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
 pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
 pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
 pub const DEPLOYMENT_CHECK_SUCCESS_TASK: &str = "deploy_check_success_task";
+
+pub const ASAN_OPTIONS: &str = "abort_on_error=0:disable_coredump=0:halt_on_error=0";
+
+pub fn export_asan(log: &str) -> String {
+    format!("export ASAN_OPTIONS={ASAN_OPTIONS}:log_path={log}")
+}
 
 macro_rules! all_hosts_merge {
     ($config_ref:expr, $($pkg_name:ident $(,)?)*) => {{
@@ -95,19 +101,22 @@ impl DeploymentConfig {
                 match pkg {
                     DeploymentPackage::Storage => {
                         if let Some(cassandra) = cassandra_opt {
-                            let cass_url =
-                                DownloadUrl::from_url_str(cassandra.download_url.as_str()).unwrap();
-                            unpack_files.push(cass_url);
-                            extract_monitor_link!(
-                                monitor_link,
-                                NODE_EXPORTER_FILE_KEY,
-                                unpack_files
-                            );
-                            extract_monitor_link!(
-                                monitor_link,
-                                CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
-                                unpack_files
-                            );
+                            if let Some(cassdply) = cassandra.internal() {
+                                let cass_url =
+                                    DownloadUrl::from_url_str(cassdply.download_url.as_str())
+                                        .unwrap();
+                                unpack_files.push(cass_url);
+                                extract_monitor_link!(
+                                    monitor_link,
+                                    NODE_EXPORTER_FILE_KEY,
+                                    unpack_files
+                                );
+                                extract_monitor_link!(
+                                    monitor_link,
+                                    CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
+                                    unpack_files
+                                );
+                            }
                         }
                     }
                     DeploymentPackage::MonographTx => {
@@ -202,7 +211,7 @@ impl DeploymentConfig {
     pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let deployment_ref = &self.deployment;
         if let Some(monitor) = deployment_ref.monitor.as_ref() {
-            let mysql_port = deployment_ref.cs_conn_port();
+            let mysql_port = deployment_ref.client_port();
             let db_hosts = &deployment_ref.tx_service.host;
             let config_path = db_hosts
                 .iter()
@@ -265,7 +274,7 @@ impl DeploymentConfig {
                 self.install_dir(),
                 MONOGRAPH_TX_SERVICE_DIR,
                 self.connection.username,
-                self.deployment.cs_conn_port()
+                self.deployment.client_port()
             ),
             Product::EloqKV => {
                 let (host, port) = if let Some(codis) = &self.deployment.codis {
@@ -273,7 +282,7 @@ impl DeploymentConfig {
                 } else {
                     (
                         self.deployment.tx_service.host.first().unwrap(),
-                        self.deployment.cs_conn_port(),
+                        self.deployment.client_port(),
                     )
                 };
                 let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
@@ -290,24 +299,16 @@ impl DeploymentConfig {
     }
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
-        let install_db_template = config_template(MONOGRAPH_INSTALL_TEMPLATE)?;
+        let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
         let remote_install_dir = self.install_dir();
-
+        let tx_dir = format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}");
+        let expt_asan = export_asan(&format!("{tx_dir}/logs"));
         let rs = fs::read_to_string(install_db_template.as_path())?;
         let final_script = rs
-            .replace(
-                "_CASSANDRA_STORAGE_BIN",
-                format!("{}/{}", remote_install_dir, "apache-cassandra/bin").as_str(),
-            )
-            .replace(
-                "_MONOGRAPH_DB_HOME",
-                format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install",).as_str(),
-            )
-            .replace(
-                "_MY_CONF",
-                format!("{remote_install_dir}/my_local.cnf").as_str(),
-            )
-            .replace("_MY_CLUSTER_HOME", remote_install_dir.as_str());
+            .replace("${INSTALL_DIR}", &format!("{tx_dir}/install",))
+            .replace("${EXPORT_ASAN}", &expt_asan)
+            .replace("${BS_INI}", &format!("{remote_install_dir}/my_local.cnf"))
+            .replace("${DATA_DIR}", &format!("{remote_install_dir}/datafarm"));
         Ok(final_script)
     }
 
@@ -325,12 +326,12 @@ impl DeploymentConfig {
                         .map(|cmd_items| {
                             let curr_member = &cmd_items.log_member;
                             let cmd_script = log_start_template
-                                .replace("_MY_LOG_INSTALL_DIR", log_home_dir.as_str())
-                                .replace("_GROUP_MEMBERS", &cmd_items.group_members_config)
-                                .replace("_GROUP_ID", curr_member.group_id.to_string().as_str())
-                                .replace("_NODE_ID", curr_member.node_id.to_string().as_str())
-                                .replace("_STORAGE_DIR", curr_member.storage_path.as_str());
-
+                                .replace("${LOG_INSTALL_DIR}", log_home_dir.as_str())
+                                .replace("${GROUP_MEMBERS}", &cmd_items.group_members_config)
+                                .replace("${GROUP_ID}", curr_member.group_id.to_string().as_str())
+                                .replace("${NODE_ID}", curr_member.node_id.to_string().as_str())
+                                .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
+                                .replace("${ADD_ASAN_OPTS}", ASAN_OPTIONS);
                             (
                                 LogProcessKey {
                                     host: host.clone(),

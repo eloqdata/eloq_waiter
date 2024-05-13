@@ -24,8 +24,10 @@ impl CheckTask {
         let ssh_k = self.config.connection.ssh_auth_key().unwrap();
         let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
         for p in sess.used_tcp_ports().await? {
-            if self.config.deployment.port.contains(p) {
-                bail!("tx-service socket {}:{p} is already used", self.host);
+            if let Some(tx_port) = self.config.deployment.tx_service.port {
+                if tx_port == p {
+                    bail!("tx-service socket {}:{p} is already used", self.host);
+                }
             }
             if let Some(moni) = &self.config.deployment.monitor {
                 if moni.node_exporter_port == p {

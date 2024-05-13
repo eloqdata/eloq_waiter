@@ -81,11 +81,7 @@ impl LogCtlCmd {
                     .replace("_LOG_BIN_CMD", format!("{log_home}/bin/launch_sv").as_str())
                     .replace("_STORAGE_PATH", cmd_items.log_member.storage_path.as_str())
                     .replace("_COLUMN", "$2");
-                let log_start_cmd = format!(
-                    "export LD_LIBRARY_PATH={log_home}/lib:$LD_LIBRARY_PATH;\
-                    export LD_PRELOAD={log_home}/lib/libmimalloc.so.2; \
-                    /bin/bash {home_dir}/start_tx_log_{log_port}.bash"
-                );
+                let log_start_cmd = format!("/bin/bash {home_dir}/start_tx_log_{log_port}.bash");
                 let log_cmd = match &cmd_arg {
                     CommandArgs::Start { cluster: _ }
                     | CommandArgs::Launch {

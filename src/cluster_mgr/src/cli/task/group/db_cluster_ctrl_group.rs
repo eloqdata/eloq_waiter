@@ -7,7 +7,7 @@ use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
-use crate::config::{deployment, StorageProvider};
+use crate::config::deployment;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -25,13 +25,17 @@ impl TaskGroup for CtrlDBTaskGroup {
             } => all,
             _ => false,
         };
-
         let cmd_ref = cmd_arg.as_ref();
-        let storage_provider = config.get_monograph_storage()?;
-        let is_start_cmd = (cmd_ref == "start" || cmd_ref == "restart")
-            && storage_provider == StorageProvider::Cassandra;
+        let is_start_cmd = cmd_ref == "start" || cmd_ref == "restart";
+        let has_cass = config
+            .deployment
+            .storage_service
+            .cassandra
+            .as_ref()
+            .map(|cass| cass.internal().is_some())
+            .unwrap_or(false);
 
-        let (mut executable, mut barrier) = if is_start_cmd || stop_all {
+        let (mut executable, mut barrier) = if has_cass && (is_start_cmd || stop_all) {
             let exe = CassandraCtlTask::from_config(cmd_arg.clone(), &config);
             let ba = CassandraCtlTask::barrier(exe.len());
             (exe, ba)
