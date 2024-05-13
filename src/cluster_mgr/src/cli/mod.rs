@@ -211,6 +211,12 @@ pub enum CommandArgs {
         #[arg(short, long, default_value_t = false)]
         yaml: bool,
     },
+    #[command(long_about = "Connect to cluster")]
+    #[strum(serialize = "connect")]
+    Connect {
+        #[arg(short, long, value_name = "CLUSTER-NAME")]
+        cluster: String,
+    },
 }
 
 pub const HOME_DIR: &str = "CLUSTER_MGR_HOME";

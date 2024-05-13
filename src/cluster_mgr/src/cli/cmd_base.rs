@@ -196,7 +196,8 @@ impl CommandExecutor {
                 cluster,
             }
             | CommandArgs::Inspect { cluster, yaml: _ }
-            | CommandArgs::Remove { cluster } => {
+            | CommandArgs::Remove { cluster }
+            | CommandArgs::Connect { cluster } => {
                 let config = self
                     .state_mgr
                     .load_deployment_from_state(cluster.as_str())
@@ -288,6 +289,9 @@ impl CommandExecutor {
                 } else {
                     println!("{:#?}", config);
                 }
+            }
+            CommandArgs::Connect { cluster: _ } => {
+                println!("{}", config.client_conn());
             }
             _ => {}
         }
