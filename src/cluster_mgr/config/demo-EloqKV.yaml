@@ -8,8 +8,6 @@ deployment:
   product: "EloqKV"
   version: "latest"
   install_dir: "${CLUSTER_MGR_HOME}"
-  port:
-    cs_conn: 6389
   log_service:
     nodes:
       - host: 127.0.0.1
@@ -18,6 +16,7 @@ deployment:
     replica: 1
   tx_service:
     host: [127.0.0.1]
+    client_port: 6389
   storage_service:
   monitor:
     data_dir: ""

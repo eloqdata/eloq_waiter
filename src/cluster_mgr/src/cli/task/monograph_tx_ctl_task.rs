@@ -470,7 +470,7 @@ impl TaskExecutor for MonographTxCtlTask {
                             let db_pwd = TaskArgValue::into_inner_value::<String>(
                                 task_arg.get(MONO_DB_PWD).unwrap().clone(),
                             );
-                            let mysql_port = self.config.deployment.cs_conn_port();
+                            let mysql_port = self.config.deployment.client_port();
                             MySQLProbe::new(host_value, mysql_port, db_user, db_pwd)
                                 .probe(wait_secs)
                                 .await
@@ -482,7 +482,7 @@ impl TaskExecutor for MonographTxCtlTask {
                     }
                     Product::EloqKV => {
                         if wait_secs >= 0 {
-                            let cs_port = self.config.deployment.cs_conn_port();
+                            let cs_port = self.config.deployment.client_port();
                             RedisProbe::new(host_value, cs_port).probe(wait_secs).await
                         } else {
                             check_process_status

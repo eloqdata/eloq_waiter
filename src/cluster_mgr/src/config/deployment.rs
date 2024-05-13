@@ -117,6 +117,8 @@ pub struct MonographPort {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct MonographService {
     pub host: Vec<String>,
+    pub port: Option<u16>,
+    pub client_port: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
@@ -171,7 +173,6 @@ pub struct Deployment {
     pub log_image: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
-    pub port: Port,
     pub tx_service: MonographService,
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
@@ -250,15 +251,8 @@ impl Deployment {
         }
     }
 
-    pub fn cs_conn_port(&self) -> u16 {
-        if let Some(p) = self.port.cs_conn {
-            p
-        } else {
-            match self.product() {
-                Product::EloqSQL => 3306,
-                Product::EloqKV => 6379,
-            }
-        }
+    pub fn client_port(&self) -> u16 {
+        self.tx_service.client_port
     }
 
     pub fn install_dir(&self) -> String {
@@ -419,16 +413,16 @@ impl Deployment {
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "port",
-            Some(self.cs_conn_port().to_string()),
+            Some(self.client_port().to_string()),
         );
 
         mysql_ini.set(
             CONFIG_MARIADB_SECTION,
             "socket",
-            Some(format!("/tmp/mysql{}.sock", self.cs_conn_port())),
+            Some(format!("/tmp/mysql{}.sock", self.client_port())),
         );
 
-        let use_port = self.port.monograph_port.as_ref().unwrap().start;
+        let use_port = self.tx_service.port.unwrap();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts
@@ -451,7 +445,7 @@ impl Deployment {
         tx_host: Option<String>,
         install_dir: String,
     ) -> anyhow::Result<PathBuf> {
-        let port = self.port.monograph_port.as_ref().unwrap().start;
+        let port = self.tx_service.port.unwrap();
         let is_host = tx_host.is_some();
         let mut my_ini = self.build_monograph_config(is_host, install_dir)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
@@ -620,7 +614,7 @@ impl Deployment {
                 }
             },
         }
-        let use_port = self.cs_conn_port();
+        let use_port = self.client_port();
         let monograph_hosts = &self.tx_service.host;
         if set_ip_list {
             let ip_list = monograph_hosts
@@ -645,7 +639,7 @@ impl Deployment {
             (host.clone(), upload_host_dir(&host).join("redis.ini"))
         } else {
             ini.set(SECTION_LOCAL, "ip", Some("127.0.0.1".to_owned()));
-            ini.set(SECTION_LOCAL, "port", Some(self.cs_conn_port().to_string()));
+            ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
             ini.set(SECTION_LOCAL, "core_number", Some("1".to_owned()));
             ini.set(SECTION_LOCAL, "event_dispatcher_num", Some("1".to_owned()));
             ini.set(
@@ -665,7 +659,7 @@ impl Deployment {
                 });
         }
         ini.set(SECTION_LOCAL, "ip", Some(host.clone()));
-        ini.set(SECTION_LOCAL, "port", Some(self.cs_conn_port().to_string()));
+        ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
 
         let opt_hw = self.get_hardware(&host);
         if opt_hw.is_none() {

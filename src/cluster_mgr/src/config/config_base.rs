@@ -211,7 +211,7 @@ impl DeploymentConfig {
     pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let deployment_ref = &self.deployment;
         if let Some(monitor) = deployment_ref.monitor.as_ref() {
-            let mysql_port = deployment_ref.cs_conn_port();
+            let mysql_port = deployment_ref.client_port();
             let db_hosts = &deployment_ref.tx_service.host;
             let config_path = db_hosts
                 .iter()
@@ -274,7 +274,7 @@ impl DeploymentConfig {
                 self.install_dir(),
                 MONOGRAPH_TX_SERVICE_DIR,
                 self.connection.username,
-                self.deployment.cs_conn_port()
+                self.deployment.client_port()
             ),
             Product::EloqKV => {
                 let (host, port) = if let Some(codis) = &self.deployment.codis {
@@ -282,7 +282,7 @@ impl DeploymentConfig {
                 } else {
                     (
                         self.deployment.tx_service.host.first().unwrap(),
-                        self.deployment.cs_conn_port(),
+                        self.deployment.client_port(),
                     )
                 };
                 let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
