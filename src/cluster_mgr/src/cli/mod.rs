@@ -88,17 +88,17 @@ pub enum CommandArgs {
     },
 
     #[command(
-        long_about = "Check MonographDB cluster status. If the username password is given,\n the connection to the target database is established, otherwise, the ps command is executed.
+        long_about = "Check cluster status. If the username password is given,\n the connection to the target database is established, otherwise, the ps command is executed.
 ./cluster_mgr status --cluster $CLUSTER_NAME --user $DB_USER --password $DB_PASSWORD
     "
     )]
     #[strum(serialize = "status")]
     Status {
-        #[arg(short, long, value_name = "CLUSTER NAME")]
+        #[arg(short, long, value_name = "CLUSTER-NAME")]
         cluster: String,
-        #[arg(short, long, value_name = "MonographDB user")]
+        #[arg(short, long, value_name = "EloqSQL user")]
         user: Option<String>,
-        #[arg(short, long, value_name = "MonographDB password")]
+        #[arg(short, long, value_name = "EloqSQL password")]
         password: Option<String>,
         #[arg(short, long, value_name = "Wait cluster ready")]
         wait: Option<u16>,
@@ -148,7 +148,7 @@ pub enum CommandArgs {
     )]
     #[strum(serialize = "upgrade")]
     Upgrade {
-        #[arg(short, long, value_name = "CLUSTER TOPOLOGY FILE")]
+        #[arg(short, long, value_name = "TOPOLOGY")]
         topology_file: String,
     },
     #[command(
