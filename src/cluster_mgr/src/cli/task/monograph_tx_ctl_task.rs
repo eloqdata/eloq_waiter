@@ -39,32 +39,33 @@ pub enum TxCtlCmd {
 
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
-macro_rules! mono_start_cmd {
-    ($remote_install_home:expr, $product:expr) => {{
-        let tx_dir = match $product {
-            Product::EloqSQL => format!("{}/{}", $remote_install_home, MONOGRAPH_TX_SERVICE_DIR),
-            Product::EloqKV => format!("{}/{}", $remote_install_home, REDIS_TX_SERVICE_DIR),
-        };
-        let asan_opts = export_asan(&format!("{}/logs/asan", tx_dir));
-        match $product {
-            Product::EloqSQL => format!(
-                r#"mkdir -p {}/logs && cd {}/install && \
-                {}; export LD_LIBRARY_PATH={}/install/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/install/lib/libmimalloc.so.2; \
-                {}/install/bin/mysqld --defaults-file={}/my.cnf > {}/logs/mysqld_start_{}.log 2>&1 &"#,
-                tx_dir, tx_dir,
-                asan_opts, tx_dir, tx_dir,
-                tx_dir, $remote_install_home, tx_dir, process::id()
-            ),
-            Product::EloqKV => format!(
-                r#"mkdir -p {}/logs && cd {} && \
-                {}; export LD_LIBRARY_PATH={}/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/lib/libmimalloc.so.2; \    
-                {}/redis_server --config={}/redis.ini > {}/logs/redis_{}.log 2>&1 &"#,
-                tx_dir, tx_dir,
-                asan_opts, tx_dir, tx_dir,
-                tx_dir, $remote_install_home, tx_dir, process::id()
-            ),
+pub fn mono_start_cmd(ins_dir: &str, product: Product, debug: bool) -> String {
+    let tx_dir = match product {
+        Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
+        Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
+    };
+    let head = if debug {
+        export_asan(&format!("{tx_dir}/logs/asan"))
+    } else {
+        match product {
+            Product::EloqSQL => format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2"),
+            Product::EloqKV => format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2"),
         }
-    }};
+    };
+    match product {
+        Product::EloqSQL => format!(
+            r#"mkdir -p {tx_dir}/logs && cd {tx_dir}/install && \
+                {head}; export LD_LIBRARY_PATH={tx_dir}/install/lib:$LD_LIBRARY_PATH; \
+                {tx_dir}/install/bin/mysqld --defaults-file={ins_dir}/my.cnf > {tx_dir}/logs/mysqld_start_{}.log 2>&1 &"#,
+            process::id()
+        ),
+        Product::EloqKV => format!(
+            r#"mkdir -p {tx_dir}/logs && cd {tx_dir} && \
+                {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
+                {tx_dir}/redis_server --config={ins_dir}/redis.ini > {tx_dir}/logs/redis_{}.log 2>&1 &"#,
+            process::id()
+        ),
+    }
 }
 
 macro_rules! monograph_cmd {
@@ -82,7 +83,6 @@ macro_rules! monograph_cmd {
         };
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
-            "TxCtlCmd::Start" => TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $product)),
             "TxCtlCmd::ForceStop" => {
                 TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", pid_cmd, output_pid))
             }
@@ -303,6 +303,7 @@ impl MonographTxCtlTask {
         let remote_install_dir = config.install_dir();
         let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         let product = config.product();
+        let debug = config.deployment.version.as_ref().unwrap() == "debug";
 
         let mut wait_secs = -1;
         let mut db_user = "_NONE".to_string();
@@ -343,12 +344,11 @@ impl MonographTxCtlTask {
                 };
                 let cmd_task_input_tuple = match cmd_str_ref {
                     "start" => (
-                        monograph_cmd!(
-                            TxCtlCmd::Start,
-                            remote_install_dir,
-                            conn_user.clone(),
-                            product
-                        ),
+                        TxCtlCmd::Start(mono_start_cmd(
+                            &remote_install_dir,
+                            product.clone(),
+                            debug,
+                        )),
                         HashMap::default(),
                     ),
                     "status" => (

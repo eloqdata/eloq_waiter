@@ -116,10 +116,15 @@ impl TaskExecutor for MonographInstall {
             }
             Product::EloqKV => {
                 let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
-                let expt_asan = export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"));
+                let debug = self.config.deployment.version.as_ref().unwrap() == "debug";
+                let head = if debug {
+                    export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"))
+                } else {
+                    format!("export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2")
+                };
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {expt_asan}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
+                    {head}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
                 )
             }
         };

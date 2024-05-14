@@ -123,9 +123,9 @@ pub struct MonographService {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
 pub enum Product {
-    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL", alias = "sql")]
+    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL")]
     EloqSQL,
-    #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV", alias = "kv")]
+    #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV")]
     EloqKV,
 }
 
