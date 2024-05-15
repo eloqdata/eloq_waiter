@@ -162,6 +162,13 @@ pub enum CommandArgs {
         #[arg(long, default_value_t = false)]
         restart: bool,
     },
+    #[strum(serialize = "scale")]
+    Scale {
+        #[arg(short, long)]
+        cluster: String,
+        add_tx_node: Vec<String>,
+        del_tx_node: Vec<String>,
+    },
     #[command(
         long_about = "Launch a cluster quickly.\ncluster_mgr launch --topology-file  ${PWD}/config/deployment.yaml"
     )]
