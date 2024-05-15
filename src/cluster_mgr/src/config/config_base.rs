@@ -302,11 +302,15 @@ impl DeploymentConfig {
         let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
         let remote_install_dir = self.install_dir();
         let tx_dir = format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}");
-        let expt_asan = export_asan(&format!("{tx_dir}/logs"));
+        let malloc = if self.deployment.version.as_ref().unwrap() == "debug" {
+            export_asan(&format!("{tx_dir}/logs"))
+        } else {
+            format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2")
+        };
         let rs = fs::read_to_string(install_db_template.as_path())?;
         let final_script = rs
             .replace("${INSTALL_DIR}", &format!("{tx_dir}/install",))
-            .replace("${EXPORT_ASAN}", &expt_asan)
+            .replace("${MALLOC}", &malloc)
             .replace("${BS_INI}", &format!("{remote_install_dir}/my_local.cnf"))
             .replace("${DATA_DIR}", &format!("{remote_install_dir}/datafarm"));
         Ok(final_script)
@@ -318,6 +322,7 @@ impl DeploymentConfig {
             let log_start_template = fs::read_to_string(log_start_template_path.as_path())?;
             let all_start_cmd_by_hosts = log_srv.log_start_cmd();
             let log_home_dir = self.log_home_dir();
+            let version = self.deployment.version.as_ref().unwrap();
             let cmd_scripts = all_start_cmd_by_hosts
                 .iter()
                 .flat_map(|(host, cmd_items)| {
@@ -331,7 +336,8 @@ impl DeploymentConfig {
                                 .replace("${GROUP_ID}", curr_member.group_id.to_string().as_str())
                                 .replace("${NODE_ID}", curr_member.node_id.to_string().as_str())
                                 .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
-                                .replace("${ADD_ASAN_OPTS}", ASAN_OPTIONS);
+                                .replace("${ASAN_OPTS}", ASAN_OPTIONS)
+                                .replace("${VERSION}", version);
                             (
                                 LogProcessKey {
                                     host: host.clone(),
@@ -496,7 +502,7 @@ impl DeploymentConfig {
         } else {
             return vec![];
         };
-        println!("dashboard_path {dashboard_path:?}");
+        info!("dashboard_path {dashboard_path:?}");
         walkdir::WalkDir::new(dashboard_path)
             .into_iter()
             .filter_map(|curr_path| curr_path.ok())

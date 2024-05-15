@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{io, process};
 use strum_macros::AsRefStr;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Debug, Eq, PartialEq, AsRefStr)]
 pub enum TxCtlCmd {
@@ -39,32 +39,33 @@ pub enum TxCtlCmd {
 
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
-macro_rules! mono_start_cmd {
-    ($remote_install_home:expr, $product:expr) => {{
-        let tx_dir = match $product {
-            Product::EloqSQL => format!("{}/{}", $remote_install_home, MONOGRAPH_TX_SERVICE_DIR),
-            Product::EloqKV => format!("{}/{}", $remote_install_home, REDIS_TX_SERVICE_DIR),
-        };
-        let asan_opts = export_asan(&format!("{}/logs/asan", tx_dir));
-        match $product {
-            Product::EloqSQL => format!(
-                r#"mkdir -p {}/logs && cd {}/install && \
-                {}; export LD_LIBRARY_PATH={}/install/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/install/lib/libmimalloc.so.2; \
-                {}/install/bin/mysqld --defaults-file={}/my.cnf > {}/logs/mysqld_start_{}.log 2>&1 &"#,
-                tx_dir, tx_dir,
-                asan_opts, tx_dir, tx_dir,
-                tx_dir, $remote_install_home, tx_dir, process::id()
-            ),
-            Product::EloqKV => format!(
-                r#"mkdir -p {}/logs && cd {} && \
-                {}; export LD_LIBRARY_PATH={}/lib:$LD_LIBRARY_PATH; export LD_PRELOAD={}/lib/libmimalloc.so.2; \    
-                {}/redis_server --config={}/redis.ini > {}/logs/redis_{}.log 2>&1 &"#,
-                tx_dir, tx_dir,
-                asan_opts, tx_dir, tx_dir,
-                tx_dir, $remote_install_home, tx_dir, process::id()
-            ),
+pub fn mono_start_cmd(ins_dir: &str, product: Product, debug: bool) -> String {
+    let tx_dir = match product {
+        Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
+        Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
+    };
+    let head = if debug {
+        export_asan(&format!("{tx_dir}/logs/asan"))
+    } else {
+        match product {
+            Product::EloqSQL => format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2"),
+            Product::EloqKV => format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2"),
         }
-    }};
+    };
+    match product {
+        Product::EloqSQL => format!(
+            r#"mkdir -p {tx_dir}/logs && cd {tx_dir}/install && \
+                {head}; export LD_LIBRARY_PATH={tx_dir}/install/lib:$LD_LIBRARY_PATH; \
+                {tx_dir}/install/bin/mysqld --defaults-file={ins_dir}/my.cnf > {tx_dir}/logs/mysqld_start_{}.log 2>&1 &"#,
+            process::id()
+        ),
+        Product::EloqKV => format!(
+            r#"mkdir -p {tx_dir}/logs && cd {tx_dir} && \
+                {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
+                {tx_dir}/redis_server --config={ins_dir}/redis.ini > {tx_dir}/logs/redis_{}.log 2>&1 &"#,
+            process::id()
+        ),
+    }
 }
 
 macro_rules! monograph_cmd {
@@ -82,7 +83,6 @@ macro_rules! monograph_cmd {
         };
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
-            "TxCtlCmd::Start" => TxCtlCmd::Start(mono_start_cmd!($remote_install_home, $product)),
             "TxCtlCmd::ForceStop" => {
                 TxCtlCmd::ForceStop(format!("{} {} | xargs kill -9", pid_cmd, output_pid))
             }
@@ -101,7 +101,7 @@ macro_rules! monograph_cmd {
 macro_rules! tx_ctl {
     ($self:ident, $mono_process_status:expr, {$op:tt, $pid_check_expr:expr}, $ctl_func:expr) => {{
         if let Ok(ref process_info) = $mono_process_status {
-            println!("tx_ctl process_info={process_info:#?}");
+            debug!("tx_ctl process_info={process_info:#?}");
             let pid = TaskArgValue::into_inner_value::<String>(
                 process_info.get(PROCESS_PID).unwrap().clone(),
             );
@@ -159,7 +159,7 @@ impl MySQLProbe {
     }
 
     pub async fn probe(&self, mut wait_secs: i32) -> anyhow::Result<ExecutionValue> {
-        println!("Probe whether MonographDB is ready to be connected");
+        info!("Probe whether EloqSQL is ready to be connected");
         let user_pwd = if self.password.eq("_NONE") {
             self.user.clone()
         } else {
@@ -167,40 +167,32 @@ impl MySQLProbe {
         };
         let host = &self.host;
         let port = self.mysql_port;
-        let mysql_conn_url = format!("mysql://{user_pwd}@{host}:{port}/mysql");
+        let url = format!("mysql://{user_pwd}@{host}:{port}/mysql");
         loop {
-            let mono_conn_rs = sqlx::mysql::MySqlConnection::connect(mysql_conn_url.as_str()).await;
+            let mono_conn_rs = sqlx::mysql::MySqlConnection::connect(url.as_str()).await;
             if let Err(err) = mono_conn_rs {
                 if let sqlx::Error::Io(ref e) = err {
                     if io::ErrorKind::ConnectionRefused == e.kind() {
                         maybe_continue_probe!(wait_secs);
                     }
                 }
-                error!(
-                    "established database connection failure url={},err_msg={:?}",
-                    mysql_conn_url, err
-                );
+                error!("EloqSQL connect failed {}: {:?}", url, err);
                 return Ok(HashMap::from([
                     (
                         CMD.to_string(),
-                        TaskArgValue::Str(format!("Dial MonographDB={mysql_conn_url}")),
+                        TaskArgValue::Str(format!("Dial MonographDB={url}")),
                     ),
                     (CMD_STATUS.to_string(), TaskArgValue::Number(-1)),
                     (CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string())),
                 ]));
             }
-
-            info!(
-                "MonographDetector established database connection successfully user={},host={}",
-                self.user, self.password
-            );
-            let mut mono_conn = mono_conn_rs.unwrap();
-            let query_cmd = "select date_format(now(), '%Y-%m-%d %T') as now_date";
-            let query_rs = mono_conn.fetch_one(query_cmd).await;
+            let mut conn = mono_conn_rs.unwrap();
+            let query_cmd = "SHOW DATABASES";
+            let query_rs = conn.fetch_one(query_cmd).await;
             if let Ok(row) = query_rs {
                 let now_date: String = row.get(0);
                 info!("MonographDB status is normal {}", now_date);
-                mono_conn.close().await?;
+                conn.close().await?;
                 return Ok(HashMap::from([
                     (CMD.to_string(), TaskArgValue::Str(query_cmd.to_string())),
                     (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
@@ -208,12 +200,9 @@ impl MySQLProbe {
                 ]));
             }
             let err_msg = query_rs.err().unwrap().to_string();
-            error!(
-                "Cannot connect to MonographDB on {}, err_msg={}",
-                host, err_msg
-            );
+            error!("Cannot connect to EloqSQL @{}: {}", host, err_msg);
             maybe_continue_probe!(wait_secs);
-            mono_conn.close().await?;
+            conn.close().await?;
             return Ok(HashMap::from([
                 (CMD.to_string(), TaskArgValue::Str(query_cmd.to_string())),
                 (CMD_STATUS.to_string(), TaskArgValue::Number(-1)),
@@ -230,9 +219,9 @@ impl MySQLProbe {
         ssh_sess: &SSHSession,
         mut wait_secs: i32,
     ) -> anyhow::Result<ExecutionValue> {
-        println!("Probe whether MonographDB is ready to be connected locally");
+        info!("Probe whether EloqSQL is ready to be connected locally");
         let mut cmd = config.client_conn();
-        cmd.push_str(" --execute 'SELECT 1'");
+        cmd.push_str(" --execute 'SHOW DATABASES'");
         loop {
             let ret = ssh_sess.command(&cmd, CollectOutput).await?;
             let code = TaskArgValue::into_inner_value::<i32>(ret.get(CMD_STATUS).unwrap().clone());
@@ -255,7 +244,7 @@ impl RedisProbe {
         Self { host, port }
     }
     pub async fn probe(&self, mut wait_secs: i32) -> anyhow::Result<ExecutionValue> {
-        println!("Probe whether Redis is ready to be connected");
+        info!("Probe whether Redis is ready to be connected");
         let url = format!("redis://{}:{}/", self.host, self.port);
         let client = redis::Client::open(url.clone())?;
         loop {
@@ -303,6 +292,7 @@ impl MonographTxCtlTask {
         let remote_install_dir = config.install_dir();
         let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         let product = config.product();
+        let debug = config.deployment.version.as_ref().unwrap() == "debug";
 
         let mut wait_secs = -1;
         let mut db_user = "_NONE".to_string();
@@ -343,12 +333,11 @@ impl MonographTxCtlTask {
                 };
                 let cmd_task_input_tuple = match cmd_str_ref {
                     "start" => (
-                        monograph_cmd!(
-                            TxCtlCmd::Start,
-                            remote_install_dir,
-                            conn_user.clone(),
-                            product
-                        ),
+                        TxCtlCmd::Start(mono_start_cmd(
+                            &remote_install_dir,
+                            product.clone(),
+                            debug,
+                        )),
                         HashMap::default(),
                     ),
                     "status" => (
@@ -446,7 +435,7 @@ impl TaskExecutor for MonographTxCtlTask {
         task_host: TaskHost,
         task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
@@ -492,14 +481,12 @@ impl TaskExecutor for MonographTxCtlTask {
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
-                //println!("MonographCtlTask send stop_cmd={stop_cmd}");
                 tx_ctl!(self, check_process_status, {!=, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                      wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
                 })
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
-                //println!("MonographCtlTask send start_cmd={start_cmd}");
                 tx_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 })

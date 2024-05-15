@@ -19,6 +19,7 @@ use crate::{task_return_value, wait_command_complete};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
+use tracing::debug;
 
 #[derive(Clone, Debug)]
 pub enum MonitorComponentCommand {
@@ -263,7 +264,7 @@ impl TaskExecutor for MonitorCtlTask {
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
@@ -290,7 +291,7 @@ impl TaskExecutor for MonitorCtlTask {
             "start" => {
                 if monitor_component_pid.eq("NONE") {
                     let start_cmd = self.monitor_ctl.start(monitor_ref.clone());
-                    println!(r#"MonitorCtlTask start_cmd={start_cmd:?}"#);
+                    debug!(r#"MonitorCtlTask start_cmd={start_cmd:?}"#);
                     wait_command_complete!(
                         start_cmd.clone(),
                         process_info_cmd,

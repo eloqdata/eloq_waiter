@@ -18,7 +18,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::time::Duration;
 use strum_macros::AsRefStr;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use users::{get_current_gid, get_current_uid};
 
 pub(crate) const CASSANDRA_CMD_STR: &str = "cassandra_cmd";
@@ -237,15 +237,12 @@ impl CassandraCtlTask {
         check_pid(process_info, ssh_conn, |output| -> Option<i32> {
             let mut pid = None;
             for line in output.lines() {
-                let p_info_pair = line.split('+').collect_vec();
-                println!(
-                    "CassandraCtlTask JAVA_HOME={} check_process_info={:#?}",
-                    java_home, p_info_pair
-                );
-                if p_info_pair.is_empty() || p_info_pair.len() == 1 {
+                let p_info = line.split('+').collect_vec();
+                debug!("JAVA_HOME={} check_process_info={:#?}", java_home, p_info);
+                if p_info.is_empty() || p_info.len() == 1 {
                     continue;
                 }
-                let collect_pid = p_info_pair
+                let collect_pid = p_info
                     .into_iter()
                     .filter(|split| {
                         let p_info = split.split_whitespace().collect_vec();
@@ -255,9 +252,7 @@ impl CassandraCtlTask {
                     .collect_vec();
                 if !collect_pid.is_empty() {
                     pid = Some(collect_pid[0].parse::<i32>().unwrap());
-                    println!(
-                        "CassandraCtlTask found cassandra process is already running PID={pid:?}"
-                    );
+                    info!("cassandra process is already running PID={pid:?}");
                     break;
                 }
             }
@@ -273,7 +268,7 @@ impl CassandraCtlTask {
     ) -> anyhow::Result<ExecutionValue> {
         let ssh_info = ssh_conn.ssh_conn_info();
         let check_status = cassandra_cmd!(CassandraCmd::Status, self.cassandra_home(), ssh_info.1);
-        println!(
+        debug!(
             "CassandraCtlTask check_node_status_cmd={}, start={}",
             check_status.cmd_value(),
             start_cmd
@@ -305,7 +300,7 @@ impl CassandraCtlTask {
             let status_value = op_status.get(CMD_STATUS).unwrap();
             let status_code = TaskArgValue::into_inner_value::<i32>(status_value.clone());
             if status_code == 0 {
-                println!("Cassandra instance={:?} UP now", curr_cass_host.clone());
+                info!("Cassandra instance={:?} UP now", curr_cass_host.clone());
                 break;
             } else {
                 tokio::time::sleep(sleep_duration).await;
@@ -353,7 +348,7 @@ impl TaskExecutor for CassandraCtlTask {
             self.config.connection.ssh_auth_key().unwrap(),
         )
         .await?;
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let cmd_str = TaskArgValue::into_inner_value::<String>(
             task_arg.get(CASSANDRA_CMD_STR).unwrap().clone(),
         );

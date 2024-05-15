@@ -4,9 +4,8 @@ function monograph_install_db() {
   printf "INSTALL_DIR=%s\n" ${INSTALL_DIR}
   printf "DATA_DIR=%s\n" ${DATA_DIR}
   mkdir -p ${DATA_DIR}
-  ${EXPORT_ASAN}
+  ${MALLOC}
   export LD_LIBRARY_PATH=${INSTALL_DIR}/lib:$LD_LIBRARY_PATH
-  export LD_PRELOAD=${INSTALL_DIR}/lib/libmimalloc.so.2;
   init_db_script="${INSTALL_DIR}/scripts/mysql_install_db \
     --defaults-file=${BS_INI} --basedir=${INSTALL_DIR} \
     --datadir=${DATA_DIR} \

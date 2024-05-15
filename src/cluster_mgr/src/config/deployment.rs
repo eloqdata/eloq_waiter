@@ -123,9 +123,9 @@ pub struct MonographService {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
 pub enum Product {
-    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL", alias = "sql")]
+    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL")]
     EloqSQL,
-    #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV", alias = "kv")]
+    #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV")]
     EloqKV,
 }
 
@@ -303,7 +303,6 @@ impl Deployment {
         let replica_num = log_srv.log_replica();
         let all_members = log_srv.group_member_as_vec();
         let group_member_map = log_srv.group_member_config(all_members.as_slice());
-        // println!("group_member_map={group_member_map:#?}");
         let ordered_members = group_member_map
             .into_iter()
             .sorted_by_key(|(key, _val)| *key)

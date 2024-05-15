@@ -12,7 +12,7 @@ use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation}
 use anyhow::anyhow;
 use itertools::Itertools;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[macro_export]
 macro_rules! wait_command_complete {
@@ -180,7 +180,7 @@ where
         let rs = ssh_conn
             .command(check_status_cmd.as_str(), CollectOutput)
             .await;
-        println!("check_status_cmd = {rs:#?}");
+        debug!("check_status_cmd = {rs:#?}");
         if rs.as_ref().is_err() {
             let err_msg = rs.err().unwrap().to_string();
             error!(

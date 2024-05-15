@@ -10,7 +10,7 @@ use cdrs_tokio::transport::TransportTcp;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{debug, error, info};
 
 #[derive(Clone, Debug)]
 pub struct CassandraOpTask {
@@ -40,7 +40,7 @@ impl CassandraOpTask {
         >,
     > {
         let contact_point = NodeAddress::from(format!("{}:{}", self.cass_host, self.port));
-        println!("CassandraOpTask contact_points={:#?}", contact_point);
+        debug!("CassandraOpTask contact_points={:#?}", contact_point);
         let cluster_config = NodeTcpConfigBuilder::new()
             .with_authenticator_provider(Arc::new(NoneAuthenticatorProvider {}))
             .with_contact_point(contact_point)
@@ -54,7 +54,7 @@ impl CassandraOpTask {
                 .build()
                 .await?;
 
-        println!("CassandraOpTask create session success!");
+        debug!("CassandraOpTask create session success!");
         Ok(session)
     }
 }
@@ -108,10 +108,10 @@ impl TaskExecutor for CassandraOpTask {
                     row_str
                 })
                 .join("\n");
-            println!("{row_as_string}");
+            info!("{row_as_string}");
             task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(row_as_string));
         } else {
-            println!("CassandraOpTask No data was queried.");
+            info!("CassandraOpTask No data was queried.");
             task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str("".to_string()));
         }
 
