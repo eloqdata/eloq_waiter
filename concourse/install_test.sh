@@ -10,6 +10,9 @@ if [[ "$ID" == "centos" ]]; then
     sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_ed25519_key -N ''
     sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_ecdsa_key -N ''
     sudo /usr/sbin/sshd
+    if [ -f "/run/nologin" ]; then
+      sudo rm /run/nologin
+    fi
 elif [[ "$ID" == "ubuntu" ]]; then
     sudo apt update && DEBIAN_FRONTEND=noninteractive sudo apt install -y sudo openssh-server iproute2
     sudo service ssh start

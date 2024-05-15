@@ -11,7 +11,7 @@ use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{debug, info};
 
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
@@ -62,7 +62,6 @@ impl UnpackFileTask {
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
         let unpack_file_location = config.unpack_files_map();
-        // println!("unpack_files  = {all_hosts:#?}");
         let unpack_task_instance = unpack_file_location
             .iter()
             .map(|unpack_location| {
@@ -124,7 +123,7 @@ impl TaskExecutor for UnpackFileTask {
         task_host: TaskHost,
         task_input: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session = SSHSession::from_task_host(
             task_host,
             self.config.connection.ssh_auth_key().unwrap().to_string(),

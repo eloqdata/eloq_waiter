@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::vec;
+use tracing::debug;
 use users::get_current_uid;
 
 #[derive(Clone, Debug)]
@@ -23,7 +24,7 @@ impl RuntimeDepsInstallation {
         let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None, None)?;
         let os_name = os_and_deps_pair.0;
         let os_version = os_and_deps_pair.1;
-        println!("RuntimeDep from_config = {os_name}");
+        debug!("RuntimeDep from_config = {os_name}");
         let  dep_cmd_partial = match os_name.as_str() {
             "ubuntu" => {
                vec![
@@ -115,7 +116,7 @@ impl TaskExecutor for RuntimeDepsInstallation {
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session = SSHSession::from_task_host(
             task_host.clone(),
             self.config.connection.ssh_auth_key().unwrap(),

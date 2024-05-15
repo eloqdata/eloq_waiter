@@ -33,6 +33,8 @@ jobs:
       - in_parallel:
           limit: 2
           steps:
+            - get: alarm-clock
+              trigger: true
             - get: waiter_src
             - get: image_centos8
       - task: install-test
@@ -45,6 +47,8 @@ jobs:
       - in_parallel:
           limit: 2
           steps:
+            - get: alarm-clock
+              trigger: true
             - get: waiter_src
             - get: image_centos7
       - task: install-test

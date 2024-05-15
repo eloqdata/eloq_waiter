@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
 use std::collections::HashMap;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct MonographInstall {
@@ -89,8 +90,7 @@ impl TaskExecutor for MonographInstall {
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
-
+        debug!("execute {}", self.task_id.pretty_string());
         let storage_service = self.config.get_monograph_storage()?;
         let keyspace_exists = match storage_service {
             StorageProvider::Cassandra => self.monograph_keyspace_exists().await?,
@@ -99,7 +99,7 @@ impl TaskExecutor for MonographInstall {
         if keyspace_exists {
             let keyspace_name = self.config.deployment.get_monograph_keyspace()?;
             let format = r#"MonographDB keyspace already exists."#.red();
-            println!("{} => {}", format, keyspace_name.red());
+            warn!("{} => {}", format, keyspace_name.red());
             return Ok(None);
         }
 
@@ -116,10 +116,15 @@ impl TaskExecutor for MonographInstall {
             }
             Product::EloqKV => {
                 let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
-                let expt_asan = export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"));
+                let debug = self.config.deployment.version.as_ref().unwrap() == "debug";
+                let head = if debug {
+                    export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"))
+                } else {
+                    format!("export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2")
+                };
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {expt_asan}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
+                    {head}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
                 )
             }
         };

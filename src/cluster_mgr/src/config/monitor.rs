@@ -112,17 +112,15 @@ impl Monitor {
         Ok(links)
     }
 
-    pub fn flush_privileges_for_create_user(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
-        // format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock -e  'FLUSH PRIVILEGES;'")
-        format!("{mysql_bin} -S /tmp/mysql{mysql_port}.sock -e  'FLUSH PRIVILEGES;'")
+    pub fn flush_privileges_for_create_user(&self, install_dir: String, port: u16) -> String {
+        let bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
+        format!("{bin} -S /tmp/mysql{port}.sock -e  'FLUSH PRIVILEGES'")
     }
 
-    pub fn create_monitor_user_cmd(&self, install_dir: String, mysql_port: u16) -> String {
-        let mysql_bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
+    pub fn create_monitor_user_cmd(&self, install_dir: String, port: u16) -> String {
+        let bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
         let script_path = format!("{install_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
-        // format!("sudo {mysql_bin} -u root -P {mysql_port} -S /tmp/mysql{mysql_port}.sock < {script_path}")
-        format!("{mysql_bin} -S /tmp/mysql{mysql_port}.sock < {script_path}")
+        format!("{bin} -S /tmp/mysql{port}.sock < {script_path}")
     }
 
     pub fn gen_monitor_user_sql_file(&self) -> anyhow::Result<PathBuf> {

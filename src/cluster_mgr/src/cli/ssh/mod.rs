@@ -26,7 +26,6 @@ impl client::Handler for SSHClient {
         self,
         _server_public_key: &key::PublicKey,
     ) -> Result<(Self, bool), Self::Error> {
-        // println!("ssh client check_server_key = {server_public_key:?}");
         Ok((self, true))
     }
 }
@@ -71,7 +70,7 @@ impl SSHSession {
         let ssh_client = SSHClient {};
         let ssh_socket_addr_rs = format!("{host}:{port}").to_socket_addrs();
         if ssh_socket_addr_rs.is_err() {
-            panic!("SSHSession build SocketAddr error from [{host}:{port}]. Please check deployment.yaml");
+            bail!("SSHSession build SocketAddr error from [{host}:{port}]. Please check deployment.yaml");
         }
         let ssh_socket_add_ref = ssh_socket_addr_rs.unwrap();
         let ssh_addr_vec = ssh_socket_add_ref
@@ -82,14 +81,12 @@ impl SSHSession {
         let ssh_addr = ssh_addr_vec.as_slice().first().unwrap();
         let mut session = client::connect(ssh_config, ssh_addr, ssh_client).await?;
         let key_pair = load_secret_key(key_path, None)?;
-        let auth_rs = session
+        if !session
             .authenticate_publickey(user, Arc::new(key_pair))
-            .await?;
-        assert!(auth_rs);
-        info!(
-            "SSHSession connect remote host success host={:?},user={:?}",
-            host, user
-        );
+            .await?
+        {
+            bail!("SSH auth failed {user}@{host}")
+        }
         Ok(Self {
             session: Arc::new(Mutex::new(session)),
             user: user.to_string(),
@@ -129,7 +126,6 @@ impl SSHSession {
             }
         }
         let output_str = String::from_utf8_lossy(&output).into_owned();
-        // println!("SSHSession output = {output_str}");
         let cmd_res = HashMap::from([
             (CMD.to_string(), TaskArgValue::Str(command.to_string())),
             (CMD_STATUS.to_string(), TaskArgValue::Number(status_code)),
@@ -209,15 +205,9 @@ impl SSHSession {
 
     pub async fn close(&self) -> anyhow::Result<()> {
         let session = self.session.lock().await;
-        let close_rs = session
+        session
             .disconnect(Disconnect::ByApplication, "", "English")
-            .await;
-        if let Err(close_err) = close_rs {
-            error!("SSHSession close error cause by {}", close_err.to_string());
-            bail!(close_err.to_string())
-        } else {
-            println!("SSHSession close by monograph waiter cluster_mgr");
-            Ok(())
-        }
+            .await?;
+        Ok(())
     }
 }

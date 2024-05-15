@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::future::Future;
-use tracing::info;
+use tracing::{debug, info};
 
 const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
 const FIND_LOG_PROCESS_CMD: &str = r"ps uxwe -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' | grep -v grep | awk '{print _COLUMN}'";
@@ -328,13 +328,13 @@ impl TaskExecutor for MonographLogCtlTask {
         task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         let cluster_mgr_cmd = task_arg.get(CLUSTER_COMMAND_STR).unwrap();
-        let cluster_cmd_string = cluster_mgr_cmd.clone().into_inner_value::<String>();
-        println!("{} execute.\n", self.task_id.pretty_string());
+        let cmd_string = cluster_mgr_cmd.clone().into_inner_value::<String>();
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let pid_cmd_value = self.log_service_pid(&ssh_session).await?;
-        let cmd_execution_result = if cluster_cmd_string.eq("status") {
+        let cmd_execution_result = if cmd_string.eq("status") {
             self.merge_execution_value(pid_cmd_value)
         } else {
             let execution_cmd_vec = self
@@ -345,13 +345,11 @@ impl TaskExecutor for MonographLogCtlTask {
                     let pid = TaskArgValue::into_inner_value::<String>(
                         execution_value.get(PROCESS_PID).unwrap().clone(),
                     );
-                    println!(
-                        "MonographLogCtlTask found pid={pid}, command={cluster_cmd_string} {key:#?}"
-                    );
-                    if cluster_cmd_string.eq("stop") {
+                    debug!("MonographLogCtlTask found pid={pid}, command={cmd_string} {key:#?}");
+                    if cmd_string.eq("stop") {
                         //stop and There are still log process alive
                         !pid.eq("NONE")
-                    } else if cluster_cmd_string.eq("start") {
+                    } else if cmd_string.eq("start") {
                         //start and There are still unstarted log processes
                         pid.eq("NONE")
                     } else {
@@ -368,7 +366,7 @@ impl TaskExecutor for MonographLogCtlTask {
                     .iter()
                     .map(|(key, ctl_cmd)| async {
                         let cmd_value_string = ctl_cmd.cmd_value();
-                        println!("MonographLogCtlTask send command={cmd_value_string}");
+                        debug!("MonographLogCtlTask send command={cmd_value_string}");
                         let cmd_result = ssh_session
                             .command(cmd_value_string.as_str(), CollectOutput)
                             .await;
@@ -384,7 +382,7 @@ impl TaskExecutor for MonographLogCtlTask {
         task_return_value!(
             cmd_execution_result,
             |status_code: i32| -> CmdErr {
-                CmdErr::ExecUserCmdErr(cluster_cmd_string.clone(), status_code.to_string())
+                CmdErr::ExecUserCmdErr(cmd_string.clone(), status_code.to_string())
             },
             "MonographLogCtlTask"
         )

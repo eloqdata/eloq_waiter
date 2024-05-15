@@ -8,6 +8,7 @@ use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use tracing::{debug, info};
 
 #[derive(Clone, Debug)]
 pub struct ExecCustomCommand {
@@ -118,22 +119,20 @@ impl TaskExecutor for ExecCustomCommand {
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        println!("{} execute.\n", self.task_id.pretty_string());
+        debug!("execute {}", self.task_id.pretty_string());
         let ssh_session = ssh::SSHSession::from_task_host(
             task_host,
             self.config.connection.ssh_auth_key().unwrap(),
         )
         .await?;
-        let (conn_host, _) = ssh_session.ssh_conn_info();
+        let (host, _) = ssh_session.ssh_conn_info();
         let exec_cmd_rs = ssh_session
             .command(self.cmd.clone().as_str(), CollectOutput)
             .await?;
 
         if let Some(output) = exec_cmd_rs.get(CMD_OUTPUT) {
-            println!(
-                r#"Host {} Cmd {} output
-              {}"#,
-                conn_host,
+            debug!(
+                "Host {host} Cmd {} output {}",
                 self.cmd,
                 TaskArgValue::into_inner_value::<String>(output.clone())
             );
