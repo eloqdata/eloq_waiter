@@ -502,7 +502,7 @@ impl DeploymentConfig {
         } else {
             return vec![];
         };
-        println!("dashboard_path {dashboard_path:?}");
+        info!("dashboard_path {dashboard_path:?}");
         walkdir::WalkDir::new(dashboard_path)
             .into_iter()
             .filter_map(|curr_path| curr_path.ok())

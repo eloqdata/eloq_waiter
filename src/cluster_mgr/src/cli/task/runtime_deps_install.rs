@@ -24,7 +24,7 @@ impl RuntimeDepsInstallation {
         let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None, None)?;
         let os_name = os_and_deps_pair.0;
         let os_version = os_and_deps_pair.1;
-        println!("RuntimeDep from_config = {os_name}");
+        debug!("RuntimeDep from_config = {os_name}");
         let  dep_cmd_partial = match os_name.as_str() {
             "ubuntu" => {
                vec![

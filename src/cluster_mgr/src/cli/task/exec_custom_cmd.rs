@@ -125,16 +125,14 @@ impl TaskExecutor for ExecCustomCommand {
             self.config.connection.ssh_auth_key().unwrap(),
         )
         .await?;
-        let (conn_host, _) = ssh_session.ssh_conn_info();
+        let (host, _) = ssh_session.ssh_conn_info();
         let exec_cmd_rs = ssh_session
             .command(self.cmd.clone().as_str(), CollectOutput)
             .await?;
 
         if let Some(output) = exec_cmd_rs.get(CMD_OUTPUT) {
-            println!(
-                r#"Host {} Cmd {} output
-              {}"#,
-                conn_host,
+            debug!(
+                "Host {host} Cmd {} output {}",
                 self.cmd,
                 TaskArgValue::into_inner_value::<String>(output.clone())
             );

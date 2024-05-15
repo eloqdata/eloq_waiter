@@ -291,7 +291,7 @@ impl TaskExecutor for MonitorCtlTask {
             "start" => {
                 if monitor_component_pid.eq("NONE") {
                     let start_cmd = self.monitor_ctl.start(monitor_ref.clone());
-                    println!(r#"MonitorCtlTask start_cmd={start_cmd:?}"#);
+                    debug!(r#"MonitorCtlTask start_cmd={start_cmd:?}"#);
                     wait_command_complete!(
                         start_cmd.clone(),
                         process_info_cmd,

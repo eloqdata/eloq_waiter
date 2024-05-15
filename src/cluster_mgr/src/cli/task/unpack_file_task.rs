@@ -62,7 +62,6 @@ impl UnpackFileTask {
         let conn_usr = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
         let unpack_file_location = config.unpack_files_map();
-        // println!("unpack_files  = {all_hosts:#?}");
         let unpack_task_instance = unpack_file_location
             .iter()
             .map(|unpack_location| {

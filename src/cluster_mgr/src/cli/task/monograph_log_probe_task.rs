@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 // The timeout time of the probe, in seconds.
 const TIMEOUT: u64 = 60 * 5;
@@ -175,7 +175,7 @@ impl MonographLogProbeTask {
                             let raft_stat = check_health_rsp.raft_stat;
                             assert!(!raft_stat.is_empty());
                             let group_state = raft_stat.first().unwrap();
-                            println!("MonographLogProbeTask retrieve from {request_url:#?} group_id={group_id:?},member_role={group_state:#?}");
+                            debug!("MonographLogProbeTask retrieve from {request_url:#?} group_id={group_id:?},member_role={group_state:#?}");
                             if group_state.state.to_uppercase().eq("LEADER") {
                                 (group_id, Ok(MemberLeaderInfo {
                                     group_id,
@@ -192,7 +192,7 @@ impl MonographLogProbeTask {
                         }
                     } else {
                         let rsp_err = response_rs.err().unwrap();
-                        println!("{rsp_err:#?}");
+                        debug!("{rsp_err:#?}");
                         warn!("MonographLogProbeTask Failed to request group_id={group_id}, error={rsp_err:#?}");
                         (group_id, Err(rsp_err))
                     };
@@ -211,7 +211,7 @@ impl MonographLogProbeTask {
             }
             if total_leader == expect_leader_count {
                 if success_counter < success {
-                    println!("MonographLogProbeTask success_counter={success_counter} < success_threshold={success}");
+                    debug!("MonographLogProbeTask success_counter={success_counter} < success_threshold={success}");
                     interval.tick().await;
                     success_counter += 1;
                     continue;
@@ -229,7 +229,7 @@ impl MonographLogProbeTask {
                 );
                 return execution_success;
             }
-            println!("MonographLogProbeTask found current leader count={total_leader:#?} != {expect_leader_count}.\
+            info!("MonographLogProbeTask found current leader count={total_leader:#?} != {expect_leader_count}.\
              next round 300ms after");
             interval.tick().await;
         }

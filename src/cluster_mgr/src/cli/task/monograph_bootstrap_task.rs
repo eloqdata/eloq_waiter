@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct MonographInstall {
@@ -91,7 +91,6 @@ impl TaskExecutor for MonographInstall {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         debug!("execute {}", self.task_id.pretty_string());
-
         let storage_service = self.config.get_monograph_storage()?;
         let keyspace_exists = match storage_service {
             StorageProvider::Cassandra => self.monograph_keyspace_exists().await?,
@@ -100,7 +99,7 @@ impl TaskExecutor for MonographInstall {
         if keyspace_exists {
             let keyspace_name = self.config.deployment.get_monograph_keyspace()?;
             let format = r#"MonographDB keyspace already exists."#.red();
-            println!("{} => {}", format, keyspace_name.red());
+            warn!("{} => {}", format, keyspace_name.red());
             return Ok(None);
         }
 

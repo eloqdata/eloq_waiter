@@ -171,7 +171,6 @@ impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
             if let Some(upload_dashboard_file) = self.dashboard_upload_files(config) {
                 all_upload_files.push(upload_dashboard_file);
             }
-            // println!("MonitorInfraConfUploadBuilder all configs={all_upload_files:#?}");
             all_upload_files
                 .iter()
                 .map(|upload_file| {
