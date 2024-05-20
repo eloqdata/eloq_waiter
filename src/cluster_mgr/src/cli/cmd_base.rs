@@ -11,8 +11,6 @@ use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use serde::de;
-use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
@@ -108,7 +106,7 @@ impl CommandExecutor {
                 store,
                 version,
                 skip_deps: _,
-                limited,
+                unlimited,
                 ext_cass,
                 ext_cass_port,
                 ext_cass_user,
@@ -165,7 +163,7 @@ impl CommandExecutor {
                     .first_mut()
                     .unwrap()
                     .push_str(&pid);
-                if !limited {
+                if unlimited {
                     deploy.hardware = None;
                     config.scan_hardware().await?;
                 }
@@ -296,7 +294,7 @@ impl CommandExecutor {
                 store: _,
                 version: _,
                 skip_deps: _,
-                limited: _,
+                unlimited: _,
                 ext_cass: _,
                 ext_cass_port: _,
                 ext_cass_user: _,
