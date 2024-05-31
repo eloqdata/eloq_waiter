@@ -11,9 +11,10 @@ use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
+use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -67,7 +68,7 @@ impl CommandExecutor {
         }
         let all_hosts = config.get_unique_host_list().join(";");
         let config_string = config.config_to_string();
-        info!(
+        debug!(
             "CmdExecutor save DeploymentConfig {} {}",
             config_string, all_hosts
         );
@@ -105,7 +106,7 @@ impl CommandExecutor {
                 store,
                 version,
                 skip_deps: _,
-                limited,
+                unlimited,
                 ext_cass,
                 ext_cass_port,
                 ext_cass_user,
@@ -144,6 +145,11 @@ impl CommandExecutor {
                         deploy.storage_service.rocksdb = Some(RocksDB::Local);
                     }
                 }
+                if let Some(monitor) = &mut deploy.monitor {
+                    if store != StorageProvider::Cassandra {
+                        monitor.cassandra_collector = None
+                    }
+                }
                 deploy.version.replace(version);
                 deploy.set_image()?;
                 // add kv-store name to cluster name suffix
@@ -162,7 +168,7 @@ impl CommandExecutor {
                     .first_mut()
                     .unwrap()
                     .push_str(&pid);
-                if !limited {
+                if unlimited {
                     deploy.hardware = None;
                     config.scan_hardware().await?;
                 }
@@ -197,12 +203,17 @@ impl CommandExecutor {
             }
             | CommandArgs::Inspect { cluster, yaml: _ }
             | CommandArgs::Remove { cluster }
-            | CommandArgs::Connect { cluster } => {
+            | CommandArgs::Connect { cluster }
+            | CommandArgs::Scale {
+                cluster,
+                add_tx_node: _,
+                del_tx_node: _,
+            } => {
                 let config = self
                     .state_mgr
                     .load_deployment_from_state(cluster.as_str())
                     .await?
-                    .ok_or(anyhow!("cluster {} not exist", cluster))?;
+                    .ok_or(anyhow!("cluster {} not found", cluster))?;
                 Ok(config)
             }
             CommandArgs::RunDeps { topology_file }
@@ -219,7 +230,7 @@ impl CommandExecutor {
         &'static self,
         cmd: CommandArgs,
         deployment_config: Option<DeploymentConfig>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         match cmd {
             CommandArgs::List => {
                 return self.list_clusters().await;
@@ -227,7 +238,7 @@ impl CommandExecutor {
             _ => {}
         }
 
-        // Generate and run tasks
+        // fetch config from file or database
         let cmd_ref = cmd.as_ref();
         let config = match deployment_config {
             Some(mut config) => {
@@ -239,12 +250,40 @@ impl CommandExecutor {
             None => self.get_config(cmd.clone()).await?,
         };
 
+        match cmd.clone() {
+            CommandArgs::Scale {
+                cluster: _,
+                add_tx_node,
+                del_tx_node,
+            } => {
+                let add: HashSet<String> = HashSet::from_iter(add_tx_node.into_iter());
+                let del: HashSet<String> = HashSet::from_iter(del_tx_node.into_iter());
+                if add.intersection(&del).count() > 0 {
+                    bail!("add_tx_node is overlaped with del_tx_node")
+                }
+                let hosts: HashSet<String> =
+                    HashSet::from_iter(config.deployment.tx_service.host.clone().into_iter());
+                if add.intersection(&hosts).count() > 0 {
+                    bail!("can't add node already in cluster")
+                }
+                if !del.is_subset(&hosts) {
+                    bail!("deleted node not found")
+                }
+                if add.is_empty() && del.is_empty() {
+                    warn!("scale do nothing");
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
         let recv_rs_and_print_join = tokio::task::spawn(async move {
             let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
             if not_print_task_rs.is_none() {
                 self.task_mgr.print_task_result().await;
             }
         });
+        // Generate and run tasks
         let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
         recv_rs_and_print_join.await?;
         info!(r#"all tasks complete.task_size={}"#, rs.len());
@@ -260,7 +299,7 @@ impl CommandExecutor {
                 store: _,
                 version: _,
                 skip_deps: _,
-                limited: _,
+                unlimited: _,
                 ext_cass: _,
                 ext_cass_port: _,
                 ext_cass_user: _,
@@ -292,6 +331,18 @@ impl CommandExecutor {
             }
             CommandArgs::Connect { cluster: _ } => {
                 println!("{}", config.client_conn());
+            }
+            CommandArgs::Scale {
+                cluster,
+                add_tx_node,
+                del_tx_node,
+            } => {
+                let mut config = config;
+                let tx_hosts = &mut config.deployment.tx_service.host;
+                tx_hosts.retain(|h| !del_tx_node.contains(h));
+                tx_hosts.extend(add_tx_node);
+                self.save_deployment_config(&config, true).await?;
+                println!("cluster {cluster} is scaled done!");
             }
             _ => {}
         }

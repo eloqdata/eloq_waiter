@@ -94,6 +94,7 @@ pub const CONFIG_MARIADB_SECTION: &str = "mariadb";
 pub const SECTION_LOCAL: &str = "local";
 pub const SECTION_CLUSTER: &str = "cluster";
 pub const SECTION_STORE: &str = "store";
+pub const SECTION_METRIC: &str = "metrics";
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
 pub enum StorageProvider {

@@ -182,8 +182,8 @@ impl DeploymentConfig {
         let mut path_vec = match self.product() {
             Product::EloqSQL => vec![self
                 .deployment
-                .gen_monograph_config_by_host(None, install_dir.clone())?],
-            Product::EloqKV => vec![self.deployment.gen_redis_config_by_host(None)?],
+                .gen_eloqsql_config_by_host(None, install_dir.clone())?],
+            Product::EloqKV => vec![self.deployment.gen_eloqkv_config_by_host(None)?],
         };
         let db_hosts = &self.deployment.tx_service.host;
         let all_config_path = match self.product() {
@@ -191,7 +191,7 @@ impl DeploymentConfig {
                 .iter()
                 .map(|host| {
                     self.deployment
-                        .gen_monograph_config_by_host(Some(host.to_string()), install_dir.clone())
+                        .gen_eloqsql_config_by_host(Some(host.to_string()), install_dir.clone())
                         .unwrap()
                 })
                 .collect_vec(),
@@ -199,7 +199,7 @@ impl DeploymentConfig {
                 .iter()
                 .map(|host| {
                     self.deployment
-                        .gen_redis_config_by_host(Some(host.to_string()))
+                        .gen_eloqkv_config_by_host(Some(host.to_string()))
                         .unwrap()
                 })
                 .collect_vec(),

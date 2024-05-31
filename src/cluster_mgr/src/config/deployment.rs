@@ -12,7 +12,7 @@ use crate::config::{
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
     CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
     MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, SECTION_CLUSTER,
-    SECTION_LOCAL, SECTION_STORE, SET_FOR_ME,
+    SECTION_LOCAL, SECTION_METRIC, SECTION_STORE, SET_FOR_ME,
 };
 use anyhow::{anyhow, bail, Result};
 use configparser::ini::Ini;
@@ -262,7 +262,7 @@ impl Deployment {
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
         let my_local = upload_dir().join("my_local.cnf");
         if !my_local.exists() {
-            self.gen_monograph_config_by_host(None, self.install_dir())?;
+            self.gen_eloqsql_config_by_host(None, self.install_dir())?;
         }
         let mut my_ini_local = Ini::new();
         let _config_map_rs = my_ini_local.load(my_local).unwrap();
@@ -277,7 +277,7 @@ impl Deployment {
     pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
         let my_local = upload_dir().join("redis_local.ini");
         if !my_local.exists() {
-            self.gen_redis_config_by_host(None)?;
+            self.gen_eloqkv_config_by_host(None)?;
         }
         let mut my_ini_local = Ini::new();
         let _config_map_rs = my_ini_local.load(my_local).unwrap();
@@ -331,54 +331,54 @@ impl Deployment {
         all_hosts.first().unwrap().to_string()
     }
 
-    pub fn build_monograph_config(
+    pub fn build_eloqsql_config(
         &self,
         set_ip_list: bool,
         install_dir: String,
     ) -> anyhow::Result<Ini> {
-        let mut mysql_ini = Ini::new();
+        let mut my_ini = Ini::new();
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
-            mysql_ini
+            my_ini
                 .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
                 .unwrap();
             let hosts = cass.host.join(",");
-            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_hosts", Some(hosts));
+            my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_hosts", Some(hosts));
             let port = cass.client_port()?;
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_cass_port",
                 Some(port.to_string()),
             );
             if let Some(conn) = cass.external() {
                 if let Some(user) = conn.user.clone() {
-                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_user", Some(user));
+                    my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_user", Some(user));
                 }
                 if let Some(pwd) = conn.password.clone() {
-                    mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_password", Some(pwd));
+                    my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_password", Some(pwd));
                 }
             }
         } else {
-            mysql_ini
+            my_ini
                 .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
                 .unwrap();
 
             let dynamodb = self.storage_service.dynamodb.as_ref().unwrap();
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_aws_access_key_id",
                 Some(dynamodb.clone().access_key_id),
             );
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_aws_secret_key",
                 Some(dynamodb.clone().secret_key),
             );
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_dynamodb_region",
                 Some(dynamodb.clone().region),
             );
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_dynamodb_endpoint",
                 Some(dynamodb.clone().endpoint),
@@ -390,32 +390,32 @@ impl Deployment {
         //     Some(self.cluster_name.clone()),
         // );
 
-        mysql_ini.set(
+        my_ini.set(
             CONFIG_MARIADB_SECTION,
             "datadir",
             Some(format!("{install_dir}/datafarm")),
         );
-        mysql_ini.set(
+        my_ini.set(
             CONFIG_MARIADB_SECTION,
             "lc_messages_dir",
             Some(format!(
                 "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/share"
             )),
         );
-        mysql_ini.set(
+        my_ini.set(
             CONFIG_MARIADB_SECTION,
             "plugin_dir",
             Some(format!(
                 "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/lib/plugin",
             )),
         );
-        mysql_ini.set(
+        my_ini.set(
             CONFIG_MARIADB_SECTION,
             "port",
             Some(self.client_port().to_string()),
         );
 
-        mysql_ini.set(
+        my_ini.set(
             CONFIG_MARIADB_SECTION,
             "socket",
             Some(format!("/tmp/mysql{}.sock", self.client_port())),
@@ -428,25 +428,36 @@ impl Deployment {
                 .iter()
                 .map(|host| format!("{}:{}", host.clone(), use_port))
                 .join(",");
-            mysql_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
+            my_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
         } else {
-            mysql_ini.set(
+            my_ini.set(
                 CONFIG_MARIADB_SECTION,
                 "monograph_ip_list",
                 Some(format!("{}:{}", "127.0.0.1", use_port)),
             );
         }
-        Ok(mysql_ini.clone())
+
+        let enable_metric = if let Some(monitor) = &self.monitor {
+            monitor.monograph_metrics.is_some()
+        } else {
+            false
+        };
+        my_ini.set(
+            CONFIG_MARIADB_SECTION,
+            "monograph_enable_metrics",
+            Some(enable_metric.to_string()),
+        );
+        Ok(my_ini.clone())
     }
 
-    pub fn gen_monograph_config_by_host(
+    pub fn gen_eloqsql_config_by_host(
         &self,
         tx_host: Option<String>,
         install_dir: String,
     ) -> anyhow::Result<PathBuf> {
         let port = self.tx_service.port.unwrap();
         let is_host = tx_host.is_some();
-        let mut my_ini = self.build_monograph_config(is_host, install_dir)?;
+        let mut my_ini = self.build_eloqsql_config(is_host, install_dir)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
             (host.clone(), upload_host_dir(&host).join("my.cnf"))
         } else {
@@ -492,31 +503,31 @@ impl Deployment {
             warn!("hardware information for {host} is missing");
         }
 
-        let key = "thread_pool_size";
-        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
-        if val.is_none() {
-            let mut v = 1;
-            if let Some(hw) = opt_hw {
-                v = v.max((hw.cpu * 3) / 8);
-            }
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
-        }
-
-        let key = "monograph_core_num";
-        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
-        if val.is_none() {
-            let mut v = 1;
-            if let Some(hw) = opt_hw {
-                v = v.max((hw.cpu * 3) / 8);
-            }
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(v.to_string()));
-        }
-
         let union_cass = self
             .topology()
             .get(&host)
             .unwrap()
             .contains(&DeploymentPackage::Storage);
+
+        let mut core = 1;
+        if let Some(hw) = opt_hw {
+            if union_cass {
+                core = core.max((hw.cpu * 3) / 8);
+            } else {
+                core = core.max((hw.cpu * 3) / 4);
+            }
+        }
+        let key = "thread_pool_size";
+        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        if val.is_none() {
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(core.to_string()));
+        }
+        let key = "monograph_core_num";
+        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        if val.is_none() {
+            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(core.to_string()));
+        }
+
         let key = "monograph_node_memory_limit_mb";
         let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u32);
         if val.is_none() {
@@ -531,7 +542,7 @@ impl Deployment {
         Ok(cnf_path)
     }
 
-    pub fn build_redis_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
+    pub fn build_eloqkv_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut redis_ini = Ini::new();
         redis_ini
             .load(config_template(REDIS_CONF_TEMPLATE)?)
@@ -628,12 +639,23 @@ impl Deployment {
                 Some(format!("{}:{}", "127.0.0.1", use_port)),
             );
         }
+
+        let enable_metric = if let Some(monitor) = &self.monitor {
+            monitor.monograph_metrics.is_some()
+        } else {
+            false
+        };
+        redis_ini.set(
+            SECTION_METRIC,
+            "enable_metrics",
+            Some(enable_metric.to_string()),
+        );
         Ok(redis_ini.clone())
     }
 
-    pub fn gen_redis_config_by_host(&self, tx_host: Option<String>) -> anyhow::Result<PathBuf> {
+    pub fn gen_eloqkv_config_by_host(&self, tx_host: Option<String>) -> anyhow::Result<PathBuf> {
         let is_host = tx_host.is_some();
-        let mut ini = self.build_redis_config(is_host)?;
+        let mut ini = self.build_eloqkv_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
             (host.clone(), upload_host_dir(&host).join("redis.ini"))
         } else {
@@ -927,7 +949,7 @@ impl Deployment {
                             .contains(&DeploymentPackage::MonographTx);
                         let heap = if union { hw.memory / 4 } else { hw.memory / 2 }.min(64 * GB);
                         let h_xm = format!("-Xms{}M\n-Xmx{}M", heap, heap);
-                        if heap < 16 * GB {
+                        if heap < 8 * GB {
                             gc_setting = format!("{GC_SETTING_CMS}\n{h_xm}");
                         } else {
                             gc_setting = format!("{GC_SETTING_G1}\n{h_xm}");
