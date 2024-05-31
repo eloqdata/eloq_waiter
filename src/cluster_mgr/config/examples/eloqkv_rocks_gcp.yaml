@@ -2,22 +2,29 @@ connection:
   username: "${USER}"
   auth_type: "keypair"
   auth:
-    keypair: "${CLUSTER_MGR_HOME}/ed25519"
+    keypair: "/home/${USER}/.ssh/id_rsa"
 deployment:
-  cluster_name: "demo-kv"
+  cluster_name: "eloqkv-cluster"
   product: "EloqKV"
   version: "latest"
-  install_dir: "${CLUSTER_MGR_HOME}"
+  install_dir: "/home/${USER}/eloq"
   log_service:
     nodes:
       - host: 127.0.0.1
         port: 9000
-        data_dir: ["/tmp/disk_wal_eloqkv"]
+        data_dir:
+          - "/home/${USER}/eloq/disk_wal_kv"
     replica: 1
   tx_service:
     host: [127.0.0.1]
     client_port: 6389
   storage_service:
+    rocksdb: !GCP
+      region: "xxx"
+      bucket_name: "xxx"
+      bucket_prefix: "xxx"
+      target_file_size_base: "xxx"
+      sst_file_cache_size: "xxx"
   monitor:
     data_dir: ""
     monograph_metrics:
@@ -34,10 +41,3 @@ deployment:
     node_exporter:
       url: "https://d143xau9fe26d8.cloudfront.net/others/node_exporter-1.5.0.linux-amd64.tar.gz"
       port: 9200
-    cassandra_collector:
-      mcac_agent: "https://d143xau9fe26d8.cloudfront.net/others/datastax-mcac-agent-0.3.4-4.1-beta1.tar.gz"
-      mcac_port: 9103
-  hardware:
-    127.0.0.1:
-      cpu: 2
-      memory: 2048

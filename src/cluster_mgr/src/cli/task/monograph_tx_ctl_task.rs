@@ -62,7 +62,7 @@ pub fn mono_start_cmd(ins_dir: &str, product: Product, debug: bool) -> String {
         Product::EloqKV => format!(
             r#"mkdir -p {tx_dir}/logs && cd {tx_dir} && \
                 {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
-                {tx_dir}/redis_server --config={ins_dir}/redis.ini > {tx_dir}/logs/redis_{}.log 2>&1 &"#,
+                {tx_dir}/redis_server --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > {tx_dir}/logs/redis_{}.log 2>&1 &"#,
             process::id()
         ),
     }
@@ -435,7 +435,7 @@ impl TaskExecutor for MonographTxCtlTask {
         task_host: TaskHost,
         task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        debug!("execute {}", self.task_id.pretty_string());
+        info!("execute {}", self.task_id.pretty_string());
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;

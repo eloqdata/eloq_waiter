@@ -20,6 +20,8 @@ impl TaskGroup for UpgradeClusterTaskGroup {
     ) -> anyhow::Result<TaskExecutionContext> {
         let deployment_ref = &config.deployment;
         let cluster = deployment_ref.clone().cluster_name;
+
+        // stop tx-service and log-service
         let stop_cmd = CommandArgs::Stop {
             cluster: cluster.clone(),
             force: false,
@@ -33,13 +35,12 @@ impl TaskGroup for UpgradeClusterTaskGroup {
 
         let mut download_task = DownloadTask::from_config(&config)?;
         download_task.extend(LocalCopyTask::form_config(&config)?);
-
         let mut upload_monograph_tasks = IndexMap::new();
         upload_monograph_tasks.extend(upload_tasks(UploadTaskBuilderType::MonographAll, &config));
         upload_monograph_tasks.extend(upload_tasks(UploadTaskBuilderType::MonitorConf, &config));
-
         let unpack_tasks = UnpackFileTask::from_config(&config)?;
 
+        // start log-service and tx-service
         let start_cmd = CommandArgs::Start { cluster };
         let mut start_all_tasks = IndexMap::new();
         if has_log_srv {

@@ -26,6 +26,6 @@ bash waiter_src/concourse/install.sh
 export PATH="$PATH:$CLUSTER_MGR_HOME"
 cat ${HOME}/.ssh/id_rsa.pub >>${HOME}/.ssh/authorized_keys
 
-bash waiter_src/tests/basic.sh
+bash ${CLUSTER_MGR_HOME}/tests/basic.sh
 sleep 15
-bash waiter_src/tests/external_cass.sh 172.31.41.177
+bash ${CLUSTER_MGR_HOME}/tests/external_cass.sh 172.31.5.203
