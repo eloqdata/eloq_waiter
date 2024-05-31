@@ -1,38 +1,24 @@
 use clap::Parser;
 use cluster_mgr::cli::ClusterMgrCommandArgs;
 use cluster_mgr::cli::{cmd_base::CommandExecutor, set_home_dir};
-use std::{env, process::exit};
+use std::process::exit;
 use tracing::{error, info, Level};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
-    let level = if let Ok(tracing_env) = env::var("MONO_CLUSTER_MGR_TRACING") {
-        if !tracing_env.is_empty() && tracing_env.to_lowercase() == "true" {
-            Level::INFO
-        } else {
-            Level::WARN
-        }
-    } else {
-        Level::WARN
-    };
+    let args = ClusterMgrCommandArgs::parse();
+    let level = if args.quiet { Level::WARN } else { Level::INFO };
+    tracing_subscriber::fmt().with_max_level(level).init();
     info!("ClusterMgr Tracing Level = {level:?}");
-    let filter = EnvFilter::from_default_env()
-        .add_directive("russh::client::encrypted=warn".parse().unwrap());
-    tracing_subscriber::fmt()
-        .with_max_level(level)
-        .with_env_filter(filter)
-        .init();
-    let cluster_mgr_cmd = ClusterMgrCommandArgs::parse();
-    if let Err(e) = set_home_dir(&cluster_mgr_cmd.home) {
+    if let Err(e) = set_home_dir(&args.home) {
         error!("{}", e);
         exit(1);
     }
 
-    let cmd_executor = Box::leak(Box::new(CommandExecutor::new()));
-    if let Some(command) = cluster_mgr_cmd.command {
+    let executor = Box::leak(Box::new(CommandExecutor::new()));
+    if let Some(command) = args.command {
         info!("ClusterMgr receive {:?} command", command.clone());
-        if let Err(e) = cmd_executor.run(command, None).await {
+        if let Err(e) = executor.run(command, None).await {
             error!("{}", e);
             exit(1);
         }
