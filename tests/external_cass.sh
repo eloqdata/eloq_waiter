@@ -10,7 +10,7 @@ sed -i "s|#cass_keyspace=eloqkv|cass_keyspace=waiter_${OS_ID}|" ${CLUSTER_MGR_HO
 sed -i "s|enable_data_store=none|enable_data_store=all|" ${CLUSTER_MGR_HOME}/config/redis_template.ini
 
 cluster_mgr demo eloq-sql --skip-deps --ext-cass ${CASSANDRA_ADDR}
-CLIENT=$(cluster_mgr connect demo-sql-cassandra)
+CLIENT=$(cluster_mgr -q connect demo-sql-cassandra)
 cluster_mgr status demo-sql-cassandra --wait 5
 eval "${CLIENT} --execute 'SHOW DATABASES'"
 cluster_mgr monitor demo-sql-cassandra stop
@@ -19,7 +19,7 @@ cluster_mgr remove demo-sql-cassandra
 
 sleep 15
 cluster_mgr demo eloq-kv --skip-deps --ext-cass ${CASSANDRA_ADDR}
-CLIENT=$(cluster_mgr connect demo-kv-cassandra)
+CLIENT=$(cluster_mgr -q connect demo-kv-cassandra)
 cluster_mgr status demo-kv-cassandra --wait 5
 eval ${CLIENT} incr mycounter
 cluster_mgr monitor demo-kv-cassandra stop
