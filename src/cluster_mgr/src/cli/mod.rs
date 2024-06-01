@@ -21,6 +21,8 @@ pub const CMD: &str = "_cmd_";
 pub struct ClusterMgrCommandArgs {
     #[arg(long, value_name = "HOME_DIR")]
     pub home: Option<PathBuf>,
+    #[arg(short, long, default_value_t = false)]
+    pub quiet: bool,
     #[command(subcommand)]
     pub command: Option<CommandArgs>,
 }
