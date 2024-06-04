@@ -1,7 +1,8 @@
 use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
-    MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
+    export_asan, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
+    REDIS_TX_SERVICE_DIR,
 };
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
@@ -249,6 +250,10 @@ impl Deployment {
         } else {
             Product::EloqSQL
         }
+    }
+
+    pub fn version(&self) -> &str {
+        self.version.as_ref().unwrap()
     }
 
     pub fn client_port(&self) -> u16 {
@@ -973,6 +978,51 @@ impl Deployment {
             .collect::<HashMap<String, Vec<PathBuf>>>();
 
         Ok(cass_config_vec)
+    }
+
+    pub fn tx_srv_start_cmd(&self) -> String {
+        let ins_dir = self.install_dir();
+        let tx_dir = match self.product() {
+            Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
+            Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
+        };
+        let head = if self.version() == "debug" {
+            export_asan(&format!("{tx_dir}/logs/asan"))
+        } else {
+            match self.product() {
+                Product::EloqSQL => {
+                    format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2")
+                }
+                Product::EloqKV => format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2"),
+            }
+        };
+        let exp_log = format!("mkdir -p {tx_dir}/logs && export GLOG_log_dir={tx_dir}/logs && export GLOG_max_log_size=1024");
+        match self.product() {
+            Product::EloqSQL => {
+                let logout = if self.version() <= "0.4.1" {
+                    format!("{tx_dir}/logs/eloqsql.log")
+                } else {
+                    "/dev/null".to_owned()
+                };
+                format!(
+                    r#"{exp_log} && cd {tx_dir}/install && \
+                        {head}; export LD_LIBRARY_PATH={tx_dir}/install/lib:$LD_LIBRARY_PATH; \
+                        {tx_dir}/install/bin/mysqld --defaults-file={ins_dir}/my.cnf > {logout} 2>&1 &"#
+                )
+            }
+            Product::EloqKV => {
+                let logout = if self.version() <= "1.0.8" {
+                    format!("{tx_dir}/logs/eloqkv.log")
+                } else {
+                    "/dev/null".to_owned()
+                };
+                format!(
+                    r#"{exp_log} && cd {tx_dir} && \
+                    {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
+                    {tx_dir}/redis_server --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > {logout} 2>&1 &"#
+                )
+            }
+        }
     }
 }
 
