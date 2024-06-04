@@ -9,7 +9,7 @@ use crate::cli::task::task_utils::{
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::{
-    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
+    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
 };
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 use strum_macros::AsRefStr;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 #[derive(Clone, Debug, Eq, PartialEq, AsRefStr)]
 pub enum TxCtlCmd {
@@ -38,34 +38,6 @@ pub enum TxCtlCmd {
 }
 
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
-
-pub fn mono_start_cmd(ins_dir: &str, product: Product, debug: bool) -> String {
-    let tx_dir = match product {
-        Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
-        Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
-    };
-    let head = if debug {
-        export_asan(&format!("{tx_dir}/logs/asan"))
-    } else {
-        match product {
-            Product::EloqSQL => format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2"),
-            Product::EloqKV => format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2"),
-        }
-    };
-    let exp_log = format!("mkdir -p {tx_dir}/logs && export GLOG_log_dir={tx_dir}/logs && export GLOG_max_log_size=1024");
-    match product {
-        Product::EloqSQL => format!(
-            r#"{exp_log} && cd {tx_dir}/install && \
-                {head}; export LD_LIBRARY_PATH={tx_dir}/install/lib:$LD_LIBRARY_PATH; \
-                {tx_dir}/install/bin/mysqld --defaults-file={ins_dir}/my.cnf > /dev/null 2>&1 &"#
-        ),
-        Product::EloqKV => format!(
-            r#"{exp_log} && cd {tx_dir} && \
-                {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
-                {tx_dir}/redis_server --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > /dev/null 2>&1 &"#
-        ),
-    }
-}
 
 macro_rules! monograph_cmd {
     ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $product:expr) => {{
@@ -130,7 +102,7 @@ pub(crate) static MONO_DB_PWD: &str = "mono_pwd";
 macro_rules! maybe_continue_probe {
     ($wait_secs:expr) => {
         if $wait_secs > 0 {
-            warn!("TxService probe failed, retrying. {}", $wait_secs);
+            info!("TxService probe failed, retrying. {}", $wait_secs);
             $wait_secs -= 1;
             let sleep_duration = Duration::from_secs(1);
             tokio::time::sleep(sleep_duration).await;
@@ -291,7 +263,6 @@ impl MonographTxCtlTask {
         let remote_install_dir = config.install_dir();
         let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         let product = config.product();
-        let debug = config.deployment.version.as_ref().unwrap() == "debug";
 
         let mut wait_secs = -1;
         let mut db_user = "_NONE".to_string();
@@ -332,11 +303,7 @@ impl MonographTxCtlTask {
                 };
                 let cmd_task_input_tuple = match cmd_str_ref {
                     "start" => (
-                        TxCtlCmd::Start(mono_start_cmd(
-                            &remote_install_dir,
-                            product.clone(),
-                            debug,
-                        )),
+                        TxCtlCmd::Start(config.deployment.tx_srv_start_cmd()),
                         HashMap::default(),
                     ),
                     "status" => (
