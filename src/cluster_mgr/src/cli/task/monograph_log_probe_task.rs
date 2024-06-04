@@ -175,7 +175,7 @@ impl MonographLogProbeTask {
                             let raft_stat = check_health_rsp.raft_stat;
                             assert!(!raft_stat.is_empty());
                             let group_state = raft_stat.first().unwrap();
-                            debug!("MonographLogProbeTask retrieve from {request_url:#?} group_id={group_id:?},member_role={group_state:#?}");
+                            info!("MonographLogProbeTask retrieve from {request_url:#?} group_id={group_id:?},member_role={group_state:#?}");
                             if group_state.state.to_uppercase().eq("LEADER") {
                                 (group_id, Ok(MemberLeaderInfo {
                                     group_id,
@@ -193,7 +193,7 @@ impl MonographLogProbeTask {
                     } else {
                         let rsp_err = response_rs.err().unwrap();
                         debug!("{rsp_err:#?}");
-                        warn!("MonographLogProbeTask Failed to request group_id={group_id}, error={rsp_err:#?}");
+                        info!("MonographLogProbeTask Failed to request group_id={group_id}, error={rsp_err:#?}");
                         (group_id, Err(rsp_err))
                     };
                     my_leader
@@ -211,7 +211,7 @@ impl MonographLogProbeTask {
             }
             if total_leader == expect_leader_count {
                 if success_counter < success {
-                    debug!("MonographLogProbeTask success_counter={success_counter} < success_threshold={success}");
+                    info!("MonographLogProbeTask success_counter={success_counter} < success_threshold={success}");
                     interval.tick().await;
                     success_counter += 1;
                     continue;
