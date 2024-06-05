@@ -15,12 +15,11 @@ use crate::config::{
     MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, SECTION_CLUSTER,
     SECTION_LOCAL, SECTION_METRIC, SECTION_STORE, SET_FOR_ME,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use configparser::ini::Ini;
 use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -31,7 +30,7 @@ use std::str::FromStr;
 use strum_macros::Display;
 use tokio_postgres::config::SslMode;
 use tokio_postgres::NoTls;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 const GC_SETTING_CMS: &str = "
 -XX:+UseConcMarkSweepGC
@@ -199,7 +198,7 @@ pub struct Deployment {
     pub hardware: Option<HashMap<String, Hardware>>,
 }
 
-async fn pg_client() -> Result<tokio_postgres::Client> {
+pub async fn pg_client() -> Result<tokio_postgres::Client> {
     let (client, conn) = tokio_postgres::Config::new()
         .user("postgres")
         .password("eloq-pub-service-postgresql")
@@ -221,69 +220,6 @@ async fn pg_client() -> Result<tokio_postgres::Client> {
 }
 
 impl Deployment {
-    // Populate tx_image and log_image according to version number
-    pub async fn set_image(&mut self) -> Result<()> {
-        let product = self.product().name().to_owned();
-        let os_name = sysinfo::System::distribution_id();
-        let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
-        let os_pretty = format!("{os_name}{os_version}");
-        let store = self.storage_service.pretty_name();
-        let arch = sysinfo::System::cpu_arch().unwrap();
-        let arch = match arch.as_str() {
-            "aarch64" | "arm64" => "arm64",
-            "x86" | "x86_64" | "amd64" => "amd64",
-            _ => bail!("unsupported cpu arch {arch}"),
-        };
-
-        if self.version.is_none() || self.version_str() == "latest" {
-            // request latest release version ID
-            let client = pg_client().await?;
-            let row = client
-                .query_one(
-                    "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3 AND store=$4
-                     ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
-                    &[&product, &arch, &os_pretty, &store],
-                )
-                .await
-                .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
-            if row.is_empty() {
-                bail!("no available release found")
-            }
-            let major: i32 = row.get("version_major");
-            let minor: i32 = row.get("version_minor");
-            let build: i32 = row.get("version_build");
-            let latest: String = format!("{major}.{minor}.{build}");
-            info!("latest release version = {latest}");
-            self.version = Some(latest);
-        }
-        self.version.as_mut().unwrap().make_ascii_lowercase();
-        let ver = self.version_str();
-        if ver != "nightly" && ver != "debug" {
-            let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
-            if !re.is_match(ver) {
-                error!("invalid version {}", ver);
-            }
-        }
-
-        let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
-        prefix.push(product);
-        let version = self.version.as_ref().unwrap();
-        prefix.push(os_pretty);
-        let prefix = prefix.as_path().to_str().unwrap();
-        if self.tx_image.is_none() {
-            let tx_tarball = match self.product() {
-                Product::EloqSQL => format!("eloqsql-{version}-{arch}.tar.gz"),
-                Product::EloqKV => format!("eloqkv-{version}-{arch}.tar.gz"),
-            };
-            self.tx_image = Some(format!("{prefix}/{store}/{tx_tarball}"));
-        }
-        if self.log_image.is_none() && self.log_service.is_some() {
-            let log_tarball = format!("log-service-{version}-{arch}.tar.gz");
-            self.log_image = Some(format!("{prefix}/logservice/{log_tarball}"));
-        }
-        Ok(())
-    }
-
     pub fn get_tx_image(&self) -> String {
         self.tx_image.clone().unwrap()
     }

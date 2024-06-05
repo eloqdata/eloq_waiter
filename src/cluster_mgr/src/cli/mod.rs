@@ -176,6 +176,14 @@ pub enum CommandArgs {
     #[command(long_about = "List created clusters")]
     #[strum(serialize = "list")]
     List,
+    #[command(long_about = "List available versions")]
+    #[strum(serialize = "list-version")]
+    ListVersion {
+        #[arg(long)]
+        product: Option<Product>,
+        #[arg(long)]
+        store: Option<StorageProvider>,
+    },
     #[command(long_about = "Inspect cluster configuration")]
     #[strum(serialize = "inspect")]
     Inspect {

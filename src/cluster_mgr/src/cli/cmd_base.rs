@@ -1,6 +1,7 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::CommandArgs;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::{DeploymentConfig, VersionInfo};
+use crate::config::deployment::{pg_client, Deployment, Product};
 use crate::config::storage_service_config::{
     CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
 };
@@ -11,10 +12,12 @@ use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
+use regex::Regex;
 use std::collections::HashSet;
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -22,6 +25,9 @@ pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 pub struct CommandExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
+    cpu_arch: String,
+    os_id: String,
+    os_version: String,
 }
 
 impl Default for CommandExecutor {
@@ -33,9 +39,21 @@ impl Default for CommandExecutor {
 impl CommandExecutor {
     pub fn new() -> Self {
         info!("CommandExecutor init.");
+        let mut cpu_arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
+        cpu_arch = match cpu_arch.as_str() {
+            "aarch64" | "arm64" => "arm64",
+            "x86" | "x86_64" | "amd64" => "amd64",
+            _ => panic!("unsupported cpu arch {cpu_arch}"),
+        }
+        .to_owned();
+        let os_id = sysinfo::System::distribution_id();
+        let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
         Self {
             task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
+            cpu_arch,
+            os_id,
+            os_version,
         }
     }
 
@@ -45,6 +63,10 @@ impl CommandExecutor {
 
     pub fn state_mgr(&self) -> &Arc<StateMgr> {
         &self.state_mgr
+    }
+
+    pub fn os_pretty(&self) -> String {
+        format!("{}{}", self.os_id, self.os_version)
     }
 
     async fn save_deployment_config(&self, config: &DeploymentConfig, upsert: bool) -> Result<()> {
@@ -94,7 +116,7 @@ impl CommandExecutor {
                 skip_deps: _,
             } => {
                 let mut config = DeploymentConfig::load(Some(topology_file))?;
-                config.deployment.set_image().await?;
+                self.set_image(&mut config.deployment).await?;
                 config.scan_hardware().await?;
                 self.save_deployment_config(&config, cmd.as_ref().eq("upgrade"))
                     .await?;
@@ -151,7 +173,7 @@ impl CommandExecutor {
                     }
                 }
                 deploy.version.replace(version);
-                deploy.set_image().await?;
+                self.set_image(deploy).await?;
                 // add kv-store name to cluster name suffix
                 let name_suffix = format!("-{store}");
                 deploy.cluster_name.push_str(&name_suffix);
@@ -222,7 +244,7 @@ impl CommandExecutor {
                 command: _,
                 topology_file,
             } => Ok(DeploymentConfig::load(Some(topology_file))?),
-            CommandArgs::List => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -231,9 +253,12 @@ impl CommandExecutor {
         cmd: CommandArgs,
         deployment_config: Option<DeploymentConfig>,
     ) -> Result<()> {
-        match cmd {
+        match &cmd {
             CommandArgs::List => {
                 return self.list_clusters().await;
+            }
+            CommandArgs::ListVersion { product, store } => {
+                return self.list_versions(product.clone(), store.clone()).await;
             }
             _ => {}
         }
@@ -360,6 +385,97 @@ impl CommandExecutor {
 
         let table = tabled::Table::new(list);
         println!("{table}\n");
+        Ok(())
+    }
+
+    async fn list_versions(
+        &self,
+        product: Option<Product>,
+        store: Option<StorageProvider>,
+    ) -> Result<()> {
+        let client = pg_client().await?;
+        let mut sql = "SELECT * FROM tx_release WHERE arch=$1 AND os=$2".to_owned();
+        if let Some(p) = product {
+            sql.push_str(&format!(" AND product='{}'", p.name()));
+        }
+        if let Some(s) = store {
+            sql.push_str(&format!(" AND store='{s}'"));
+        }
+
+        let list = client
+            .query(&sql, &[&self.cpu_arch, &self.os_pretty()])
+            .await?
+            .into_iter()
+            .map(|row| {
+                let product: String = row.get("product");
+                let store: String = row.get("store");
+                let major: i32 = row.get("version_major");
+                let minor: i32 = row.get("version_minor");
+                let build: i32 = row.get("version_build");
+                let version: String = format!("{major}.{minor}.{build}");
+                VersionInfo {
+                    product,
+                    store,
+                    version,
+                }
+            })
+            .collect_vec();
+        let table = tabled::Table::new(list);
+        println!("{table}\n");
+        Ok(())
+    }
+
+    // Populate tx_image and log_image according to version number
+    pub async fn set_image(&self, cnf: &mut Deployment) -> Result<()> {
+        let product = cnf.product().name().to_owned();
+        let arch = &self.cpu_arch;
+        let store = cnf.storage_service.pretty_name();
+        if cnf.version.is_none() || cnf.version_str() == "latest" {
+            // request latest release version ID
+            let client = pg_client().await?;
+            let row = client
+                .query_one(
+                    "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3 AND store=$4
+                         ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
+                    &[&product, &arch, &self.os_pretty(), &store],
+                )
+                .await
+                .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
+            if row.is_empty() {
+                bail!("no available release found")
+            }
+            let major: i32 = row.get("version_major");
+            let minor: i32 = row.get("version_minor");
+            let build: i32 = row.get("version_build");
+            let latest: String = format!("{major}.{minor}.{build}");
+            info!("latest release version = {latest}");
+            cnf.version = Some(latest);
+        }
+        cnf.version.as_mut().unwrap().make_ascii_lowercase();
+        let ver = cnf.version_str();
+        if ver != "nightly" && ver != "debug" {
+            let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
+            if !re.is_match(ver) {
+                error!("invalid version {}", ver);
+            }
+        }
+
+        let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
+        prefix.push(product);
+        let version = cnf.version.as_ref().unwrap();
+        prefix.push(self.os_pretty());
+        let prefix = prefix.as_path().to_str().unwrap();
+        if cnf.tx_image.is_none() {
+            let tx_tarball = match cnf.product() {
+                Product::EloqSQL => format!("eloqsql-{version}-{arch}.tar.gz"),
+                Product::EloqKV => format!("eloqkv-{version}-{arch}.tar.gz"),
+            };
+            cnf.tx_image = Some(format!("{prefix}/{store}/{tx_tarball}"));
+        }
+        if cnf.log_image.is_none() && cnf.log_service.is_some() {
+            let log_tarball = format!("log-service-{version}-{arch}.tar.gz");
+            cnf.log_image = Some(format!("{prefix}/logservice/{log_tarball}"));
+        }
         Ok(())
     }
 }
