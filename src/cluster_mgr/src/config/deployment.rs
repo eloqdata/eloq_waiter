@@ -565,8 +565,8 @@ impl Deployment {
                     }
                 }
             }
-            StorageProvider::Dynamo => panic!("not supported"),
-            StorageProvider::Rocks => match self.storage_service.rocksdb.clone().unwrap() {
+            StorageProvider::Dynamodb => panic!("not supported"),
+            StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
                 RocksDB::Local => {}
                 RocksDB::S3(s3) => {
                     redis_ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));

@@ -1,6 +1,6 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::CommandArgs;
-use crate::config::config_base::{DeploymentConfig, VersionInfo};
+use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{pg_client, Deployment, Product};
 use crate::config::storage_service_config::{
     CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
@@ -162,8 +162,8 @@ impl CommandExecutor {
                         };
                         deploy.storage_service.cassandra = Some(Cassandra { host, kind });
                     }
-                    StorageProvider::Dynamo => unimplemented!(),
-                    StorageProvider::Rocks => {
+                    StorageProvider::Dynamodb => unimplemented!(),
+                    StorageProvider::Rocksdb => {
                         deploy.storage_service.rocksdb = Some(RocksDB::Local);
                     }
                 }
@@ -413,7 +413,7 @@ impl CommandExecutor {
                 let minor: i32 = row.get("version_minor");
                 let build: i32 = row.get("version_build");
                 let version: String = format!("{major}.{minor}.{build}");
-                VersionInfo {
+                VersionRow {
                     product,
                     store,
                     version,

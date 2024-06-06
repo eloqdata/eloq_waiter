@@ -33,7 +33,7 @@ cluster_mgr remove demo-sql-cassandra
 cluster_mgr remove demo-kv-cassandra
 
 sleep 15
-cluster_mgr demo eloq-kv --store rocks
+cluster_mgr demo eloq-kv --store rocksdb
 CLIENT=$(cluster_mgr -q connect demo-kv-rocksdb)
 cluster_mgr status demo-kv-rocksdb --wait 5
 eval ${CLIENT} incr mycounter

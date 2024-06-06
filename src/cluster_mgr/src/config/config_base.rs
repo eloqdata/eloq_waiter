@@ -567,7 +567,7 @@ pub struct DeployAbstract {
 }
 
 #[derive(tabled::Tabled, Clone, Debug)]
-pub struct VersionInfo {
+pub struct VersionRow {
     pub product: String,
     pub store: String,
     pub version: String,
