@@ -998,7 +998,7 @@ impl Deployment {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
                 if let Version::Tag(nums) = self.version() {
-                    if nums <= parse_version("0.4.1") {
+                    if nums <= parse_version("0.4.2") {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
                 }
