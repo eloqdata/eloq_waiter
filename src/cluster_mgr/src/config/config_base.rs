@@ -1,6 +1,6 @@
 use crate::cli::{ssh, upload_dir, upload_host_dir, HOME_DIR};
 use crate::config::connection::Connection;
-use crate::config::deployment::{Codis, Deployment, Hardware, Product};
+use crate::config::deployment::{Codis, Deployment, Hardware, Product, Version};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
@@ -19,9 +19,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
-pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
-pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
-pub const MONOGRAPH_LOG_SERVICE_DIR: &str = "monograph-log-service-release";
+pub const LOG_SERVICE_HOME: &str = "LogServer";
 
 pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
 pub const MONOGRAPH_LOG_FILE_KEY: &str = "monograph_log";
@@ -178,11 +176,8 @@ impl DeploymentConfig {
     }
 
     pub fn gen_all_monograph_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let install_dir = self.install_dir();
         let mut path_vec = match self.product() {
-            Product::EloqSQL => vec![self
-                .deployment
-                .gen_eloqsql_config_by_host(None, install_dir.clone())?],
+            Product::EloqSQL => vec![self.deployment.gen_eloqsql_config_by_host(None)?],
             Product::EloqKV => vec![self.deployment.gen_eloqkv_config_by_host(None)?],
         };
         let db_hosts = &self.deployment.tx_service.host;
@@ -191,7 +186,7 @@ impl DeploymentConfig {
                 .iter()
                 .map(|host| {
                     self.deployment
-                        .gen_eloqsql_config_by_host(Some(host.to_string()), install_dir.clone())
+                        .gen_eloqsql_config_by_host(Some(host.to_string()))
                         .unwrap()
                 })
                 .collect_vec(),
@@ -235,11 +230,6 @@ impl DeploymentConfig {
         )
     }
 
-    pub fn log_home_dir(&self) -> String {
-        let cluster_install_dir = self.install_dir();
-        format!("{cluster_install_dir}/monograph-log-service-release")
-    }
-
     pub fn gen_log_start_script(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
         let log_cmd_map_opt = self.build_log_start_script()?;
         if let Some(log_scripts) = log_cmd_map_opt.as_ref() {
@@ -270,9 +260,8 @@ impl DeploymentConfig {
     pub fn client_conn(&self) -> String {
         match self.product() {
             Product::EloqSQL => format!(
-                "{}/{}/install/bin/mariadb --user={} -S /tmp/mysql{}.sock",
-                self.install_dir(),
-                MONOGRAPH_TX_SERVICE_DIR,
+                "{} --user={} -S /tmp/eloqsql{}.sock",
+                self.deployment.client_bin(),
                 self.connection.username,
                 self.deployment.client_port()
             ),
@@ -285,10 +274,12 @@ impl DeploymentConfig {
                         self.deployment.client_port(),
                     )
                 };
-                let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
                 format!(
-                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {}/redis_cli -server {}:{}",
-                    redis_dir, redis_dir, host, port
+                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {} -server {}:{}",
+                    self.deployment.tx_srv_home(),
+                    self.deployment.client_bin(),
+                    host,
+                    port
                 )
             }
         }
@@ -300,19 +291,19 @@ impl DeploymentConfig {
 
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
         let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
-        let remote_install_dir = self.install_dir();
-        let tx_dir = format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}");
-        let malloc = if self.deployment.version.as_ref().unwrap() == "debug" {
-            export_asan(&format!("{tx_dir}/logs"))
+        let install_dir = self.install_dir();
+        let tx_home = self.deployment.tx_srv_home();
+        let malloc = if let Version::Debug = self.deployment.version() {
+            export_asan(&self.deployment.tx_srv_logs())
         } else {
-            format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2")
+            format!("export LD_PRELOAD={tx_home}/lib/libmimalloc.so.2")
         };
         let rs = fs::read_to_string(install_db_template.as_path())?;
         let final_script = rs
-            .replace("${INSTALL_DIR}", &format!("{tx_dir}/install",))
+            .replace("${INSTALL_DIR}", &tx_home)
             .replace("${MALLOC}", &malloc)
-            .replace("${BS_INI}", &format!("{remote_install_dir}/my_local.cnf"))
-            .replace("${DATA_DIR}", &format!("{remote_install_dir}/datafarm"));
+            .replace("${BS_INI}", &format!("{install_dir}/my_local.cnf"))
+            .replace("${DATA_DIR}", &format!("{tx_home}/datafarm"));
         Ok(final_script)
     }
 
@@ -321,7 +312,7 @@ impl DeploymentConfig {
             let log_start_template_path = config_template(START_LOG_TEMPLATE)?;
             let log_start_template = fs::read_to_string(log_start_template_path.as_path())?;
             let all_start_cmd_by_hosts = log_srv.log_start_cmd();
-            let log_home_dir = self.log_home_dir();
+            let log_home_dir = self.deployment.log_srv_home();
             let version = self.deployment.version.as_ref().unwrap();
             let cmd_scripts = all_start_cmd_by_hosts
                 .iter()

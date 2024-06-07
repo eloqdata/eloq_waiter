@@ -74,7 +74,7 @@ impl MonitorInfraConfUploadBuilder {
         let cass_config_host_ref = all_host.get(&DeploymentPackage::Storage).unwrap();
         let monograph_tx_hosts = monograph_tx_hosts_ref.clone();
 
-        let create_user_script = monitor.gen_monitor_user_sql_file().unwrap(); //install_dir
+        let create_user_script = monitor.gen_monitor_user_sql_file().unwrap();
         let grafana_ds_conf_path = monitor.gen_grafana_datasource_config().unwrap(); //grafana datasource
         let grafana_conf_path = monitor.gen_grafana_config().unwrap(); //grafana
         let mcac_config = monitor

@@ -2,10 +2,7 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_LOG_SERVICE_DIR, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
-};
-use crate::config::deployment::Product;
+use crate::config::config_base::{DeploymentConfig, LOG_SERVICE_HOME};
 use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -16,7 +13,7 @@ use tracing::info;
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
 pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
-    "apache-cassandra",
+    "cassandra",
     "prometheus",
     "grafana",
     "node_exporter",
@@ -70,12 +67,9 @@ impl UnpackFileTask {
                 let remote_host = &unpack_location.host;
 
                 let unpacked_file = if curr_file_name.eq(&log_image) {
-                    MONOGRAPH_LOG_SERVICE_DIR.to_string()
+                    LOG_SERVICE_HOME.to_string()
                 } else if curr_file_name.eq(&tx_image) {
-                    match config.product() {
-                        Product::EloqSQL => MONOGRAPH_TX_SERVICE_DIR.to_string(),
-                        Product::EloqKV => REDIS_TX_SERVICE_DIR.to_string(),
-                    }
+                    config.product().home().to_owned()
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
                 };
@@ -134,22 +128,15 @@ impl TaskExecutor for UnpackFileTask {
         let unpacked_name = TaskArgValue::into_inner_value::<String>(
             task_input.get(UNPACKED_NAME).unwrap().clone(),
         );
-        let install_dir = self.config.install_dir();
-        let mut unpack_cmd = if unpacked_name.contains(MONOGRAPH_TX_SERVICE_DIR) {
-            let target_dir = format!("{install_dir}/{unpacked_name}");
-            format!(r#"mkdir -p {target_dir} && tar -zxvf {remote_tar} -C {target_dir}"#,)
-        } else {
-            let target_dir = format!("{install_dir}/{unpacked_name}");
-            format!(
-                r#"mkdir -p {target_dir}; tar -zxvf {remote_tar} -C {target_dir} --strip-components 1 --overwrite"#,
-            )
-        };
+        let target_dir = format!("{}/{unpacked_name}", self.config.install_dir());
+        let mut unpack_cmd = format!(
+            r#"mkdir -p {target_dir}; tar -zxvf {remote_tar} -C {target_dir} --strip-components 1 --overwrite"#,
+        );
         unpack_cmd = format!("{unpack_cmd} && rm -rf {remote_tar}");
         info!("UnpackFileTask cmd={unpack_cmd}");
         let task_rs = ssh_session
             .command(unpack_cmd.as_str(), SSHCommandOption::None)
             .await?;
-
         ssh_session.close().await?;
         task_return_value!(
             task_rs,

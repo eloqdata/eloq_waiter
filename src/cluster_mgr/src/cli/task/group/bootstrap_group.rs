@@ -79,10 +79,9 @@ impl TaskGroup for InstallDBTaskGroup {
                 executable.extend(upload_data_dir_task);
             }
             // rm -rf cc_ng/ tx_log/
-            let remote_install_dir = config.install_dir();
-            let rm_log_data_cmd = format!(
-                "rm -rf {remote_install_dir}/datafarm/cc_ng {remote_install_dir}/datafarm/tx_log",
-            );
+            let txsrv_home = config.deployment.tx_srv_home();
+            let rm_log_data_cmd =
+                format!("rm -rf {txsrv_home}/datafarm/cc_ng {txsrv_home}/datafarm/tx_log",);
             let rm_log_data_task_instance =
                 ExecCustomCommand::from_config(&cmd_args, "rm_log", rm_log_data_cmd, &config);
             barrier.push(rm_log_data_task_instance.len());

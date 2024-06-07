@@ -219,10 +219,6 @@ impl CassandraCtlTask {
         Self { config, task_id }
     }
 
-    fn cassandra_home(&self) -> String {
-        format!("{}/apache-cassandra", self.config.install_dir())
-    }
-
     async fn cassandra_pid(
         &self,
         ssh_conn: SSHSession,
@@ -230,7 +226,7 @@ impl CassandraCtlTask {
     ) -> anyhow::Result<ExecutionValue> {
         let java_home = ssh_conn.execute(JAVA_HOME).await?.1;
         let conn_user = task_host.ssh_conn_tuple().0;
-        let cassandra_home = self.cassandra_home();
+        let cassandra_home = self.config.deployment.cassandra_home();
         let cassandra_process =
             cassandra_cmd!(CassandraCmd::ProcessInfo, cassandra_home, conn_user);
         let process_info = cassandra_process.cmd_value();
@@ -267,7 +263,11 @@ impl CassandraCtlTask {
         ssh_conn: &SSHSession,
     ) -> anyhow::Result<ExecutionValue> {
         let ssh_info = ssh_conn.ssh_conn_info();
-        let check_status = cassandra_cmd!(CassandraCmd::Status, self.cassandra_home(), ssh_info.1);
+        let check_status = cassandra_cmd!(
+            CassandraCmd::Status,
+            self.config.deployment.cassandra_home(),
+            ssh_info.1
+        );
         debug!(
             "CassandraCtlTask check_node_status_cmd={}, start={}",
             check_status.cmd_value(),
@@ -352,7 +352,7 @@ impl TaskExecutor for CassandraCtlTask {
         let cmd_str = TaskArgValue::into_inner_value::<String>(
             task_arg.get(CASSANDRA_CMD_STR).unwrap().clone(),
         );
-        let cassandra_home = self.cassandra_home();
+        let cassandra_home = self.config.deployment.cassandra_home();
         info!(
             "CassandraCtlTask will be run. Cmd={:?}, cassandra_home={:?}",
             cmd_str, cassandra_home

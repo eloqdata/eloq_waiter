@@ -1,8 +1,7 @@
 use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
-    export_asan, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
-    REDIS_TX_SERVICE_DIR,
+    export_asan, LOG_SERVICE_HOME, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
 };
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
@@ -11,15 +10,16 @@ use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
     config_template, load_yaml_config_template, DeploymentPackage, DownloadUrl, StorageProvider,
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CODIS_DASHBOARD_CNF,
-    CODIS_PROXY_CNF, CONFIG_MARIADB_SECTION, DOWNLOAD_SRC, JVM_SETTING_HOLDER,
-    MONOGRAPH_CONF_DYNAMO_TEMPLATE, MONOGRAPH_CONF_TEMPLATE, REDIS_CONF_TEMPLATE, SECTION_CLUSTER,
-    SECTION_LOCAL, SECTION_METRIC, SECTION_STORE, SET_FOR_ME,
+    CODIS_PROXY_CNF, DOWNLOAD_SRC, ELOQKV_TEMP, ELOQSQL_DYNAMO_TEMP, ELOQSQL_TEMP,
+    JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC,
+    SECTION_STORE, SET_FOR_ME,
 };
 use anyhow::{anyhow, Result};
 use configparser::ini::Ini;
 use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -27,6 +27,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use strum_macros::Display;
 use tokio_postgres::config::SslMode;
 use tokio_postgres::NoTls;
@@ -54,6 +55,9 @@ const GC_SETTING_G1: &str = "
 -XX:InitiatingHeapOccupancyPercent=70
 ";
 const GB: u32 = 1024; // *MiB
+
+pub(crate) static VERSION_PATT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap());
 
 #[macro_export]
 macro_rules! download_urls {
@@ -138,6 +142,13 @@ impl Product {
             Product::EloqKV => "eloqkv",
         }
     }
+
+    pub fn home(&self) -> &str {
+        match self {
+            Product::EloqSQL => "EloqSQL",
+            Product::EloqKV => "EloqKV",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -177,9 +188,10 @@ impl Codis {
 }
 
 pub enum Version {
-    Tag([u32; 3]),
     Nightly,
     Debug,
+    Tag([u32; 3]),
+    Devel(String),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -245,11 +257,17 @@ impl Deployment {
     }
 
     pub fn version(&self) -> Version {
-        let s = self.version.as_ref().unwrap().as_str();
-        match s {
+        let ver = self.version.as_ref().unwrap().as_str();
+        match ver {
             "nightly" => Version::Nightly,
             "debug" => Version::Debug,
-            _ => Version::Tag(parse_version(s)),
+            _ => {
+                if VERSION_PATT.is_match(ver) {
+                    Version::Tag(parse_version(ver))
+                } else {
+                    Version::Devel(ver.to_owned())
+                }
+            }
         }
     }
 
@@ -261,15 +279,48 @@ impl Deployment {
         format!("{}/{}", &self.install_dir, self.cluster_name)
     }
 
+    pub fn tx_srv_home(&self) -> String {
+        format!("{}/{}", &self.install_dir(), self.product().home())
+    }
+
+    pub fn log_srv_home(&self) -> String {
+        format!("{}/{LOG_SERVICE_HOME}", &self.install_dir())
+    }
+
+    pub fn cassandra_home(&self) -> String {
+        format!("{}/cassandra", &self.install_dir())
+    }
+
+    pub fn tx_srv_ini(&self) -> String {
+        format!("{}/{}.ini", &self.tx_srv_home(), self.product().name())
+    }
+
+    pub fn tx_srv_logs(&self) -> String {
+        format!("{}/logs", &self.tx_srv_home())
+    }
+
+    pub fn tx_srv_bin(&self) -> String {
+        match self.product() {
+            Product::EloqSQL => format!("{}/bin/mariadbd", &self.tx_srv_home()),
+            Product::EloqKV => format!("{}/bin/eloqkv", &self.tx_srv_home()),
+        }
+    }
+
+    pub fn client_bin(&self) -> String {
+        match self.product() {
+            Product::EloqSQL => format!("{}/bin/mariadb", &self.tx_srv_home()),
+            Product::EloqKV => format!("{}/bin/eloqkv-client", &self.tx_srv_home()),
+        }
+    }
+
     pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
         let my_local = upload_dir().join("my_local.cnf");
         if !my_local.exists() {
-            self.gen_eloqsql_config_by_host(None, self.install_dir())?;
+            self.gen_eloqsql_config_by_host(None)?;
         }
         let mut my_ini_local = Ini::new();
         let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(CONFIG_MARIADB_SECTION, "monograph_keyspace_name")
-        {
+        if let Some(keyspace) = my_ini_local.get(SECTION_MARIADB, "monograph_keyspace_name") {
             Ok(keyspace)
         } else {
             Ok("mono".to_string())
@@ -333,55 +384,51 @@ impl Deployment {
         all_hosts.first().unwrap().to_string()
     }
 
-    pub fn build_eloqsql_config(
-        &self,
-        set_ip_list: bool,
-        install_dir: String,
-    ) -> anyhow::Result<Ini> {
+    pub fn build_eloqsql_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut my_ini = Ini::new();
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
             my_ini
-                .load(config_template(MONOGRAPH_CONF_TEMPLATE)?.as_path())
+                .load(config_template(ELOQSQL_TEMP)?.as_path())
                 .unwrap();
             let hosts = cass.host.join(",");
-            my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_hosts", Some(hosts));
+            my_ini.set(SECTION_MARIADB, "monograph_cass_hosts", Some(hosts));
             let port = cass.client_port()?;
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_cass_port",
                 Some(port.to_string()),
             );
             if let Some(conn) = cass.external() {
                 if let Some(user) = conn.user.clone() {
-                    my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_user", Some(user));
+                    my_ini.set(SECTION_MARIADB, "monograph_cass_user", Some(user));
                 }
                 if let Some(pwd) = conn.password.clone() {
-                    my_ini.set(CONFIG_MARIADB_SECTION, "monograph_cass_password", Some(pwd));
+                    my_ini.set(SECTION_MARIADB, "monograph_cass_password", Some(pwd));
                 }
             }
         } else {
             my_ini
-                .load(config_template(MONOGRAPH_CONF_DYNAMO_TEMPLATE)?.as_path())
+                .load(config_template(ELOQSQL_DYNAMO_TEMP)?.as_path())
                 .unwrap();
 
             let dynamodb = self.storage_service.dynamodb.as_ref().unwrap();
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_aws_access_key_id",
                 Some(dynamodb.clone().access_key_id),
             );
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_aws_secret_key",
                 Some(dynamodb.clone().secret_key),
             );
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_dynamodb_region",
                 Some(dynamodb.clone().region),
             );
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_dynamodb_endpoint",
                 Some(dynamodb.clone().endpoint),
             );
@@ -392,35 +439,31 @@ impl Deployment {
         //     Some(self.cluster_name.clone()),
         // );
 
+        let txsrv_home = self.tx_srv_home();
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "datadir",
-            Some(format!("{install_dir}/datafarm")),
+            Some(format!("{txsrv_home}/datafarm")),
         );
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "lc_messages_dir",
-            Some(format!(
-                "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/share"
-            )),
+            Some(format!("{txsrv_home}/share")),
         );
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "plugin_dir",
-            Some(format!(
-                "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/lib/plugin",
-            )),
+            Some(format!("{txsrv_home}/lib/plugin",)),
         );
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "port",
             Some(self.client_port().to_string()),
         );
-
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "socket",
-            Some(format!("/tmp/mysql{}.sock", self.client_port())),
+            Some(format!("/tmp/eloqsql{}.sock", self.client_port())),
         );
 
         let use_port = self.tx_service.port.unwrap();
@@ -430,10 +473,10 @@ impl Deployment {
                 .iter()
                 .map(|host| format!("{}:{}", host.clone(), use_port))
                 .join(",");
-            my_ini.set(CONFIG_MARIADB_SECTION, "monograph_ip_list", Some(ip_list));
+            my_ini.set(SECTION_MARIADB, "monograph_ip_list", Some(ip_list));
         } else {
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_ip_list",
                 Some(format!("{}:{}", "127.0.0.1", use_port)),
             );
@@ -445,41 +488,29 @@ impl Deployment {
             false
         };
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "monograph_enable_metrics",
             Some(enable_metric.to_string()),
         );
         Ok(my_ini.clone())
     }
 
-    pub fn gen_eloqsql_config_by_host(
-        &self,
-        tx_host: Option<String>,
-        install_dir: String,
-    ) -> anyhow::Result<PathBuf> {
+    pub fn gen_eloqsql_config_by_host(&self, tx_host: Option<String>) -> anyhow::Result<PathBuf> {
         let port = self.tx_service.port.unwrap();
         let is_host = tx_host.is_some();
-        let mut my_ini = self.build_eloqsql_config(is_host, install_dir)?;
+        let mut my_ini = self.build_eloqsql_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
-            (host.clone(), upload_host_dir(&host).join("my.cnf"))
+            (host.clone(), upload_host_dir(&host).join("eloqsql.ini"))
         } else {
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_local_ip",
                 Some(format!("127.0.0.1:{port}")),
             );
+            my_ini.set(SECTION_MARIADB, "thread_pool_size", Some("1".to_owned()));
+            my_ini.set(SECTION_MARIADB, "monograph_core_num", Some("1".to_owned()));
             my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "thread_pool_size",
-                Some("1".to_owned()),
-            );
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
-                "monograph_core_num",
-                Some("1".to_owned()),
-            );
-            my_ini.set(
-                CONFIG_MARIADB_SECTION,
+                SECTION_MARIADB,
                 "monograph_node_memory_limit_mb",
                 Some("512".to_owned()),
             );
@@ -492,11 +523,11 @@ impl Deployment {
             self.build_log_config()
                 .into_iter()
                 .for_each(|(key, conf_val)| {
-                    my_ini.set(CONFIG_MARIADB_SECTION, &key, Some(conf_val));
+                    my_ini.set(SECTION_MARIADB, &key, Some(conf_val));
                 });
         }
         my_ini.set(
-            CONFIG_MARIADB_SECTION,
+            SECTION_MARIADB,
             "monograph_local_ip",
             Some(format!("{}:{}", host, port)),
         );
@@ -520,48 +551,46 @@ impl Deployment {
             }
         }
         let key = "thread_pool_size";
-        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
         if val.is_none() {
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(core.to_string()));
+            my_ini.set(SECTION_MARIADB, key, Some(core.to_string()));
         }
         let key = "monograph_core_num";
-        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u16);
+        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
         if val.is_none() {
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(core.to_string()));
+            my_ini.set(SECTION_MARIADB, key, Some(core.to_string()));
         }
 
         let key = "monograph_node_memory_limit_mb";
-        let val = set_by_user!(my_ini.get(CONFIG_MARIADB_SECTION, key), u32);
+        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u32);
         if val.is_none() {
             let mut limit = opt_hw.map(|hw| (hw.memory * 3) / 5).unwrap_or(1 * GB);
             if union_cass {
                 limit /= 2;
             }
             assert!(limit > 0);
-            my_ini.set(CONFIG_MARIADB_SECTION, key, Some(limit.to_string()));
+            my_ini.set(SECTION_MARIADB, key, Some(limit.to_string()));
         }
         my_ini.write(cnf_path.as_path())?;
         Ok(cnf_path)
     }
 
     pub fn build_eloqkv_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
-        let mut redis_ini = Ini::new();
-        redis_ini
-            .load(config_template(REDIS_CONF_TEMPLATE)?)
-            .unwrap();
+        let mut ini = Ini::new();
+        ini.load(config_template(ELOQKV_TEMP)?).unwrap();
         match self.storage_service.provider().unwrap() {
             StorageProvider::Cassandra => {
                 let cass = self.storage_service.cassandra.as_ref().unwrap();
                 let cassandra_hosts = cass.host.join(",");
-                redis_ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+                ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
                 let port = cass.client_port()?;
-                redis_ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
+                ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
                 if let Some(conn) = cass.external() {
                     if let Some(user) = conn.user.clone() {
-                        redis_ini.set(SECTION_STORE, "cass_user", Some(user));
+                        ini.set(SECTION_STORE, "cass_user", Some(user));
                     }
                     if let Some(pwd) = conn.password.clone() {
-                        redis_ini.set(SECTION_STORE, "cass_password", Some(pwd));
+                        ini.set(SECTION_STORE, "cass_password", Some(pwd));
                     }
                 }
             }
@@ -569,56 +598,56 @@ impl Deployment {
             StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
                 RocksDB::Local => {}
                 RocksDB::S3(s3) => {
-                    redis_ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
-                    redis_ini.set(SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
-                    redis_ini.set(
+                    ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
+                    ini.set(SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_region",
                         Some(s3.region),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_bucket_name",
                         Some(s3.bucket_name),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_bucket_prefix",
                         Some(s3.bucket_prefix),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_target_file_size_base",
                         Some(s3.target_file_size_base),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_sst_file_cache_size",
                         Some(s3.sst_file_cache_size),
                     );
                 }
                 RocksDB::GCS(gcs) => {
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_region",
                         Some(gcs.region),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_bucket_name",
                         Some(gcs.bucket_name),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_bucket_prefix",
                         Some(gcs.bucket_prefix),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_target_file_size_base",
                         Some(gcs.target_file_size_base),
                     );
-                    redis_ini.set(
+                    ini.set(
                         SECTION_STORE,
                         "kv_store_rocksdb_cloud_sst_file_cache_size",
                         Some(gcs.sst_file_cache_size),
@@ -633,9 +662,9 @@ impl Deployment {
                 .iter()
                 .map(|host| format!("{}:{}", host.clone(), use_port))
                 .join(",");
-            redis_ini.set(SECTION_CLUSTER, "ip_port_list", Some(ip_list));
+            ini.set(SECTION_CLUSTER, "ip_port_list", Some(ip_list));
         } else {
-            redis_ini.set(
+            ini.set(
                 SECTION_CLUSTER,
                 "ip_port_list",
                 Some(format!("{}:{}", "127.0.0.1", use_port)),
@@ -647,19 +676,19 @@ impl Deployment {
         } else {
             false
         };
-        redis_ini.set(
+        ini.set(
             SECTION_METRIC,
             "enable_metrics",
             Some(enable_metric.to_string()),
         );
-        Ok(redis_ini.clone())
+        Ok(ini.clone())
     }
 
     pub fn gen_eloqkv_config_by_host(&self, tx_host: Option<String>) -> anyhow::Result<PathBuf> {
         let is_host = tx_host.is_some();
         let mut ini = self.build_eloqkv_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
-            (host.clone(), upload_host_dir(&host).join("redis.ini"))
+            (host.clone(), upload_host_dir(&host).join("eloqkv.ini"))
         } else {
             ini.set(SECTION_LOCAL, "ip", Some("127.0.0.1".to_owned()));
             ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
@@ -978,22 +1007,21 @@ impl Deployment {
     }
 
     pub fn tx_srv_start_cmd(&self) -> String {
-        let ins_dir = self.install_dir();
-        let tx_dir = match self.product() {
-            Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
-            Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
-        };
-        let head = if let Version::Debug = self.version() {
-            export_asan(&format!("{tx_dir}/logs/asan"))
+        let tx_ini = self.tx_srv_ini();
+        let tx_dir = self.tx_srv_home();
+        let tx_bin = self.tx_srv_bin();
+        let tx_logs = self.tx_srv_logs();
+        let glog = format!(
+            "mkdir -p {tx_logs} ; export GLOG_log_dir={tx_logs} ; export GLOG_max_log_size=1024"
+        );
+        let mut ld_lib = if let Version::Debug = self.version() {
+            export_asan(&format!("{tx_logs}/asan"))
         } else {
-            match self.product() {
-                Product::EloqSQL => {
-                    format!("export LD_PRELOAD={tx_dir}/install/lib/libmimalloc.so.2")
-                }
-                Product::EloqKV => format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2"),
-            }
+            format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
         };
-        let exp_log = format!("mkdir -p {tx_dir}/logs && export GLOG_log_dir={tx_dir}/logs && export GLOG_max_log_size=1024");
+        ld_lib.push_str(&format!(
+            "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
+        ));
         match self.product() {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
@@ -1002,11 +1030,7 @@ impl Deployment {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
                 }
-                format!(
-                    r#"{exp_log} && cd {tx_dir}/install && \
-                        {head}; export LD_LIBRARY_PATH={tx_dir}/install/lib:$LD_LIBRARY_PATH; \
-                        {tx_dir}/install/bin/mysqld --defaults-file={ins_dir}/my.cnf > {logout} 2>&1 &"#
-                )
+                format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={tx_ini} > {logout} 2>&1 &")
             }
             Product::EloqKV => {
                 let mut logout = "/dev/null".to_owned();
@@ -1016,9 +1040,7 @@ impl Deployment {
                     }
                 }
                 format!(
-                    r#"{exp_log} && cd {tx_dir} && \
-                    {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
-                    {tx_dir}/redis_server --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > {logout} 2>&1 &"#
+                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={tx_ini} --graceful_quit_on_sigterm=true > {logout} 2>&1 &"
                 )
             }
         }

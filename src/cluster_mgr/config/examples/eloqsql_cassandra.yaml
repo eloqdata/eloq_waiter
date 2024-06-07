@@ -7,13 +7,13 @@ deployment:
   cluster_name: "eloqsql-cluster"
   product: "EloqSQL"
   version: "latest"
-  install_dir: "/home/${USER}/eloq"
+  install_dir: "/home/${USER}"
   log_service:
     nodes:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/${USER}/eloq/disk_wal_sql"
+          - "/home/${USER}/disk_wal_sql"
     replica: 1
   tx_service:
     host: [127.0.0.1]
