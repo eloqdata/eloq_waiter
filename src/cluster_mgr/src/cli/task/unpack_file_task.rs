@@ -13,7 +13,7 @@ use tracing::info;
 pub(crate) const REMOTE_TAR: &str = "remote_tar";
 pub(crate) const UNPACKED_NAME: &str = "unpacked_name";
 pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
-    "apache-cassandra",
+    "cassandra",
     "prometheus",
     "grafana",
     "node_exporter",

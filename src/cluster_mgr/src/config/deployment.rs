@@ -287,6 +287,10 @@ impl Deployment {
         format!("{}/{LOG_SERVICE_HOME}", &self.install_dir())
     }
 
+    pub fn cassandra_home(&self) -> String {
+        format!("{}/cassandra", &self.install_dir())
+    }
+
     pub fn tx_srv_ini(&self) -> String {
         format!("{}/{}.ini", &self.tx_srv_home(), self.product().name())
     }
@@ -496,7 +500,7 @@ impl Deployment {
         let is_host = tx_host.is_some();
         let mut my_ini = self.build_eloqsql_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
-            (host.clone(), upload_host_dir(&host).join("eloqsql.cnf"))
+            (host.clone(), upload_host_dir(&host).join("eloqsql.ini"))
         } else {
             my_ini.set(
                 SECTION_MARIADB,
