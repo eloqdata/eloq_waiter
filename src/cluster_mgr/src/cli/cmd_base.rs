@@ -1,5 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::CommandArgs;
+use crate::cli::{upload_dir, CommandArgs};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{pg_client, Deployment, Product};
 use crate::config::storage_service_config::{
@@ -212,6 +212,10 @@ impl CommandExecutor {
             CommandArgs::ListVersion { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await;
             }
+            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
+                std::fs::remove_dir_all(upload_dir())?;
+                std::fs::create_dir(upload_dir())?;
+            }
             _ => {}
         }
 
@@ -266,24 +270,13 @@ impl CommandExecutor {
         info!(r#"all tasks complete.task_size={}"#, rs.len());
 
         // After all tasks finished
+        self.finishing(cmd, config).await
+    }
+
+    async fn finishing(&self, cmd: CommandArgs, config: DeploymentConfig) -> Result<()> {
+        // After all tasks finished
         match cmd {
-            CommandArgs::Launch {
-                topology_file: _,
-                skip_deps: _,
-            }
-            | CommandArgs::Demo {
-                product: _,
-                store: _,
-                version: _,
-                skip_deps: _,
-                unlimited: _,
-                no_monitor: _,
-                union_wal: _,
-                ext_cass: _,
-                ext_cass_port: _,
-                ext_cass_user: _,
-                ext_cass_pwd: _,
-            } => {
+            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
                 println!("Launch cluster finished, Enjoy!");
                 println!("Connect to server: \n\t{}", config.client_conn());
                 if let Some(moni) = &config.deployment.monitor {
@@ -308,7 +301,7 @@ impl CommandExecutor {
                     println!("{:#?}", config);
                 }
             }
-            CommandArgs::Connect { cluster: _ } => {
+            CommandArgs::Connect { .. } => {
                 println!("{}", config.client_conn());
             }
             CommandArgs::Scale {

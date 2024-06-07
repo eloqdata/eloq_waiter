@@ -12,7 +12,7 @@ function log_start() {
   export LD_LIBRARY_PATH=${LOG_INSTALL_DIR}/lib:${LD_LIBRARY_PATH}
   log_start_cmd="${LOG_INSTALL_DIR}/bin/launch_sv -conf=${GROUP_MEMBERS} -raft_max_parallel_append_entries_rpc_num=64 \
     -raft_enable_append_entries_cache=true -raft_max_append_entries_cache_size=256 \
-    -start_log_group_id=${GROUP_ID} -node_id=${NODE_ID} -storage_path=${STORAGE_DIR} > ${log_dir}/log_start.log 2>&1 &"
+    -start_log_group_id=${GROUP_ID} -node_id=${NODE_ID} -storage_path=${STORAGE_DIR} > /dev/null 2>&1 &"
   echo "$log_start_cmd"
   eval "$log_start_cmd"
 }
