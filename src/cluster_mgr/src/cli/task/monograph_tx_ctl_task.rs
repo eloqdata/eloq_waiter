@@ -8,7 +8,7 @@ use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::{DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME};
+use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
@@ -38,18 +38,12 @@ pub enum TxCtlCmd {
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
 macro_rules! monograph_cmd {
-    ($ctl_cmd:ty,$remote_install_home:expr, $user:expr, $product:expr) => {{
+    ($ctl_cmd:ty,$tx_srv_bin:expr, $user:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
-        let pid_cmd = match $product {
-            Product::EloqSQL => format!(
-                r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
-                $user, $remote_install_home, ELOQSQL_HOME
-            ),
-            Product::EloqKV => format!(
-                r#"ps uxwe -u {} | grep {}/{}/bin/eloqkv | grep -v grep | "#,
-                $user, $remote_install_home, ELOQKV_HOME
-            ),
-        };
+        let pid_cmd = format!(
+            "ps uxwe -u {} | grep {} | grep -v grep | ",
+            $user, $tx_srv_bin
+        );
         let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
             "TxCtlCmd::ForceStop" => {
@@ -258,9 +252,8 @@ impl MonographTxCtlTask {
     ) -> IndexMap<TaskId, TaskInstance> {
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
-        let remote_install_dir = config.install_dir();
+        let tx_bin = config.deployment.tx_srv_bin();
         let mono_hosts = config.get_host_list(DeploymentPackage::MonographTx);
-        let product = config.product();
 
         let mut wait_secs = -1;
         let mut db_user = "_NONE".to_string();
@@ -305,12 +298,7 @@ impl MonographTxCtlTask {
                         HashMap::default(),
                     ),
                     "status" => (
-                        monograph_cmd!(
-                            TxCtlCmd::Status,
-                            remote_install_dir,
-                            conn_user.clone(),
-                            product
-                        ),
+                        monograph_cmd!(TxCtlCmd::Status, tx_bin, conn_user.clone()),
                         HashMap::from([
                             (WAIT_SECS.to_string(), TaskArgValue::Number(wait_secs)),
                             (MONO_DB_USER.to_string(), TaskArgValue::Str(db_user.clone())),
@@ -320,22 +308,12 @@ impl MonographTxCtlTask {
                     "stop" => {
                         if is_force_stop {
                             (
-                                monograph_cmd!(
-                                    TxCtlCmd::ForceStop,
-                                    remote_install_dir,
-                                    conn_user.clone(),
-                                    product
-                                ),
+                                monograph_cmd!(TxCtlCmd::ForceStop, tx_bin, conn_user.clone()),
                                 HashMap::default(),
                             )
                         } else {
                             (
-                                monograph_cmd!(
-                                    TxCtlCmd::Stop,
-                                    remote_install_dir,
-                                    conn_user.clone(),
-                                    product
-                                ),
+                                monograph_cmd!(TxCtlCmd::Stop, tx_bin, conn_user.clone()),
                                 HashMap::default(),
                             )
                         }
@@ -375,13 +353,8 @@ impl MonographTxCtlTask {
         ssh_conn: SSHSession,
         user: &str,
     ) -> anyhow::Result<ExecutionValue> {
-        let remote_install_dir = self.config.install_dir();
-        let check_status = monograph_cmd!(
-            TxCtlCmd::Status,
-            remote_install_dir,
-            user.to_string(),
-            self.config.product()
-        );
+        let tx_bin = self.config.deployment.tx_srv_bin();
+        let check_status = monograph_cmd!(TxCtlCmd::Status, tx_bin, user.to_string());
         let cmd_val = check_status.cmd_value();
         check_pid(cmd_val, ssh_conn, parse_process_pid).await
         // check_process_pid(cmd_val, ssh_conn, parse_process_pid).await
@@ -403,11 +376,9 @@ impl TaskExecutor for MonographTxCtlTask {
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
-        let remote_install_dir = self.config.install_dir();
+        let tx_bin = self.config.deployment.tx_srv_bin();
         let (host_value, user) = ssh_session.ssh_conn_info();
-        let product = self.config.product();
-        let check_status_cmd =
-            monograph_cmd!(TxCtlCmd::Status, remote_install_dir, user, product).cmd_value();
+        let check_status_cmd = monograph_cmd!(TxCtlCmd::Status, tx_bin, user).cmd_value();
         let check_process_status = self.monograph_pid(ssh_session.clone(), user.as_str()).await;
         let ctl_cmd_ref = self.ctl_cmd.as_ref();
         let mono_ctl_rs = match ctl_cmd_ref {

@@ -90,7 +90,7 @@ pub enum ConfigErr {
 }
 
 pub const CONFIG_PATH_DIR: &str = "CLUSTER_MGR_CLI_CONFIG";
-pub const CONFIG_MARIADB_SECTION: &str = "mariadb";
+pub const SECTION_MARIADB: &str = "mariadb";
 pub const SECTION_LOCAL: &str = "local";
 pub const SECTION_CLUSTER: &str = "cluster";
 pub const SECTION_STORE: &str = "store";

@@ -2,8 +2,7 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::{DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME, LOG_SERVICE_HOME};
-use crate::config::deployment::Product;
+use crate::config::config_base::{DeploymentConfig, LOG_SERVICE_HOME};
 use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -70,10 +69,7 @@ impl UnpackFileTask {
                 let unpacked_file = if curr_file_name.eq(&log_image) {
                     LOG_SERVICE_HOME.to_string()
                 } else if curr_file_name.eq(&tx_image) {
-                    match config.product() {
-                        Product::EloqSQL => ELOQSQL_HOME.to_string(),
-                        Product::EloqKV => ELOQKV_HOME.to_string(),
-                    }
+                    config.product().home().to_owned()
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
                 };
@@ -132,22 +128,15 @@ impl TaskExecutor for UnpackFileTask {
         let unpacked_name = TaskArgValue::into_inner_value::<String>(
             task_input.get(UNPACKED_NAME).unwrap().clone(),
         );
-        let install_dir = self.config.install_dir();
-        let mut unpack_cmd = if unpacked_name.contains(ELOQSQL_HOME) {
-            let target_dir = format!("{install_dir}/{unpacked_name}");
-            format!(r#"mkdir -p {target_dir} && tar -zxvf {remote_tar} -C {target_dir}"#,)
-        } else {
-            let target_dir = format!("{install_dir}/{unpacked_name}");
-            format!(
-                r#"mkdir -p {target_dir}; tar -zxvf {remote_tar} -C {target_dir} --strip-components 1 --overwrite"#,
-            )
-        };
+        let target_dir = format!("{}/{unpacked_name}", self.config.install_dir());
+        let mut unpack_cmd = format!(
+            r#"mkdir -p {target_dir}; tar -zxvf {remote_tar} -C {target_dir} --strip-components 1 --overwrite"#,
+        );
         unpack_cmd = format!("{unpack_cmd} && rm -rf {remote_tar}");
         info!("UnpackFileTask cmd={unpack_cmd}");
         let task_rs = ssh_session
             .command(unpack_cmd.as_str(), SSHCommandOption::None)
             .await?;
-
         ssh_session.close().await?;
         task_return_value!(
             task_rs,

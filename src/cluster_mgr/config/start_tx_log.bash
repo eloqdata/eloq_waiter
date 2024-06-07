@@ -3,6 +3,7 @@ function log_start() {
   log_dir=${LOG_INSTALL_DIR}/logs/lg${GROUP_ID}/ln${NODE_ID}
   mkdir -p ${STORAGE_DIR} && mkdir -p ${log_dir}
   export GLOG_log_dir=${log_dir}
+  export GLOG_max_log_size=1024
   if [ "${VERSION}" = "debug" ]; then
     export ASAN_OPTIONS=${ASAN_OPTS}:log_path=${log_dir}/asan
   else 

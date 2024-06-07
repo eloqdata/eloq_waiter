@@ -5,7 +5,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
-use crate::config::config_base::{export_asan, DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME};
+use crate::config::config_base::{export_asan, DeploymentConfig};
 use crate::config::deployment::Product;
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
@@ -89,8 +89,7 @@ impl TaskExecutor for MonographInstall {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.pretty_string());
-        let storage_service = self.config.get_monograph_storage()?;
-        let keyspace_exists = match storage_service {
+        let keyspace_exists = match self.config.get_monograph_storage()? {
             StorageProvider::Cassandra => self.monograph_keyspace_exists().await?,
             _ => false,
         };
@@ -105,15 +104,14 @@ impl TaskExecutor for MonographInstall {
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let insdir = self.config.install_dir();
+        let txsv_dir = self.config.deployment.tx_srv_home();
         let bootstarp_sh = match self.config.product() {
             Product::EloqSQL => {
-                let txsv_dir = format!("{}/{}", insdir, ELOQSQL_HOME);
                 format!(
                     "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {txsv_dir}/logs/bootstrap.log 2>&1 ",
                 )
             }
             Product::EloqKV => {
-                let txsv_dir = format!("{}/{}", insdir, ELOQKV_HOME);
                 let debug = self.config.deployment.version.as_ref().unwrap() == "debug";
                 let head = if debug {
                     export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"))
@@ -136,7 +134,7 @@ impl TaskExecutor for MonographInstall {
             "MonographInstall",
             HashMap::from([(
                 "MONOGRAPH_DATA_DIR".to_string(),
-                TaskArgValue::Str(format!("{}/datafarm", remote_install_dir))
+                TaskArgValue::Str(format!("{}/datafarm", txsv_dir))
             )])
         );
     }
