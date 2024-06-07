@@ -72,7 +72,7 @@ impl MonographUploadBuilder {
             // config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
         ];
-        all_files_path.extend(config.gen_all_monograph_configs().unwrap());
+        // all_files_path.extend(config.gen_all_monograph_configs().unwrap());
         let log_start_path_opt = config.gen_log_start_script().unwrap();
         if let Some(log_start_path) = log_start_path_opt {
             all_files_path.extend(log_start_path);
@@ -132,7 +132,7 @@ impl MonographUploadBuilder {
 }
 
 impl UploadTaskBuilder for MonographUploadBuilder {
-    /// Upload installation package, MonographDB configuration file (my.cnf),
+    /// Upload installation package, MonographDB configuration file,
     /// MonographDB install script, install config to remote host.
     fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
         let mut upload_files = self.build_monograph_misc_upload_file(config);

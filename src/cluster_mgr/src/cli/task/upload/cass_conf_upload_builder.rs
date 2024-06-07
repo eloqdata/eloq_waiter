@@ -15,11 +15,11 @@ impl UploadTaskBuilder for CassConfUploadBuilder {
         let install_dir = config.install_dir();
         let cass_config_rs = config
             .deployment
-            .gen_cassandra_config(install_dir.clone(), deployment.cluster_name);
+            .gen_cassandra_config(install_dir.clone(), deployment.cluster_name.clone());
         assert!(cass_config_rs.is_ok());
         let source_host = get_source_host(None);
         let cass_config = cass_config_rs.unwrap();
-        let dest_file = format!("{install_dir}/apache-cassandra/conf");
+        let dest_file = format!("{}/conf", deployment.cassandra_home());
         cass_config
             .into_iter()
             .map(|(host, cass_configs)| {

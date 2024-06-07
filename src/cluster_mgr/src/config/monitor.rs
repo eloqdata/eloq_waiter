@@ -1,7 +1,7 @@
 use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::{
-    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
-    MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
+    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::{
     config_template, load_yaml_config_template, DownloadUrl, CASS_MCAC_CONF_FILE,
@@ -116,17 +116,6 @@ impl Monitor {
             download_urls!(links, {CASSANDRA_COLLECTOR_AGENT_FILE_KEY, mcac.mcac_agent});
         }
         Ok(links)
-    }
-
-    pub fn flush_privileges_for_create_user(&self, install_dir: String, port: u16) -> String {
-        let bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
-        format!("{bin} -S /tmp/mysql{port}.sock -e  'FLUSH PRIVILEGES'")
-    }
-
-    pub fn create_monitor_user_cmd(&self, install_dir: String, port: u16) -> String {
-        let bin = format!("{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/bin/mysql");
-        let script_path = format!("{install_dir}/{CREATE_MONITOR_USER_SQL_FILE}");
-        format!("{bin} -S /tmp/mysql{port}.sock < {script_path}")
     }
 
     pub fn gen_monitor_user_sql_file(&self) -> anyhow::Result<PathBuf> {

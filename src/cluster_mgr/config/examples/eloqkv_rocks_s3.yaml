@@ -7,13 +7,13 @@ deployment:
   cluster_name: "eloqkv-cluster"
   product: "EloqKV"
   version: "latest"
-  install_dir: "/home/${USER}/eloq"
+  install_dir: "/home/${USER}"
   log_service:
     nodes:
       - host: 127.0.0.1
         port: 9000
         data_dir:
-          - "/home/${USER}/eloq/disk_wal_kv"
+          - "/home/${USER}/disk_wal_kv"
     replica: 1
   tx_service:
     host: [127.0.0.1]

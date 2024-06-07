@@ -80,11 +80,12 @@ impl TaskGroup for DeploymentTaskGroup {
             )
         };
 
-        let mkdir_cmd = config.install_dir();
+        let upload_tx_conf = upload_tasks(UploadTaskBuilderType::MonographConf, &config);
+
         let mkdir_remote_dir = ExecCustomCommand::from_config(
             &cmd_args,
             "mkdir",
-            format!("mkdir -p {mkdir_cmd}"),
+            format!("mkdir -p {}", config.install_dir()),
             &config,
         );
         let upload_monitor_conf_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, &config);
@@ -94,6 +95,7 @@ impl TaskGroup for DeploymentTaskGroup {
             copy_or_download_task_instances.len(),
             db_upload_task.len(),
             unpack_task.len(),
+            upload_tx_conf.len(),
             upload_monitor_conf_tasks.len(),
         ]);
         let mut executable = IndexMap::new();
@@ -101,6 +103,7 @@ impl TaskGroup for DeploymentTaskGroup {
         executable.extend(copy_or_download_task_instances);
         executable.extend(db_upload_task);
         executable.extend(unpack_task);
+        executable.extend(upload_tx_conf);
         executable.extend(upload_monitor_conf_tasks);
         Ok(TaskExecutionContext {
             task_group: cmd_ref,

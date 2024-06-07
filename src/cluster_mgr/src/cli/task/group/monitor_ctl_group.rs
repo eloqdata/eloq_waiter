@@ -6,6 +6,7 @@ use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
+use crate::config::CREATE_MONITOR_USER_SQL_FILE;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -32,17 +33,13 @@ impl TaskGroup for MonitorCtlTaskGroup {
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
         if monitor_ctl_cmd.to_lowercase().eq("start") && config.product() == Product::EloqSQL {
-            let monitor_opt = config.deployment.monitor.as_ref();
-            assert!(monitor_opt.is_some());
-            let monitor = monitor_opt.unwrap();
-            let install_dir = config.install_dir();
-            let mysql_port = config.deployment.client_port();
-            let create_monitor_user_cmd =
-                monitor.create_monitor_user_cmd(install_dir.clone(), mysql_port);
-
+            let create_monitor_user_cmd = format!(
+                "{} < {}/{CREATE_MONITOR_USER_SQL_FILE}",
+                config.client_conn(),
+                config.install_dir()
+            );
             let monograph_hosts = config.get_host_list(DeploymentPackage::MonographTx);
             let pick_mono_instance = monograph_hosts.first().unwrap();
-
             let create_user_task = ExecCustomCommand::build_task_by_host(
                 create_monitor_user_cmd,
                 &config,
@@ -52,8 +49,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
             barrier.push(create_user_task.len());
             executable.extend(create_user_task);
 
-            let flush_privileges =
-                monitor.flush_privileges_for_create_user(install_dir, mysql_port);
+            let flush_privileges = format!("{} -e  'FLUSH PRIVILEGES'", config.client_conn());
             let flush_privilege_task = ExecCustomCommand::build_task_by_host(
                 flush_privileges,
                 &config,

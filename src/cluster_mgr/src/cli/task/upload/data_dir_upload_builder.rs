@@ -14,7 +14,7 @@ impl UploadTaskBuilder for DataDirUploadBuilder {
         let deployment_ref = &config.deployment;
         let bootstrap_host = deployment_ref.bootstrap_host();
         let local = get_source_host(None);
-        let install_dir = config.install_dir();
+        let txsrv_home = config.deployment.tx_srv_home();
         let datafarm = upload_dir().join("datafarm").to_string_lossy().to_string();
         deployment_ref
             .tx_service
@@ -23,7 +23,7 @@ impl UploadTaskBuilder for DataDirUploadBuilder {
             .filter(|host| !host.as_str().eq(bootstrap_host.as_str()))
             .map(|host| UploadFile {
                 source: datafarm.clone(),
-                dest: install_dir.clone(),
+                dest: txsrv_home.clone(),
                 extension: "datafarm".to_string(),
                 host: host.to_string(),
                 copy_dir: true,

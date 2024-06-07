@@ -1,5 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::CommandArgs;
+use crate::cli::{upload_dir, CommandArgs};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{pg_client, Deployment, Product};
 use crate::config::storage_service_config::{
@@ -12,12 +12,11 @@ use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use itertools::Itertools;
-use regex::Regex;
 use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -213,6 +212,10 @@ impl CommandExecutor {
             CommandArgs::ListVersion { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await;
             }
+            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
+                std::fs::remove_dir_all(upload_dir())?;
+                std::fs::create_dir(upload_dir())?;
+            }
             _ => {}
         }
 
@@ -267,24 +270,13 @@ impl CommandExecutor {
         info!(r#"all tasks complete.task_size={}"#, rs.len());
 
         // After all tasks finished
+        self.finishing(cmd, config).await
+    }
+
+    async fn finishing(&self, cmd: CommandArgs, config: DeploymentConfig) -> Result<()> {
+        // After all tasks finished
         match cmd {
-            CommandArgs::Launch {
-                topology_file: _,
-                skip_deps: _,
-            }
-            | CommandArgs::Demo {
-                product: _,
-                store: _,
-                version: _,
-                skip_deps: _,
-                unlimited: _,
-                no_monitor: _,
-                union_wal: _,
-                ext_cass: _,
-                ext_cass_port: _,
-                ext_cass_user: _,
-                ext_cass_pwd: _,
-            } => {
+            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
                 println!("Launch cluster finished, Enjoy!");
                 println!("Connect to server: \n\t{}", config.client_conn());
                 if let Some(moni) = &config.deployment.monitor {
@@ -309,7 +301,7 @@ impl CommandExecutor {
                     println!("{:#?}", config);
                 }
             }
-            CommandArgs::Connect { cluster: _ } => {
+            CommandArgs::Connect { .. } => {
                 println!("{}", config.client_conn());
             }
             CommandArgs::Scale {
@@ -406,18 +398,11 @@ impl CommandExecutor {
             info!("latest release version = {latest}");
             cnf.version = Some(latest);
         }
-        cnf.version.as_mut().unwrap().make_ascii_lowercase();
-        let ver = cnf.version_str();
-        if ver != "nightly" && ver != "debug" {
-            let re = Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap();
-            if !re.is_match(ver) {
-                warn!("invalid version {}", ver);
-            }
-        }
+        // cnf.version.as_mut().unwrap().make_ascii_lowercase();
 
         let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
         prefix.push(product);
-        let version = cnf.version.as_ref().unwrap();
+        let version = cnf.version_str().to_owned();
         prefix.push(self.os_pretty());
         let prefix = prefix.as_path().to_str().unwrap();
         if cnf.tx_image.is_none() {

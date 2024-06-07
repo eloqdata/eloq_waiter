@@ -40,7 +40,7 @@ impl CopyTask {
             host: "_NONE".to_owned(),
         };
         let boot_node = deploy.deployment.bootstrap_host();
-        let src_path = format!("{}/datafarm", deploy.install_dir());
+        let src_path = format!("{}/datafarm", deploy.deployment.tx_srv_home());
         let dst_path = upload_dir().to_string_lossy().to_string();
         let copy = Self::new(
             id.clone(),

@@ -5,10 +5,8 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
-use crate::config::config_base::{
-    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
-};
-use crate::config::deployment::Product;
+use crate::config::config_base::{export_asan, DeploymentConfig};
+use crate::config::deployment::{Product, Version};
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -91,8 +89,7 @@ impl TaskExecutor for MonographInstall {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.pretty_string());
-        let storage_service = self.config.get_monograph_storage()?;
-        let keyspace_exists = match storage_service {
+        let keyspace_exists = match self.config.get_monograph_storage()? {
             StorageProvider::Cassandra => self.monograph_keyspace_exists().await?,
             _ => false,
         };
@@ -107,24 +104,24 @@ impl TaskExecutor for MonographInstall {
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let insdir = self.config.install_dir();
+        let txsv_dir = self.config.deployment.tx_srv_home();
+        let tx_logs = self.config.deployment.tx_srv_logs();
         let bootstarp_sh = match self.config.product() {
             Product::EloqSQL => {
-                let txsv_dir = format!("{}/{}", insdir, MONOGRAPH_TX_SERVICE_DIR);
                 format!(
-                    "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {txsv_dir}/logs/bootstrap.log 2>&1 ",
+                    "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {tx_logs}/bootstrap.log 2>&1 ",
                 )
             }
             Product::EloqKV => {
-                let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
-                let debug = self.config.deployment.version.as_ref().unwrap() == "debug";
-                let head = if debug {
-                    export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"))
+                let tx_ini = self.config.deployment.tx_srv_ini();
+                let head = if let Version::Debug = self.config.deployment.version() {
+                    export_asan(&format!("{tx_logs}/bootstrap-asan"))
                 } else {
                     format!("export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2")
                 };
                 format!(
-                    r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {head}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    r#"mkdir -p {tx_logs}; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
+                    {head}; {txsv_dir}/bin/eloqkv --config={tx_ini} --bootstrap > {tx_logs}/bootstrap.log 2>&1 "#
                 )
             }
         };
@@ -138,7 +135,7 @@ impl TaskExecutor for MonographInstall {
             "MonographInstall",
             HashMap::from([(
                 "MONOGRAPH_DATA_DIR".to_string(),
-                TaskArgValue::Str(format!("{}/datafarm", remote_install_dir))
+                TaskArgValue::Str(format!("{}/datafarm", txsv_dir))
             )])
         );
     }
