@@ -11,18 +11,15 @@ pub struct TxConfUpload;
 
 impl UploadTaskBuilder for TxConfUpload {
     fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
-        let all_conf = config
+        let all_conf_path = config
             .gen_all_monograph_configs()
-            .expect("Failed generate my_HOST.cnf");
-        let tx_hosts = config.get_host_list(DeploymentPackage::MonographTx);
-
-        let all_conf_path = all_conf
+            .expect("Failed generate my_HOST.cnf")
             .iter()
             .map(|path_buf| path_buf.to_str().unwrap().to_string())
             .collect_vec();
-
-        let remote_dest = config.install_dir();
-        let upload_cnf_files = tx_hosts
+        let remote_dest = config.deployment.tx_srv_home();
+        let upload_cnf_files = config
+            .get_host_list(DeploymentPackage::MonographTx)
             .iter()
             .map(|host| {
                 let path = all_conf_path

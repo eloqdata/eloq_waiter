@@ -72,7 +72,7 @@ impl MonographUploadBuilder {
             // config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
         ];
-        all_files_path.extend(config.gen_all_monograph_configs().unwrap());
+        // all_files_path.extend(config.gen_all_monograph_configs().unwrap());
         let log_start_path_opt = config.gen_log_start_script().unwrap();
         if let Some(log_start_path) = log_start_path_opt {
             all_files_path.extend(log_start_path);

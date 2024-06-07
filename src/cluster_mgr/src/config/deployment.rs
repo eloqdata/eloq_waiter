@@ -1026,7 +1026,7 @@ impl Deployment {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
                 }
-                format!("{glog}; {ld_lib} ; {tx_bin} --defaults-file={tx_ini} > {logout} 2>&1 &")
+                format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={tx_ini} > {logout} 2>&1 &")
             }
             Product::EloqKV => {
                 let mut logout = "/dev/null".to_owned();
@@ -1036,7 +1036,7 @@ impl Deployment {
                     }
                 }
                 format!(
-                    "{glog}; {ld_lib} ; {tx_bin} --config={tx_ini} --graceful_quit_on_sigterm=true > {logout} 2>&1 &"
+                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={tx_ini} --graceful_quit_on_sigterm=true > {logout} 2>&1 &"
                 )
             }
         }
