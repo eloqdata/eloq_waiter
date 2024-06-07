@@ -8,9 +8,7 @@ use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
-};
+use crate::config::config_base::{DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME};
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
@@ -45,11 +43,11 @@ macro_rules! monograph_cmd {
         let pid_cmd = match $product {
             Product::EloqSQL => format!(
                 r#"ps uxwe -u {} | grep {}/{}/install/bin/mysqld | grep -v grep | "#,
-                $user, $remote_install_home, MONOGRAPH_TX_SERVICE_DIR
+                $user, $remote_install_home, ELOQSQL_HOME
             ),
             Product::EloqKV => format!(
-                r#"ps uxwe -u {} | grep {}/{}/redis_server | grep -v grep | "#,
-                $user, $remote_install_home, REDIS_TX_SERVICE_DIR
+                r#"ps uxwe -u {} | grep {}/{}/bin/eloqkv | grep -v grep | "#,
+                $user, $remote_install_home, ELOQKV_HOME
             ),
         };
         let output_pid = r#"awk '{print $2}'"#;

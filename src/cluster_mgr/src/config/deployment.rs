@@ -1,8 +1,7 @@
 use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
-    export_asan, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MONOGRAPH_TX_SERVICE_DIR,
-    REDIS_TX_SERVICE_DIR,
+    export_asan, ELOQKV_HOME, ELOQSQL_HOME, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
 };
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
@@ -400,16 +399,12 @@ impl Deployment {
         my_ini.set(
             CONFIG_MARIADB_SECTION,
             "lc_messages_dir",
-            Some(format!(
-                "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/share"
-            )),
+            Some(format!("{install_dir}/{ELOQSQL_HOME}/install/share")),
         );
         my_ini.set(
             CONFIG_MARIADB_SECTION,
             "plugin_dir",
-            Some(format!(
-                "{install_dir}/{MONOGRAPH_TX_SERVICE_DIR}/install/lib/plugin",
-            )),
+            Some(format!("{install_dir}/{ELOQSQL_HOME}/install/lib/plugin",)),
         );
         my_ini.set(
             CONFIG_MARIADB_SECTION,
@@ -980,8 +975,8 @@ impl Deployment {
     pub fn tx_srv_start_cmd(&self) -> String {
         let ins_dir = self.install_dir();
         let tx_dir = match self.product() {
-            Product::EloqSQL => format!("{}/{}", ins_dir, MONOGRAPH_TX_SERVICE_DIR),
-            Product::EloqKV => format!("{}/{}", ins_dir, REDIS_TX_SERVICE_DIR),
+            Product::EloqSQL => format!("{}/{}", ins_dir, ELOQSQL_HOME),
+            Product::EloqKV => format!("{}/{}", ins_dir, ELOQKV_HOME),
         };
         let head = if let Version::Debug = self.version() {
             export_asan(&format!("{tx_dir}/logs/asan"))
@@ -1018,7 +1013,7 @@ impl Deployment {
                 format!(
                     r#"{exp_log} && cd {tx_dir} && \
                     {head}; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH; \    
-                    {tx_dir}/redis_server --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > {logout} 2>&1 &"#
+                    {tx_dir}/bin/eloqkv --config={ins_dir}/redis.ini --graceful_quit_on_sigterm=true > {logout} 2>&1 &"#
                 )
             }
         }

@@ -19,9 +19,9 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
-pub const MONOGRAPH_TX_SERVICE_DIR: &str = "monograph-tx-service-release";
-pub const REDIS_TX_SERVICE_DIR: &str = "monograph_redis";
-pub const MONOGRAPH_LOG_SERVICE_DIR: &str = "monograph-log-service-release";
+pub const ELOQSQL_HOME: &str = "EloqSQL";
+pub const ELOQKV_HOME: &str = "EloqKV";
+pub const LOG_SERVICE_HOME: &str = "LogService";
 
 pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
 pub const MONOGRAPH_LOG_FILE_KEY: &str = "monograph_log";
@@ -272,7 +272,7 @@ impl DeploymentConfig {
             Product::EloqSQL => format!(
                 "{}/{}/install/bin/mariadb --user={} -S /tmp/mysql{}.sock",
                 self.install_dir(),
-                MONOGRAPH_TX_SERVICE_DIR,
+                ELOQSQL_HOME,
                 self.connection.username,
                 self.deployment.client_port()
             ),
@@ -285,9 +285,9 @@ impl DeploymentConfig {
                         self.deployment.client_port(),
                     )
                 };
-                let redis_dir = format!("{}/{}", self.install_dir(), REDIS_TX_SERVICE_DIR);
+                let redis_dir = format!("{}/{}", self.install_dir(), ELOQKV_HOME);
                 format!(
-                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {}/redis_cli -server {}:{}",
+                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {}/bin/eloqkv-client -server {}:{}",
                     redis_dir, redis_dir, host, port
                 )
             }
@@ -301,7 +301,7 @@ impl DeploymentConfig {
     pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
         let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
         let remote_install_dir = self.install_dir();
-        let tx_dir = format!("{remote_install_dir}/{MONOGRAPH_TX_SERVICE_DIR}");
+        let tx_dir = format!("{remote_install_dir}/{ELOQSQL_HOME}");
         let malloc = if self.deployment.version.as_ref().unwrap() == "debug" {
             export_asan(&format!("{tx_dir}/logs"))
         } else {

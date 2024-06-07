@@ -2,9 +2,7 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::{
-    DeploymentConfig, MONOGRAPH_LOG_SERVICE_DIR, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
-};
+use crate::config::config_base::{DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME, LOG_SERVICE_HOME};
 use crate::config::deployment::Product;
 use crate::config::DownloadUrl;
 use crate::task_return_value;
@@ -70,11 +68,11 @@ impl UnpackFileTask {
                 let remote_host = &unpack_location.host;
 
                 let unpacked_file = if curr_file_name.eq(&log_image) {
-                    MONOGRAPH_LOG_SERVICE_DIR.to_string()
+                    LOG_SERVICE_HOME.to_string()
                 } else if curr_file_name.eq(&tx_image) {
                     match config.product() {
-                        Product::EloqSQL => MONOGRAPH_TX_SERVICE_DIR.to_string(),
-                        Product::EloqKV => REDIS_TX_SERVICE_DIR.to_string(),
+                        Product::EloqSQL => ELOQSQL_HOME.to_string(),
+                        Product::EloqKV => ELOQKV_HOME.to_string(),
                     }
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
@@ -135,7 +133,7 @@ impl TaskExecutor for UnpackFileTask {
             task_input.get(UNPACKED_NAME).unwrap().clone(),
         );
         let install_dir = self.config.install_dir();
-        let mut unpack_cmd = if unpacked_name.contains(MONOGRAPH_TX_SERVICE_DIR) {
+        let mut unpack_cmd = if unpacked_name.contains(ELOQSQL_HOME) {
             let target_dir = format!("{install_dir}/{unpacked_name}");
             format!(r#"mkdir -p {target_dir} && tar -zxvf {remote_tar} -C {target_dir}"#,)
         } else {

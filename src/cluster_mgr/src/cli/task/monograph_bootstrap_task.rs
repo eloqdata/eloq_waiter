@@ -5,9 +5,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
-use crate::config::config_base::{
-    export_asan, DeploymentConfig, MONOGRAPH_TX_SERVICE_DIR, REDIS_TX_SERVICE_DIR,
-};
+use crate::config::config_base::{export_asan, DeploymentConfig, ELOQKV_HOME, ELOQSQL_HOME};
 use crate::config::deployment::Product;
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
@@ -109,13 +107,13 @@ impl TaskExecutor for MonographInstall {
         let insdir = self.config.install_dir();
         let bootstarp_sh = match self.config.product() {
             Product::EloqSQL => {
-                let txsv_dir = format!("{}/{}", insdir, MONOGRAPH_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, ELOQSQL_HOME);
                 format!(
                     "mkdir -p {txsv_dir}/logs; /bin/bash {insdir}/{MONOGRAPH_INSTALL_SCRIPT} > {txsv_dir}/logs/bootstrap.log 2>&1 ",
                 )
             }
             Product::EloqKV => {
-                let txsv_dir = format!("{}/{}", insdir, REDIS_TX_SERVICE_DIR);
+                let txsv_dir = format!("{}/{}", insdir, ELOQKV_HOME);
                 let debug = self.config.deployment.version.as_ref().unwrap() == "debug";
                 let head = if debug {
                     export_asan(&format!("{txsv_dir}/logs/bootstrap-asan"))
@@ -124,7 +122,7 @@ impl TaskExecutor for MonographInstall {
                 };
                 format!(
                     r#"mkdir -p {txsv_dir}/logs; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                    {head}; {txsv_dir}/redis_server --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
+                    {head}; {txsv_dir}/bin/eloqkv --config={insdir}/redis.ini --bootstrap > {txsv_dir}/logs/bootstrap.log 2>&1 "#
                 )
             }
         };
