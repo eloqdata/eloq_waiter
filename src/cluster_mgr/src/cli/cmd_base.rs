@@ -209,7 +209,7 @@ impl CommandExecutor {
             CommandArgs::List => {
                 return self.list_clusters().await;
             }
-            CommandArgs::ListVersion { product, store } => {
+            CommandArgs::Versions { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await;
             }
             CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {

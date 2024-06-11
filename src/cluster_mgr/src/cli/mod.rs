@@ -181,8 +181,8 @@ pub enum CommandArgs {
     #[strum(serialize = "list")]
     List,
     #[command(long_about = "List available versions")]
-    #[strum(serialize = "list-version")]
-    ListVersion {
+    #[strum(serialize = "versions")]
+    Versions {
         #[arg(long)]
         product: Option<Product>,
         #[arg(long)]
