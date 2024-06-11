@@ -27,8 +27,21 @@ pub struct CassConnect {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct CassDeploy {
-    pub download_url: String,
+    pub mirror: Option<String>,
+    pub version: String,
     pub cluster_name: Option<String>,
+}
+
+impl CassDeploy {
+    pub fn download_url(&self) -> String {
+        let mirror = self
+            .mirror
+            .as_ref()
+            .map(|mi| mi.as_str())
+            .unwrap_or("https://dlcdn.apache.org");
+        let version = &self.version;
+        format!("{mirror}/cassandra/{version}/apache-cassandra-{version}-bin.tar.gz")
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

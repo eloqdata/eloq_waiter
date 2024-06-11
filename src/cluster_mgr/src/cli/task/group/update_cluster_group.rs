@@ -1,5 +1,5 @@
 use crate::cli::task::download_task::DownloadTask;
-use crate::cli::task::group::{TaskGroup, UpgradeClusterTaskGroup};
+use crate::cli::task::group::{TaskGroup, UpdateClusterTaskGroup};
 use crate::cli::task::local_copy_task::LocalCopyTask;
 use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
@@ -12,7 +12,7 @@ use crate::config::config_base::DeploymentConfig;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
-impl TaskGroup for UpgradeClusterTaskGroup {
+impl TaskGroup for UpdateClusterTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: CommandArgs,

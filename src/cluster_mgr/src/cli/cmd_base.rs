@@ -10,7 +10,7 @@ use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::env;
@@ -109,7 +109,6 @@ impl CommandExecutor {
     async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<DeploymentConfig> {
         match cmd.clone() {
             CommandArgs::Deploy { topology_file }
-            | CommandArgs::Upgrade { topology_file }
             | CommandArgs::Launch {
                 topology_file,
                 skip_deps: _,
@@ -178,6 +177,10 @@ impl CommandExecutor {
             | CommandArgs::Inspect { cluster, yaml: _ }
             | CommandArgs::Remove { cluster }
             | CommandArgs::Connect { cluster }
+            | CommandArgs::Update {
+                cluster: Some(cluster),
+                ..
+            }
             | CommandArgs::Scale {
                 cluster,
                 add_tx_node: _,
@@ -185,7 +188,7 @@ impl CommandExecutor {
             } => {
                 let config = self
                     .state_mgr
-                    .load_deployment_from_state(cluster.as_str())
+                    .load_deployment_from_state(&cluster)
                     .await?
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
                 Ok(config)
@@ -211,6 +214,9 @@ impl CommandExecutor {
             }
             CommandArgs::Versions { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await;
+            }
+            CommandArgs::Update { cluster: None, .. } => {
+                unimplemented!()
             }
             CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
                 std::fs::remove_dir_all(upload_dir())?;
@@ -314,7 +320,39 @@ impl CommandExecutor {
                 tx_hosts.retain(|h| !del_tx_node.contains(h));
                 tx_hosts.extend(add_tx_node);
                 self.save_deployment_config(&config, true).await?;
-                println!("cluster {cluster} is scaled done!");
+                println!("cluster {cluster} is scaled!");
+            }
+            CommandArgs::Update {
+                cluster: Some(cluster),
+                version,
+                cassandra,
+            } => {
+                let mut config = config;
+                if let Some(v) = version {
+                    config.deployment.version = Some(v);
+                }
+                if let Some(v) = cassandra {
+                    if let CassKind::Internal(cass) = &mut config
+                        .deployment
+                        .storage_service
+                        .cassandra
+                        .as_mut()
+                        .unwrap()
+                        .kind
+                    {
+                        cass.version = v;
+                        // let params = v.split('@').collect_vec();
+                        // if params.len() == 1 {
+                        //     cass.version = params[0].to_owned();
+                        // } else {
+                        //     assert!(params.len() == 2);
+                        //     cass.mirror = Some(params[0].to_owned());
+                        //     cass.version = params[1].to_owned();
+                        // }
+                    }
+                }
+                self.save_deployment_config(&config, true).await?;
+                println!("cluster {cluster} is updated!");
             }
             _ => {}
         }
@@ -450,12 +488,9 @@ impl CommandExecutor {
                     });
                 } else {
                     host = vec!["127.0.0.1".to_owned()];
-                    let download_url = format!(
-                        "{}/others/apache-cassandra-4.1.3-bin.tar.gz",
-                        DOWNLOAD_SRC.as_str()
-                    );
                     kind = CassKind::Internal(CassDeploy {
-                        download_url,
+                        mirror: Some("https://mirrors.aliyun.com/apache".to_owned()),
+                        version: "4.1.3".to_owned(),
                         cluster_name: None,
                     });
                 };

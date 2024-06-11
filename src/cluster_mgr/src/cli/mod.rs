@@ -116,10 +116,12 @@ pub enum CommandArgs {
         long_about = "According to the deployment.yaml, update the related monograph_db cluster by stopping the cluster, replacing the package, and starting the cluster. \n./cluster_mgr upgrade --topology_file ${PWD}/config/deployment.yaml
     "
     )]
-    #[strum(serialize = "upgrade")]
-    Upgrade {
-        #[arg(short, long, value_name = "TOPOLOGY")]
-        topology_file: String,
+    #[strum(serialize = "update")]
+    Update {
+        cluster: Option<String>,
+        version: Option<String>,
+        #[arg(long, value_name = "version")]
+        cassandra: Option<String>,
     },
     #[command(
         long_about = "Update the configuration file and restart the tx service (the default value of restart is true). \
