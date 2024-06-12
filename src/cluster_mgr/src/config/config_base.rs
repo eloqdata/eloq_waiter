@@ -542,6 +542,7 @@ impl DeploymentConfig {
         DeployAbstract {
             name: self.deployment.cluster_name.clone(),
             product: self.deployment.product(),
+            store: self.deployment.storage_service.pretty_name(),
             version: self.deployment.version.clone().unwrap_or_default(),
             user: self.connection.username.clone(),
         }
@@ -552,6 +553,7 @@ impl DeploymentConfig {
 pub struct DeployAbstract {
     name: String,
     product: Product,
+    store: String,
     version: String,
     user: String,
 }
