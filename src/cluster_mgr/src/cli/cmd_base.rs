@@ -211,6 +211,9 @@ impl CommandExecutor {
                         warn!("cluster version not changed")
                     }
                     config.deployment.version = Some(v);
+                    config.deployment.tx_image = None;
+                    config.deployment.log_image = None;
+                    self.set_image(&mut config.deployment).await?;
                 }
                 if cassandra.is_some() || cass_mirror.is_some() {
                     let cass = &mut config.deployment.storage_service.cassandra;
