@@ -414,9 +414,9 @@ impl DeploymentConfig {
         if let Some(sp) = storage.provider() {
             Ok(sp)
         } else {
-            Err(anyhow!(ConfigErr::StorageConfigErr(format!(
-                "storage provider is missing"
-            ))))
+            Err(anyhow!(ConfigErr::StorageConfigErr(
+                "storage provider is missing".to_owned()
+            )))
         }
     }
 

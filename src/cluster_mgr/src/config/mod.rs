@@ -136,7 +136,7 @@ impl DownloadUrl {
                 if url.domain() == Some(CLOUDFRONT) {
                     let mut seg = url.path_segments().unwrap();
                     let _filename = seg.next_back();
-                    while let Some(d) = seg.next() {
+                    for d in seg {
                         dir.push(d);
                     }
                 }

@@ -82,10 +82,8 @@ impl CommandExecutor {
                 })
             })
             .await?;
-        if !deployment_entity.is_empty() {
-            if !upsert {
-                bail!("cluster {} already exists", curr_cluster);
-            }
+        if !deployment_entity.is_empty() && !upsert {
+            bail!("cluster {} already exists", curr_cluster);
         }
         let all_hosts = config.get_unique_host_list().join(";");
         let config_string = config.config_to_string();
@@ -246,11 +244,9 @@ impl CommandExecutor {
         deployment_config: Option<DeploymentConfig>,
     ) -> Result<()> {
         match &cmd {
-            CommandArgs::List => {
-                return self.list_clusters().await;
-            }
+            CommandArgs::List => return self.list_clusters().await,
             CommandArgs::Versions { product, store } => {
-                return self.list_versions(product.clone(), store.clone()).await;
+                return self.list_versions(product.clone(), store.clone()).await
             }
             CommandArgs::Update { cluster: None, .. } => {
                 unimplemented!()
@@ -291,12 +287,12 @@ impl CommandExecutor {
                 }
             }
             CommandArgs::Scale {
-                cluster,
+                cluster: _,
                 add_tx_node,
                 del_tx_node,
             } => {
-                let add: HashSet<String> = HashSet::from_iter(add_tx_node.into_iter());
-                let del: HashSet<String> = HashSet::from_iter(del_tx_node.into_iter());
+                let add: HashSet<String> = HashSet::from_iter(add_tx_node.clone().into_iter());
+                let del: HashSet<String> = HashSet::from_iter(del_tx_node.clone().into_iter());
                 if add.intersection(&del).count() > 0 {
                     bail!("add_tx_node is overlaped with del_tx_node")
                 }
@@ -312,13 +308,14 @@ impl CommandExecutor {
                     warn!("scale do nothing");
                     return Ok(());
                 }
-                todo!();
+                // TODO(zhanghao): scale cluster
                 let mut config = config;
                 let tx_hosts = &mut config.deployment.tx_service.host;
                 tx_hosts.retain(|h| !del_tx_node.contains(h));
                 tx_hosts.extend(add_tx_node);
-                self.save_deployment_config(&config, true).await?;
-                println!("cluster {cluster} is scaled!");
+                // self.save_deployment_config(&config, true).await?;
+                // println!("cluster {cluster} is scaled!");
+                unimplemented!()
             }
             _ => {
                 let recv_rs_and_print_join = tokio::task::spawn(async move {

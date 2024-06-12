@@ -34,11 +34,7 @@ pub struct CassDeploy {
 
 impl CassDeploy {
     pub fn download_url(&self) -> String {
-        let mirror = self
-            .mirror
-            .as_ref()
-            .map(|mi| mi.as_str())
-            .unwrap_or("https://dlcdn.apache.org");
+        let mirror = self.mirror.as_deref().unwrap_or("https://dlcdn.apache.org");
         let version = &self.version;
         format!("{mirror}/cassandra/{version}/apache-cassandra-{version}-bin.tar.gz")
     }

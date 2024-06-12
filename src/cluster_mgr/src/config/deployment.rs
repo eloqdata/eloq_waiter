@@ -554,7 +554,7 @@ impl Deployment {
         let key = "monograph_node_memory_limit_mb";
         let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u32);
         if val.is_none() {
-            let mut limit = opt_hw.map(|hw| (hw.memory * 3) / 5).unwrap_or(1 * GB);
+            let mut limit = opt_hw.map(|hw| (hw.memory * 3) / 5).unwrap_or(GB);
             if union_cass {
                 limit /= 2;
             }
@@ -734,7 +734,7 @@ impl Deployment {
         let key = "node_memory_limit_mb";
         let val = set_by_user!(ini.get(SECTION_LOCAL, key), u32);
         if val.is_none() {
-            let mut limit = opt_hw.map(|hw| (hw.memory * 4) / 5).unwrap_or(1 * GB);
+            let mut limit = opt_hw.map(|hw| (hw.memory * 4) / 5).unwrap_or(GB);
             if union_cass {
                 limit /= 2;
             }
