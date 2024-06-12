@@ -252,7 +252,12 @@ impl CommandExecutor {
             CommandArgs::Update { cluster: None, .. } => {
                 unimplemented!()
             }
-            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
+            CommandArgs::Launch { .. }
+            | CommandArgs::Demo { .. }
+            | CommandArgs::Update {
+                cluster: Some(_), ..
+            }
+            | CommandArgs::UpdateConf { .. } => {
                 std::fs::remove_dir_all(upload_dir())?;
                 std::fs::create_dir(upload_dir())?;
             }
