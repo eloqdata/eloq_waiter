@@ -257,10 +257,10 @@ impl DeploymentConfig {
     }
 
     pub fn client_conn(&self) -> String {
+        let bin = self.deployment.client_bin();
         match self.product() {
             Product::EloqSQL => format!(
-                "{} --user={} -S /tmp/eloqsql{}.sock",
-                self.deployment.client_bin(),
+                "{bin} --user={} -S /tmp/eloqsql{}.sock",
                 self.connection.username,
                 self.deployment.client_port()
             ),
@@ -273,13 +273,7 @@ impl DeploymentConfig {
                         self.deployment.client_port(),
                     )
                 };
-                format!(
-                    "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{}/lib {} -server {}:{}",
-                    self.deployment.tx_srv_home(),
-                    self.deployment.client_bin(),
-                    host,
-                    port
-                )
+                format!("{bin} -h {} -p {}", host, port)
             }
         }
     }
