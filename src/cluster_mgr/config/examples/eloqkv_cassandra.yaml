@@ -22,7 +22,9 @@ deployment:
     cassandra:
       host: [127.0.0.1]
       kind: !Internal
-        mirror: "https://mirrors.aliyun.com/apache"
+        mirror: "https://d143xau9fe26d8.cloudfront.net"
+        # mirror: "https://mirrors.aliyun.com/apache"
+        # mirror: "https://dlcdn.apache.org"
         version: "4.1.3"
         storage_cluster: "eloqkv-cluster"
   monitor:

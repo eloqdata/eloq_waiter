@@ -497,7 +497,7 @@ impl CommandExecutor {
                 } else {
                     host = vec!["127.0.0.1".to_owned()];
                     kind = CassKind::Internal(CassDeploy {
-                        mirror: Some("https://mirrors.aliyun.com/apache".to_owned()),
+                        mirror: Some("https://d143xau9fe26d8.cloudfront.net".to_owned()),
                         version: "4.1.3".to_owned(),
                         cluster_name: None,
                     });
