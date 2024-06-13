@@ -61,6 +61,7 @@ pub struct LogServiceNode {
     pub port: u16,
 }
 
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct LogService {
     pub nodes: Vec<LogServiceNode>,

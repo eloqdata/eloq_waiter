@@ -67,6 +67,7 @@ pub struct UploadFile {
     pub copy_dir: bool,
 }
 
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct DeploymentConfig {
     pub connection: Connection,
@@ -414,8 +415,16 @@ impl DeploymentConfig {
         }
     }
 
-    pub fn config_to_string(&self) -> String {
+    pub fn to_yaml(&self) -> String {
         serde_yaml::to_string(self).unwrap()
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap()
+    }
+
+    pub fn to_flat_json(&self) -> String {
+        serde_json::to_string(self).unwrap()
     }
 
     /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.

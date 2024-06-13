@@ -97,6 +97,12 @@ pub const SECTION_STORE: &str = "store";
 pub const SECTION_METRIC: &str = "metrics";
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
+pub enum TopoFormat {
+    Yaml,
+    Json,
+}
+
+#[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
 pub enum StorageProvider {
     #[strum(serialize = "cassandra")]
     Cassandra,

@@ -85,6 +85,7 @@ pub struct Exporter {
     pub port: u16,
 }
 
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Monitor {
     pub data_dir: Option<String>,

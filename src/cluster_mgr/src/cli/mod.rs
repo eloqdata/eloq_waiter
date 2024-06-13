@@ -1,4 +1,4 @@
-use crate::config::{deployment::Product, StorageProvider, CONFIG_PATH_DIR};
+use crate::config::{deployment::Product, StorageProvider, TopoFormat, CONFIG_PATH_DIR};
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -196,8 +196,8 @@ pub enum CommandArgs {
     #[strum(serialize = "inspect")]
     Inspect {
         cluster: String,
-        #[arg(short, long, default_value_t = false)]
-        yaml: bool,
+        #[arg(short, long)]
+        format: Option<TopoFormat>,
     },
     #[command(long_about = "Connect to cluster")]
     #[strum(serialize = "connect")]

@@ -5,7 +5,7 @@ use crate::config::deployment::{pg_client, Deployment, Product};
 use crate::config::storage_service_config::{
     CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
 };
-use crate::config::{StorageProvider, CONFIG_PATH_DIR, DOWNLOAD_SRC};
+use crate::config::{StorageProvider, TopoFormat, CONFIG_PATH_DIR, DOWNLOAD_SRC};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
@@ -86,7 +86,7 @@ impl CommandExecutor {
             bail!("cluster {} already exists", curr_cluster);
         }
         let all_hosts = config.get_unique_host_list().join(";");
-        let config_string = config.config_to_string();
+        let config_string = config.to_yaml();
         debug!(
             "CmdExecutor save DeploymentConfig {} {}",
             config_string, all_hosts
@@ -172,7 +172,7 @@ impl CommandExecutor {
                 command: _,
                 cluster,
             }
-            | CommandArgs::Inspect { cluster, yaml: _ }
+            | CommandArgs::Inspect { cluster, .. }
             | CommandArgs::Remove { cluster }
             | CommandArgs::Connect { cluster }
             | CommandArgs::Scale {
@@ -279,13 +279,13 @@ impl CommandExecutor {
             CommandArgs::Connect { .. } => {
                 println!("{}", config.client_conn());
             }
-            CommandArgs::Inspect { cluster: _, yaml } => {
-                if yaml {
-                    println!("{}", config.config_to_string())
-                } else {
-                    println!("{:#?}", config);
-                }
-            }
+            CommandArgs::Inspect { cluster: _, format } => match format {
+                Some(fmt) => match fmt {
+                    TopoFormat::Yaml => println!("{}", config.to_yaml()),
+                    TopoFormat::Json => println!("{}", config.to_json()),
+                },
+                None => println!("{:#?}", config),
+            },
             CommandArgs::Scale {
                 cluster: _,
                 add_tx_node,
