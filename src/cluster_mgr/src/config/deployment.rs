@@ -63,7 +63,7 @@ pub(crate) static VERSION_PATT: LazyLock<Regex> =
 macro_rules! download_urls {
     ($download_link:expr, $({$url_key:expr, $url_value:expr} $(,)?)*) => {
         $(
-          $download_link.insert($url_key.to_string(), DownloadUrl::from_url_str($url_value.as_str()).unwrap());
+          $download_link.insert($url_key.to_string(), DownloadUrl::from_url_str($url_value).unwrap());
         )*
     };
 }
@@ -233,8 +233,26 @@ pub async fn pg_client() -> Result<tokio_postgres::Client> {
 }
 
 impl Deployment {
-    pub fn get_tx_image(&self) -> String {
-        self.tx_image.clone().unwrap()
+    pub fn get_tx_image(&self) -> &str {
+        self.tx_image.as_ref().unwrap()
+        // let mut arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
+        // arch = match arch.as_str() {
+        //     "aarch64" | "arm64" => "arm64",
+        //     "x86" | "x86_64" | "amd64" => "amd64",
+        //     _ => panic!("unsupported cpu arch {arch}"),
+        // }
+        // .to_owned();
+        // let os_id = sysinfo::System::distribution_id();
+        // let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
+
+        // let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
+        // let product = self.product().name().to_owned();
+        // prefix.push(&product);
+        // prefix.push(format!("{os_id}{os_version}"));
+        // prefix.push(self.storage_service.pretty_name());
+        // let version = self.version.as_ref().unwrap();
+        // prefix.push(format!("{product}-{version}-{arch}.tar.gz"));
+        // prefix.as_path().to_string_lossy().to_string()
     }
 
     pub fn get_hardware(&self, host: &str) -> Option<&Hardware> {
@@ -257,9 +275,8 @@ impl Deployment {
         self.version.as_ref().unwrap()
     }
 
-    pub fn version(&self) -> Version {
-        let ver = self.version.as_ref().unwrap().as_str();
-        parse_version(ver)
+    pub fn version(&self) -> Option<Version> {
+        self.version.as_ref().map(|ver| parse_version(ver))
     }
 
     pub fn client_port(&self) -> u16 {
@@ -813,13 +830,13 @@ impl Deployment {
         );
         if let Some(log_image_url) = self.log_image.as_ref() {
             download_urls!(links,
-                {MONOGRAPH_LOG_FILE_KEY, log_image_url.to_string()}
+                {MONOGRAPH_LOG_FILE_KEY, log_image_url}
             );
         }
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
             if let Some(cassdp) = cass.internal() {
                 download_urls!(links,
-                    {CASSANDRA_FILE_KEY, cassdp.download_url()}
+                    {CASSANDRA_FILE_KEY, &cassdp.download_url()}
                 );
             }
         }
@@ -832,7 +849,7 @@ impl Deployment {
             db_image_download_links.extend(monitor_srv.download_links_as_map()?);
         }
         if self.codis.is_some() {
-            download_urls!(db_image_download_links, {"codis", Codis::download_url()});
+            download_urls!(db_image_download_links, {"codis", &Codis::download_url()});
         }
         Ok(db_image_download_links)
     }
@@ -1005,7 +1022,7 @@ impl Deployment {
         let glog = format!(
             "mkdir -p {tx_logs} ; export GLOG_log_dir={tx_logs} ; export GLOG_max_log_size=1024"
         );
-        let mut ld_lib = if let Version::Debug = self.version() {
+        let mut ld_lib = if let Some(Version::Debug) = self.version() {
             export_asan(&format!("{tx_logs}/asan"))
         } else {
             format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
@@ -1016,7 +1033,7 @@ impl Deployment {
         match self.product() {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
-                if let Version::Tag(nums) = self.version() {
+                if let Some(Version::Tag(nums)) = self.version() {
                     if nums <= version_digits("0.4.2") {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
@@ -1025,7 +1042,7 @@ impl Deployment {
             }
             Product::EloqKV => {
                 let mut logout = "/dev/null".to_owned();
-                if let Version::Tag(nums) = self.version() {
+                if let Some(Version::Tag(nums)) = self.version() {
                     if nums <= version_digits("1.0.8") {
                         logout = format!("{tx_dir}/logs/eloqkv.log")
                     }

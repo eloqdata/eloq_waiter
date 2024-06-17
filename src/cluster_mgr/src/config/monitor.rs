@@ -106,15 +106,15 @@ impl Monitor {
     pub fn download_links_as_map(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut links = HashMap::new();
         download_urls!(links,
-            {PROMETHEUS_FILE_KEY, self.prometheus.download_url},
-            {GRAFANA_FILE_KEY, self.grafana.download_url},
-            {NODE_EXPORTER_FILE_KEY, self.node_exporter.url},
+            {PROMETHEUS_FILE_KEY, &self.prometheus.download_url},
+            {GRAFANA_FILE_KEY, &self.grafana.download_url},
+            {NODE_EXPORTER_FILE_KEY, &self.node_exporter.url},
         );
         if let Some(myex) = &self.mysql_exporter {
-            download_urls!(links, {MYSQL_EXPORTER_FILE_KEY, myex.url});
+            download_urls!(links, {MYSQL_EXPORTER_FILE_KEY, &myex.url});
         }
         if let Some(mcac) = &self.cassandra_collector {
-            download_urls!(links, {CASSANDRA_COLLECTOR_AGENT_FILE_KEY, mcac.mcac_agent});
+            download_urls!(links, {CASSANDRA_COLLECTOR_AGENT_FILE_KEY, &mcac.mcac_agent});
         }
         Ok(links)
     }

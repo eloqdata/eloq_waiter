@@ -34,18 +34,18 @@ impl DownloadTask {
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
-        let tx_download_url_string = deployment_ref.get_tx_image();
-        let tx_download_url = DownloadUrl::from_url_str(tx_download_url_string.as_str())?;
+        let tx_download_str = deployment_ref.get_tx_image();
+        let tx_download_url = DownloadUrl::from_url_str(tx_download_str)?;
 
         let mut download_url_vec = vec![];
         if !tx_download_url.is_local() {
-            download_url_vec.push(tx_download_url_string);
+            download_url_vec.push(tx_download_str.to_owned());
         }
 
         if let Some(log_image_url) = deployment_ref.log_image.as_ref() {
             let log_download_url = DownloadUrl::from_url_str(log_image_url.as_str())?;
             if !log_download_url.is_local() {
-                download_url_vec.push(log_image_url.to_string());
+                download_url_vec.push(log_image_url.to_owned());
             }
         }
 
@@ -55,7 +55,7 @@ impl DownloadTask {
                 let cass_download_url =
                     DownloadUrl::from_url_str(cass_download_url_string.as_str())?;
                 if !cass_download_url.is_local() {
-                    download_url_vec.push(cass_download_url_string.to_string());
+                    download_url_vec.push(cass_download_url_string.to_owned());
                 }
             }
         }

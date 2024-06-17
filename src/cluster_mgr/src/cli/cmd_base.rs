@@ -112,7 +112,7 @@ impl CommandExecutor {
                 skip_deps: _,
             } => {
                 let mut config = DeploymentConfig::load(Some(topology_file))?;
-                self.set_image(&mut config.deployment).await?;
+                self.resolve_version(&mut config.deployment).await?;
                 config.scan_hardware().await?;
                 self.save_deployment_config(&config, cmd.as_ref().eq("upgrade"))
                     .await?;
@@ -205,13 +205,13 @@ impl CommandExecutor {
                     .await?
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
                 if let Some(v) = version {
-                    if config.deployment.version_str() == v {
+                    if config.deployment.version.is_some() && config.deployment.version_str() == v {
                         warn!("cluster version not changed")
                     }
                     config.deployment.version = Some(v);
                     config.deployment.tx_image = None;
                     config.deployment.log_image = None;
-                    self.set_image(&mut config.deployment).await?;
+                    self.resolve_version(&mut config.deployment).await?;
                 }
                 if cassandra.is_some() || cass_mirror.is_some() {
                     let cass = &mut config.deployment.storage_service.cassandra;
@@ -267,6 +267,7 @@ impl CommandExecutor {
         let cmd_ref = cmd.as_ref();
         let config = match deployment_config {
             Some(mut config) => {
+                self.resolve_version(&mut config.deployment).await?;
                 config.scan_hardware().await?;
                 self.save_deployment_config(&config, cmd_ref.eq("upgrade"))
                     .await?;
@@ -418,12 +419,11 @@ impl CommandExecutor {
         Ok(())
     }
 
-    // Populate tx_image and log_image according to version number
-    pub async fn set_image(&self, cnf: &mut Deployment) -> Result<()> {
+    pub async fn resolve_version(&self, cnf: &mut Deployment) -> Result<()> {
         let product = cnf.product().name().to_owned();
         let arch = &self.cpu_arch;
         let store = cnf.storage_service.pretty_name();
-        if cnf.version.is_none() || cnf.version_str() == "latest" {
+        if cnf.version.is_some() && cnf.version_str().to_ascii_lowercase() == "latest" {
             // request latest release version ID
             let client = pg_client().await?;
             let row = client
@@ -447,20 +447,18 @@ impl CommandExecutor {
         // cnf.version.as_mut().unwrap().make_ascii_lowercase();
 
         let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
-        prefix.push(product);
-        let version = cnf.version_str().to_owned();
+        prefix.push(&product);
         prefix.push(self.os_pretty());
         let prefix = prefix.as_path().to_str().unwrap();
         if cnf.tx_image.is_none() {
-            let tx_tarball = match cnf.product() {
-                Product::EloqSQL => format!("eloqsql-{version}-{arch}.tar.gz"),
-                Product::EloqKV => format!("eloqkv-{version}-{arch}.tar.gz"),
-            };
-            cnf.tx_image = Some(format!("{prefix}/{store}/{tx_tarball}"));
+            let vers = cnf.version_str();
+            cnf.tx_image = Some(format!("{prefix}/{store}/{product}-{vers}-{arch}.tar.gz"));
         }
         if cnf.log_image.is_none() && cnf.log_service.is_some() {
-            let log_tarball = format!("log-service-{version}-{arch}.tar.gz");
-            cnf.log_image = Some(format!("{prefix}/logservice/{log_tarball}"));
+            let vers = cnf.version_str();
+            cnf.log_image = Some(format!(
+                "{prefix}/logservice/log-service-{vers}-{arch}.tar.gz"
+            ));
         }
         Ok(())
     }
@@ -535,7 +533,7 @@ impl CommandExecutor {
         // set version
         deploy.version.replace(version);
         // set image URL
-        self.set_image(deploy).await?;
+        self.resolve_version(deploy).await?;
         // add kv-store name to cluster name suffix
         let name_suffix = format!("-{store}");
         deploy.cluster_name.push_str(&name_suffix);
