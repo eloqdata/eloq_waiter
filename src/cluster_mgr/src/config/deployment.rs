@@ -122,6 +122,7 @@ pub struct MonographPort {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct MonographService {
+    pub image: Option<String>,
     pub host: Vec<String>,
     pub port: Option<u16>,
     pub client_port: u16,
@@ -199,8 +200,6 @@ pub enum Version {
 pub struct Deployment {
     pub product: Option<Product>,
     pub version: Option<String>,
-    pub tx_image: Option<String>,
-    pub log_image: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
     pub tx_service: MonographService,
@@ -233,26 +232,16 @@ pub async fn pg_client() -> Result<tokio_postgres::Client> {
 }
 
 impl Deployment {
-    pub fn get_tx_image(&self) -> &str {
-        self.tx_image.as_ref().unwrap()
-        // let mut arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
-        // arch = match arch.as_str() {
-        //     "aarch64" | "arm64" => "arm64",
-        //     "x86" | "x86_64" | "amd64" => "amd64",
-        //     _ => panic!("unsupported cpu arch {arch}"),
-        // }
-        // .to_owned();
-        // let os_id = sysinfo::System::distribution_id();
-        // let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
+    pub fn tx_image(&self) -> &str {
+        self.tx_service.image.as_ref().unwrap()
+    }
 
-        // let mut prefix = PathBuf::from(DOWNLOAD_SRC.as_str());
-        // let product = self.product().name().to_owned();
-        // prefix.push(&product);
-        // prefix.push(format!("{os_id}{os_version}"));
-        // prefix.push(self.storage_service.pretty_name());
-        // let version = self.version.as_ref().unwrap();
-        // prefix.push(format!("{product}-{version}-{arch}.tar.gz"));
-        // prefix.as_path().to_string_lossy().to_string()
+    pub fn log_image(&self) -> Option<&str> {
+        if let Some(srv) = &self.log_service {
+            srv.image.as_deref()
+        } else {
+            None
+        }
     }
 
     pub fn get_hardware(&self, host: &str) -> Option<&Hardware> {
@@ -825,13 +814,9 @@ impl Deployment {
 
     pub fn monograph_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut links = HashMap::new();
-        download_urls!(links,
-                {MONOGRAPH_FILE_KEY, self.get_tx_image()}
-        );
-        if let Some(log_image_url) = self.log_image.as_ref() {
-            download_urls!(links,
-                {MONOGRAPH_LOG_FILE_KEY, log_image_url}
-            );
+        download_urls!(links,{MONOGRAPH_FILE_KEY, self.tx_image()});
+        if let Some(img) = self.log_image() {
+            download_urls!(links,{MONOGRAPH_LOG_FILE_KEY, img});
         }
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
             if let Some(cassdp) = cass.internal() {

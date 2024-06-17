@@ -64,6 +64,7 @@ pub struct LogServiceNode {
 #[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct LogService {
+    pub image: Option<String>,
     pub nodes: Vec<LogServiceNode>,
     pub replica: Option<u32>,
     pub readiness: Option<LogReadiness>,
@@ -424,6 +425,7 @@ mod tests {
             })
             .collect_vec();
         LogService {
+            image: None,
             nodes,
             replica: Some(replica as u32),
             readiness: Some(LogReadiness::default()),

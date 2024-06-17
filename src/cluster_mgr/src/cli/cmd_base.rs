@@ -209,8 +209,10 @@ impl CommandExecutor {
                         warn!("cluster version not changed")
                     }
                     config.deployment.version = Some(v);
-                    config.deployment.tx_image = None;
-                    config.deployment.log_image = None;
+                    config.deployment.tx_service.image = None;
+                    if let Some(logsrv) = &mut config.deployment.log_service {
+                        logsrv.image = None;
+                    }
                     self.resolve_version(&mut config.deployment).await?;
                 }
                 if cassandra.is_some() || cass_mirror.is_some() {
@@ -450,15 +452,17 @@ impl CommandExecutor {
         prefix.push(&product);
         prefix.push(self.os_pretty());
         let prefix = prefix.as_path().to_str().unwrap();
-        if cnf.tx_image.is_none() {
-            let vers = cnf.version_str();
-            cnf.tx_image = Some(format!("{prefix}/{store}/{product}-{vers}-{arch}.tar.gz"));
+        if cnf.tx_service.image.is_none() {
+            let vers = cnf.version.as_deref().expect("version is missing");
+            cnf.tx_service.image = Some(format!("{prefix}/{store}/{product}-{vers}-{arch}.tar.gz"));
         }
-        if cnf.log_image.is_none() && cnf.log_service.is_some() {
-            let vers = cnf.version_str();
-            cnf.log_image = Some(format!(
-                "{prefix}/logservice/log-service-{vers}-{arch}.tar.gz"
-            ));
+        if let Some(logsrv) = &mut cnf.log_service {
+            if logsrv.image.is_none() {
+                let vers = cnf.version.as_deref().expect("version is missing");
+                logsrv.image = Some(format!(
+                    "{prefix}/logservice/log-service-{vers}-{arch}.tar.gz"
+                ));
+            }
         }
         Ok(())
     }

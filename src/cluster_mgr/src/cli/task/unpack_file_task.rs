@@ -45,13 +45,11 @@ impl UnpackFileTask {
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
 
-        let tx_image = DownloadUrl::from_url_str(deployment_ref.get_tx_image())
+        let tx_image = DownloadUrl::from_url_str(deployment_ref.tx_image())
             .unwrap()
             .file_name();
-        let log_image = if let Some(log_image_file) = deployment_ref.log_image.as_ref() {
-            DownloadUrl::from_url_str(log_image_file.as_str())
-                .unwrap()
-                .file_name()
+        let log_image = if let Some(img) = deployment_ref.log_image() {
+            DownloadUrl::from_url_str(img).unwrap().file_name()
         } else {
             "".to_string()
         };

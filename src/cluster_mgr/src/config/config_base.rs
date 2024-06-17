@@ -86,8 +86,8 @@ impl DeploymentConfig {
         let all_hosts = self.get_host_as_map();
         let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
         let monitor_opt = self.deployment.monitor.as_ref();
-        let tx_image = self.deployment.get_tx_image();
-        let log_image = &self.deployment.log_image;
+        let tx_image = self.deployment.tx_image();
+        let log_image = self.deployment.log_image();
         let monitor_link = if let Some(monitor) = monitor_opt {
             monitor.download_links_as_map().unwrap()
         } else {
@@ -124,9 +124,8 @@ impl DeploymentConfig {
                         unpack_files.push(tx_image);
                     }
                     DeploymentPackage::MonographLog => {
-                        if let Some(log_img_val) = log_image {
-                            let log_image_link =
-                                DownloadUrl::from_url_str(log_img_val.as_str()).unwrap();
+                        if let Some(img) = log_image {
+                            let log_image_link = DownloadUrl::from_url_str(img).unwrap();
                             unpack_files.push(log_image_link);
                             extract_monitor_link!(
                                 monitor_link,
