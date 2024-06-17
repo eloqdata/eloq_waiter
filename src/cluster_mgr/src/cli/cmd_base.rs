@@ -266,6 +266,7 @@ impl CommandExecutor {
         let cmd_ref = cmd.as_ref();
         let config = match deployment_config {
             Some(mut config) => {
+                config.connection.auth.check_keypair()?;
                 self.resolve_version(&mut config.deployment).await?;
                 config.scan_hardware().await?;
                 self.save_deployment_config(&config, cmd_ref.eq("upgrade"))

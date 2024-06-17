@@ -8,7 +8,7 @@ use crate::config::{
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use std::env::current_exe;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{error, info};
 
 pub const LOG_SERVICE_HOME: &str = "LogServer";
@@ -474,11 +474,7 @@ impl DeploymentConfig {
         info!("DeploymentConfig load file from {}", path_string);
         let config = DeploymentConfig::read_config_from_file(path_string.clone())
             .map_err(|err| anyhow!("{path_string}: {err}"))?;
-        if let Some(sshkey) = &config.connection.auth.keypair {
-            if !Path::new(sshkey).exists() {
-                bail!("ssh key {sshkey} not exist");
-            }
-        }
+        config.connection.auth.check_keypair()?;
         Ok(config)
     }
 
