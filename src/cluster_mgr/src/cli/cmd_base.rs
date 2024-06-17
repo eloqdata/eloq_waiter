@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -73,24 +73,21 @@ impl CommandExecutor {
             .state_mgr
             .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
 
-        let curr_cluster = &config.deployment.cluster_name;
+        let cluster = &config.deployment.cluster_name;
         let deployment_entity = deployment_operation
             .load(|| -> Option<QueryCondition> {
                 Some(QueryCondition {
                     cond_text: "cluster_name = $1".to_string(),
-                    bind_values: vec![StateValue::Varchar(curr_cluster.clone())],
+                    bind_values: vec![StateValue::Varchar(cluster.clone())],
                 })
             })
             .await?;
         if !deployment_entity.is_empty() && !upsert {
-            bail!("cluster {} already exists", curr_cluster);
+            bail!("cluster {cluster} already exists");
         }
         let all_hosts = config.get_unique_host_list().join(";");
         let config_string = config.to_yaml();
-        debug!(
-            "CmdExecutor save DeploymentConfig {} {}",
-            config_string, all_hosts
-        );
+        info!("DeploymentConfig saved: cluster={cluster} @ {all_hosts}");
         let default_timestamp = chrono::DateTime::default();
         deployment_operation
             .put(DeploymentEntity {
@@ -454,14 +451,16 @@ impl CommandExecutor {
         let prefix = prefix.as_path().to_str().unwrap();
         if cnf.tx_service.image.is_none() {
             let vers = cnf.version.as_deref().expect("version is missing");
-            cnf.tx_service.image = Some(format!("{prefix}/{store}/{product}-{vers}-{arch}.tar.gz"));
+            let img = format!("{prefix}/{store}/{product}-{vers}-{arch}.tar.gz");
+            info!("tx service image is set: {img}");
+            cnf.tx_service.image = Some(img);
         }
         if let Some(logsrv) = &mut cnf.log_service {
             if logsrv.image.is_none() {
                 let vers = cnf.version.as_deref().expect("version is missing");
-                logsrv.image = Some(format!(
-                    "{prefix}/logservice/log-service-{vers}-{arch}.tar.gz"
-                ));
+                let img = format!("{prefix}/logservice/log-service-{vers}-{arch}.tar.gz");
+                info!("log service image is set: {img}");
+                logsrv.image = Some(img);
             }
         }
         Ok(())
