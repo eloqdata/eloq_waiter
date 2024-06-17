@@ -165,7 +165,8 @@ impl EloqUpload {
     pub fn eloq_image_upload(config: &Deployment) -> Vec<UploadFile> {
         let install_dir = config.install_dir();
         let img = config.tx_image();
-        let img_src = DownloadUrl::from_url_str(img).unwrap().cache_dir().unwrap();
+        let url = DownloadUrl::from_url_str(img).unwrap();
+        let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
         let mut uploads = config
             .tx_service
             .host
@@ -180,7 +181,8 @@ impl EloqUpload {
             .collect_vec();
         if let Some(srv) = &config.log_service {
             let img = srv.image.as_ref().unwrap();
-            let img_src = DownloadUrl::from_url_str(img).unwrap().cache_dir().unwrap();
+            let url = DownloadUrl::from_url_str(img).unwrap();
+            let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
             let ups = srv
                 .log_host_unique()
                 .iter()
