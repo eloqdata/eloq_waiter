@@ -17,25 +17,28 @@ impl TaskGroup for UpdateClusterTaskGroup {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let update_cass = matches!(
-            cmd_arg,
+        let (update_eloq, update_cass) = match &cmd_arg {
             CommandArgs::Update {
-                cassandra: Some(_),
-                ..
-            }
-        );
+                version, cassandra, ..
+            } => (version.is_some(), cassandra.is_some()),
+            _ => unreachable!(),
+        };
         let deployment_ref = &config.deployment;
         let cluster = deployment_ref.cluster_name.clone();
 
         let download_task = DownloadTask::from_config(&config)?;
-        let mut upld_tasks = IndexMap::new();
-        upld_tasks.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
-        if update_cass {
-            upld_tasks.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
+        let mut upload_img = IndexMap::new();
+        let mut unpack_tasks = IndexMap::new();
+        let mut upload_cnf = IndexMap::new();
+        if update_eloq {
+            upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
+            unpack_tasks.extend(UnpackFileTask::unpack_eloq_servers_image(&config));
+            upload_cnf.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));
         }
-        let mut unpack_tasks = UnpackFileTask::unpack_eloq_servers_image(&config);
         if update_cass {
+            upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
             unpack_tasks.extend(UnpackFileTask::unpack_cassandra_image(&config));
+            upload_cnf.extend(upload_tasks(UploadTaskBuilderType::CassConf, &config));
         }
 
         // stop tx-service and log-service
@@ -60,16 +63,18 @@ impl TaskGroup for UpdateClusterTaskGroup {
 
         let barrier = vec![
             download_task.len(),
-            upld_tasks.len(),
+            upload_img.len(),
             stop_tasks.len(),
             unpack_tasks.len(),
+            upload_cnf.len(),
             start_tasks.len(),
         ];
         let mut executable = IndexMap::new();
         executable.extend(download_task);
-        executable.extend(upld_tasks);
+        executable.extend(upload_img);
         executable.extend(stop_tasks);
         executable.extend(unpack_tasks);
+        executable.extend(upload_cnf);
         executable.extend(start_tasks);
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),

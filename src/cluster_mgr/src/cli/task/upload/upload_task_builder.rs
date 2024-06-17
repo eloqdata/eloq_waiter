@@ -61,7 +61,7 @@ pub enum UploadTaskBuilderType {
     DataDir,
     MonographAll,
     MonitorConf,
-    MonographConf,
+    TxConf,
     Codis,
     EloqImage,
     CassImage,
@@ -83,7 +83,7 @@ pub fn upload_tasks(
         UploadTaskBuilderType::DataDir => DataDirUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonographAll => MonographUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonitorConf => MonitorInfraConfUploadBuilder {}.build(conf),
-        UploadTaskBuilderType::MonographConf => TxConfUpload {}.build(conf),
+        UploadTaskBuilderType::TxConf => TxConfUpload {}.build(conf),
         UploadTaskBuilderType::Codis => CodisUpload {}.build(conf),
         UploadTaskBuilderType::EloqImage => EloqUpload::build_tasks(
             conf,
