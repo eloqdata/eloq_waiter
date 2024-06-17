@@ -64,6 +64,7 @@ pub enum UploadTaskBuilderType {
     MonographConf,
     Codis,
     EloqImage,
+    CassImage,
 }
 
 #[macro_export]
@@ -87,8 +88,14 @@ pub fn upload_tasks(
         UploadTaskBuilderType::EloqImage => EloqUpload::build_tasks(
             conf,
             "update",
-            "upload_image",
+            "upload_eloq_image",
             EloqUpload::eloq_image_upload(&conf.deployment),
+        ),
+        UploadTaskBuilderType::CassImage => EloqUpload::build_tasks(
+            conf,
+            "update",
+            "upload_cass_image",
+            EloqUpload::cassandra_image_upload(&conf.deployment),
         ),
     }
 }

@@ -821,7 +821,7 @@ impl Deployment {
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
             if let Some(cassdp) = cass.internal() {
                 download_urls!(links,
-                    {CASSANDRA_FILE_KEY, &cassdp.download_url()}
+                    {CASSANDRA_FILE_KEY, &cassdp.image_url()}
                 );
             }
         }

@@ -3,6 +3,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::config::config_base::{DeploymentConfig, LOG_SERVICE_HOME};
+use crate::config::storage_service_config::CassKind;
 use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -123,6 +124,22 @@ impl UnpackFileTask {
             tasks.extend(ret);
         }
         tasks
+    }
+
+    pub fn unpack_cassandra_image(config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+        let deploy_ref = &config.deployment;
+        if let Some(cass) = &deploy_ref.storage_service.cassandra {
+            if let CassKind::Internal(cdp) = &cass.kind {
+                let image = cdp.image_file();
+                let home = extract_unpacked_name(&image);
+                return cass
+                    .host
+                    .iter()
+                    .map(|host| Self::make_task_pair(config, host, &image, &home))
+                    .collect();
+            }
+        }
+        IndexMap::new()
     }
 
     fn make_task_pair(

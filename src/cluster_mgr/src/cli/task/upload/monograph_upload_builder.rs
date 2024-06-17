@@ -8,6 +8,7 @@ use crate::config::config_base::{
     NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::deployment::{Deployment, Product};
+use crate::config::storage_service_config::CassKind;
 use crate::config::{DeploymentPackage, DownloadUrl};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -198,6 +199,28 @@ impl EloqUpload {
             uploads = Self::upload_group_by_dest(uploads);
         }
         uploads
+    }
+
+    pub fn cassandra_image_upload(config: &Deployment) -> Vec<UploadFile> {
+        let install_dir = config.install_dir();
+        if let Some(cass) = &config.storage_service.cassandra {
+            if let CassKind::Internal(cdp) = &cass.kind {
+                let url = DownloadUrl::from_url_str(&cdp.image_url()).unwrap();
+                let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
+                return cass
+                    .host
+                    .iter()
+                    .map(|host| UploadFile {
+                        source: img_src.clone(),
+                        dest: install_dir.clone(),
+                        extension: "gz".to_string(),
+                        host: host.to_string(),
+                        copy_dir: false,
+                    })
+                    .collect_vec();
+            }
+        }
+        vec![]
     }
 
     pub fn build_tasks(

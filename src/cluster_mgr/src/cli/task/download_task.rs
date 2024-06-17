@@ -51,7 +51,7 @@ impl DownloadTask {
 
         if let Some(cassandra) = &config.deployment.storage_service.cassandra {
             if let Some(cassdp) = cassandra.internal() {
-                let cass_download_url_string = &cassdp.download_url();
+                let cass_download_url_string = &cassdp.image_url();
                 let cass_download_url =
                     DownloadUrl::from_url_str(cass_download_url_string.as_str())?;
                 if !cass_download_url.is_local() {

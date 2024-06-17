@@ -102,7 +102,7 @@ impl DeploymentConfig {
                         if let Some(cassandra) = cassandra_opt {
                             if let Some(cassdply) = cassandra.internal() {
                                 let cass_url =
-                                    DownloadUrl::from_url_str(&cassdply.download_url()).unwrap();
+                                    DownloadUrl::from_url_str(&cassdply.image_url()).unwrap();
                                 unpack_files.push(cass_url);
                                 extract_monitor_link!(
                                     monitor_link,

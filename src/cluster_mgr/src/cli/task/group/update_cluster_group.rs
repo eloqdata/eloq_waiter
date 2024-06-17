@@ -17,19 +17,32 @@ impl TaskGroup for UpdateClusterTaskGroup {
         cmd_arg: CommandArgs,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
+        let update_cass = matches!(
+            cmd_arg,
+            CommandArgs::Update {
+                cassandra: Some(_),
+                ..
+            }
+        );
         let deployment_ref = &config.deployment;
         let cluster = deployment_ref.cluster_name.clone();
 
         let download_task = DownloadTask::from_config(&config)?;
         let mut upld_tasks = IndexMap::new();
         upld_tasks.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
-        let unpack_tasks = UnpackFileTask::unpack_eloq_servers_image(&config);
+        if update_cass {
+            upld_tasks.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
+        }
+        let mut unpack_tasks = UnpackFileTask::unpack_eloq_servers_image(&config);
+        if update_cass {
+            unpack_tasks.extend(UnpackFileTask::unpack_cassandra_image(&config));
+        }
 
         // stop tx-service and log-service
         let stop_cmd = CommandArgs::Stop {
             cluster: cluster.clone(),
             force: false,
-            all: false,
+            all: update_cass,
         };
         let mut stop_tasks = MonographTxCtlTask::from_config(stop_cmd.clone(), &config);
         if deployment_ref.log_service.is_some() {
