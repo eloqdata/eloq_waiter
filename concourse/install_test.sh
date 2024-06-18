@@ -25,6 +25,7 @@ bash waiter_src/concourse/install.sh
 # curl --proto '=https' --tlsv1.2 -sSf https://www.eloqdata.com/download/mono-waiter/install.sh | sh
 export PATH="$PATH:$CLUSTER_MGR_HOME"
 cat ${HOME}/.ssh/id_rsa.pub >>${HOME}/.ssh/authorized_keys
+cat ${CLUSTER_MGR_HOME}/version
 
 bash ${CLUSTER_MGR_HOME}/tests/demo.sh
 sleep 15
