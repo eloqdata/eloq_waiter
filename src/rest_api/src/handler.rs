@@ -17,7 +17,7 @@ const SUPPORT_CTL_CMD: &[&str; 7] = &[
     "start_monitor",
     "stop_monitor",
 ];
-const SUPPORT_CTL_STATUS_CMD: &[&str; 10] = &[
+const SUPPORT_CTL_STATUS_CMD: &[&str; 11] = &[
     "start",
     "stop",
     "install",
@@ -28,6 +28,7 @@ const SUPPORT_CTL_STATUS_CMD: &[&str; 10] = &[
     "stop_monitor",
     "start_log",
     "stop_log",
+    "launch",
 ];
 
 #[get("/check_health")]
