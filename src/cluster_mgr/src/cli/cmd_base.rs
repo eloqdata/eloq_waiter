@@ -639,15 +639,14 @@ impl CommandExecutor {
                 return Ok(());
             }
         }
-        let mut file = std::fs::File::create(&cache_path)?;
         // start downloading new package
         let pg_bar = ProgressBar::new(len);
+        let mut file = pg_bar.wrap_write(std::fs::File::create(&cache_path)?);
         let mut stream_reader = resp.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
             let chunk = stream_chunk.map_err(|e| anyhow!("download failed: {e}"))?;
             file.write_all(&chunk)
                 .map_err(|e| anyhow!("can't write file: {e}"))?;
-            pg_bar.inc(chunk.len() as u64);
         }
         println!(
             "Execute the following command to complete the update:\n tar -xzvf {} -C {} --strip-components 1 --overwrite",
