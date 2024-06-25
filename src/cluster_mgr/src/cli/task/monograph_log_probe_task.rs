@@ -1,4 +1,4 @@
-use crate::cli::cmd_base::HTTP_CLIENT;
+use crate::cli::cmd_base::HTTP_INTERNAL;
 use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
@@ -141,7 +141,7 @@ impl MonographLogProbeTask {
                 .flat_map(|(group_id, urls)| {
                     urls.iter()
                         .map(|url| {
-                            let send_fut = HTTP_CLIENT.get(url).send();
+                            let send_fut = HTTP_INTERNAL.get(url).send();
                             async move { (*group_id, send_fut.await) }
                         })
                         .collect_vec()

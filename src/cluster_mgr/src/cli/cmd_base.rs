@@ -31,6 +31,13 @@ pub static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("can't init http client")
 });
 
+pub static HTTP_INTERNAL: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("can't init http client for internal use")
+});
+
 pub struct CommandExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
