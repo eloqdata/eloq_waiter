@@ -19,7 +19,6 @@ use configparser::ini::Ini;
 use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -27,7 +26,6 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::LazyLock;
 use strum_macros::Display;
 use tracing::warn;
 
@@ -54,8 +52,8 @@ const GC_SETTING_G1: &str = "
 ";
 const GB: u32 = 1024; // *MiB
 
-pub(crate) static VERSION_PATT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap());
+// pub(crate) static VERSION_PATT: LazyLock<Regex> =
+//     LazyLock::new(|| Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap());
 
 #[macro_export]
 macro_rules! download_urls {
@@ -996,7 +994,7 @@ impl Deployment {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
                 if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("0.4.2") {
+                    if nums <= version_digits("0.4.2").unwrap() {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
                 }
@@ -1005,7 +1003,7 @@ impl Deployment {
             Product::EloqKV => {
                 let mut logout = "/dev/null".to_owned();
                 if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("1.0.8") {
+                    if nums <= version_digits("1.0.8").unwrap() {
                         logout = format!("{tx_dir}/logs/eloqkv.log")
                     }
                 }
@@ -1017,12 +1015,15 @@ impl Deployment {
     }
 }
 
-pub fn version_digits(s: &str) -> [u32; 3] {
-    s.split('.')
-        .map(|e| e.parse::<u32>().unwrap())
-        .collect_vec()
+pub fn version_digits(s: &str) -> Result<[u32; 3]> {
+    let mut version = vec![];
+    for e in s.split('.') {
+        let v = e.parse::<u32>()?;
+        version.push(v);
+    }
+    version
         .try_into()
-        .unwrap()
+        .map_err(|digits| anyhow!("too many version digits {:?}", digits))
 }
 
 pub fn parse_version(v: &str) -> Version {
@@ -1030,8 +1031,8 @@ pub fn parse_version(v: &str) -> Version {
         "nightly" => Version::Nightly,
         "debug" => Version::Debug,
         _ => {
-            if VERSION_PATT.is_match(v) {
-                Version::Tag(version_digits(v))
+            if let Ok(digits) = version_digits(v) {
+                Version::Tag(digits)
             } else {
                 Version::Devel(v.to_owned())
             }
@@ -1041,6 +1042,7 @@ pub fn parse_version(v: &str) -> Version {
 
 #[cfg(test)]
 mod tests {
+    use super::{parse_version, Version};
     use indexmap::IndexMap;
     use itertools::Itertools;
 
@@ -1059,5 +1061,25 @@ mod tests {
         let node_group = Vec::from_iter(ordered_map.values()).into_iter().join(",");
 
         println!("{node_group:#?}");
+    }
+
+    #[test]
+    pub fn test_parse_version() {
+        let mut _v = parse_version("0.1.0");
+        assert!(matches!(Version::Tag([0, 1, 0]), _v));
+        _v = parse_version("1.999.2024");
+        assert!(matches!(Version::Tag([1, 999, 2024]), _v));
+        _v = parse_version("nightly");
+        assert!(matches!(Version::Nightly, _v));
+        _v = parse_version("debug");
+        assert!(matches!(Version::Debug, _v));
+        _v = parse_version("dev1");
+        assert!(matches!(Version::Devel("dev1".to_owned()), _v));
+        _v = parse_version("dev-b");
+        assert!(matches!(Version::Devel("dev-b".to_owned()), _v));
+        _v = parse_version("0.4.4.4");
+        assert!(matches!(Version::Devel("0.4.4.4".to_owned()), _v));
+        _v = parse_version("0.4.1-beta");
+        assert!(matches!(Version::Devel("0.4.1-beta".to_owned()), _v));
     }
 }
