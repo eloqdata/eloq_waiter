@@ -58,34 +58,21 @@ dependencies = ["devtools_build"]
 [tasks.rest_api_pkg]
 script = '''
 #!/bin/bash
-WORKING_DIR=${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}
-PROJECT_DIR=${CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY}
-TARGET="$WORKING_DIR"/target/release/rest_api
-CLUSTER_MGR_RELEASE="$WORKING_DIR"/target/release/cluster_mgr
-function build_rest_pkg() {
-   mkdir -p EloqWaiterRest
-   bash version.sh EloqWaiterRest
-   cp -r ${PROJECT_DIR}/src/cluster_mgr/config EloqWaiterRest/
-   cp "$TARGET" EloqWaiterRest/
-   cp "$CLUSTER_MGR_RELEASE" EloqWaiterRest/
-}
-build_rest_pkg
+WORKSPACE_DIR=${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}
+cp ${WORKSPACE_DIR}/target/release/rest_api EloqWaiter/
 '''
-dependencies = ["cluster_mgr_build", "rest_api_build"]
+dependencies = ["cluster_mgr_build", "rest_api_build", "cluster_mgr_pkg"]
 
 [tasks.cluster_mgr_pkg]
 script = '''
 #!/bin/bash
 WORKSPACE_DIR="${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 CLUSTER_MGR_RELEASE=${WORKSPACE_DIR}/target/release/cluster_mgr
-function build_cluster_mgr() {
-  echo "cluster_mgr_pkg.workspace = ${WORKSPACE_DIR}"
-  mkdir -p EloqWaiter
-  bash version.sh EloqWaiter
-  cp -r ${WORKSPACE_DIR}/src/cluster_mgr/config EloqWaiter/
-  cp -r ${WORKSPACE_DIR}/tests EloqWaiter/
-  cp "$CLUSTER_MGR_RELEASE" EloqWaiter/
-}
-build_cluster_mgr
+echo "cluster_mgr_pkg.workspace = ${WORKSPACE_DIR}"
+mkdir -p EloqWaiter
+bash version.sh > EloqWaiter/version
+cp -r ${WORKSPACE_DIR}/src/cluster_mgr/config EloqWaiter/
+cp -r ${WORKSPACE_DIR}/tests EloqWaiter/
+cp "$CLUSTER_MGR_RELEASE" EloqWaiter/
 '''
 dependencies = ["cluster_mgr_build"]

@@ -11,7 +11,7 @@ jobs:
             - get: image_ubuntu2004
       - task: install-test
         image: image_ubuntu2004
-        file: waiter_src/concourse/install_test.yml
+        file: waiter_src/concourse/task_test.yaml
 
   - name: test-ubuntu1804
     serial: true
@@ -25,7 +25,7 @@ jobs:
             - get: image_ubuntu1804
       - task: install-test
         image: image_ubuntu1804
-        file: waiter_src/concourse/install_test.yml
+        file: waiter_src/concourse/task_test.yaml
 
   - name: test-centos8
     serial: true
@@ -39,7 +39,7 @@ jobs:
             - get: image_centos8
       - task: install-test
         image: image_centos8
-        file: waiter_src/concourse/install_test.yml
+        file: waiter_src/concourse/task_test.yaml
 
   - name: test-centos7
     serial: true
@@ -53,7 +53,7 @@ jobs:
             - get: image_centos7
       - task: install-test
         image: image_centos7
-        file: waiter_src/concourse/install_test.yml
+        file: waiter_src/concourse/task_test.yaml
 
 resources:
   - name: waiter_src
@@ -102,4 +102,4 @@ resources:
       start: 4:00 AM
       stop: 4:00 AM
       location: Asia/Shanghai
-      days: [Monday, Wednesday, Friday]
+      days: [Monday, Tuesday, Wednesday, Thursday, Friday]

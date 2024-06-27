@@ -1,4 +1,4 @@
-FROM tgagor/centos:stream8
+FROM centos:8
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
