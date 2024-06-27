@@ -3,7 +3,7 @@ set -exo pipefail
 
 # prepare environment
 source /etc/os-release
-if [ "$ID" == "centos" ]; then
+if [ "$ID" == "centos" ] || [ "$ID" == "rocky" ]; then
   if [ "$VERSION_ID" == "7" ]; then
     sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y sudo openssh-server iproute redis-tools
   else
