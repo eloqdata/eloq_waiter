@@ -1,7 +1,7 @@
 #!/bin/sh
 
 source /etc/os-release
-repo='https://d143xau9fe26d8.cloudfront.net'
+repo='https://download.eloqdata.com'
 if [ -n "$MONO_MIRRORS" ]; then
     repo=$MONO_MIRRORS
 fi
