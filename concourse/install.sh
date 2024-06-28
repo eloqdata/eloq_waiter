@@ -1,19 +1,9 @@
 #!/bin/sh
 
+source /etc/os-release
 repo='https://d143xau9fe26d8.cloudfront.net'
 if [ -n "$MONO_MIRRORS" ]; then
     repo=$MONO_MIRRORS
-fi
-
-case $(uname -s) in
-Linux | linux) os=linux ;;
-Darwin | darwin) os=darwin ;;
-*) os= ;;
-esac
-
-if [ -z "$os" ]; then
-    echo "OS $(uname -s) not supported." >&2
-    exit 1
 fi
 
 case $(uname -m) in
@@ -27,8 +17,8 @@ if [ -z "$arch" ]; then
     exit 1
 fi
 
-LINUX_ID=$(cat /etc/os-release | awk -F'=' '{ if ($1 == "ID") {print $2} }' | tr -d '"')
-VERSION_ID=$(cat /etc/os-release | awk -F'=' '{ if ($1 == "VERSION_ID") {print $2} }' | tr -d '".')
+OS_ID="${ID}${VERSION_ID%.*}"
+echo $OS_ID
 
 if [ -z "$CLUSTER_MGR_HOME" ]; then
     CLUSTER_MGR_HOME=${HOME}/.eloqwaiter
@@ -37,7 +27,7 @@ bin_dir=$CLUSTER_MGR_HOME
 mkdir -p "$bin_dir"
 
 install_binary() {
-    curl "$repo/waiter/waiter-${LINUX_ID}${VERSION_ID}-${arch}.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/eloqwaiter.tar.gz" || return 1
+    curl "$repo/waiter/waiter-${OS_ID}-${arch}.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/eloqwaiter.tar.gz" || return 1
     tar -zxf "/tmp/eloqwaiter.tar.gz" -C "$CLUSTER_MGR_HOME" --strip-components 1 --overwrite || return 1
     rm "/tmp/eloqwaiter.tar.gz"
     return 0

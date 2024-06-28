@@ -142,6 +142,14 @@ impl CommandExecutor {
         format!("{}{}", self.os_id, self.os_version)
     }
 
+    pub fn os_short(&self) -> String {
+        let short = match self.os_version.find('.') {
+            Some(i) => &self.os_version[..i],
+            None => &self.os_version,
+        };
+        format!("{}{}", self.os_id, short)
+    }
+
     fn dir_home(&self) -> &str {
         self.home.to_str().expect("invalid home directory")
     }
@@ -635,7 +643,7 @@ impl CommandExecutor {
     }
 
     async fn update(&self) -> Result<()> {
-        let os = self.os_pretty();
+        let os = self.os_short();
         let arch = &self.cpu_arch;
         let filename = format!("waiter-{os}-{arch}.tar.gz");
         let url = format!("{CDN}/waiter/{filename}");

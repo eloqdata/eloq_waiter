@@ -43,7 +43,7 @@ jobs:
         params:
           file: the-output/waiter.tar.gz
 
-  - name: ubuntu1804
+  - name: ubuntu18
     serial: true
     plan:
       - in_parallel:
@@ -54,10 +54,10 @@ jobs:
       - task: build_waiter
         file: monograph_waiter/concourse/task_build.yaml
         image: image_ubuntu1804
-      - put: out_s3_ubuntu1804
+      - put: out_s3_ubuntu18
         params:
           file: the-output/waiter.tar.gz
-  - name: ubuntu2004
+  - name: ubuntu20
     serial: true
     plan:
       - in_parallel:
@@ -69,10 +69,10 @@ jobs:
       - task: build_waiter
         file: monograph_waiter/concourse/task_build.yaml
         image: image_ubuntu2004
-      - put: out_s3_ubuntu2004
+      - put: out_s3_ubuntu20
         params:
           file: the-output/waiter.tar.gz
-  - name: ubuntu2204
+  - name: ubuntu22
     serial: true
     plan:
       - in_parallel:
@@ -83,10 +83,10 @@ jobs:
       - task: build_waiter
         file: monograph_waiter/concourse/task_build.yaml
         image: image_ubuntu2204
-      - put: out_s3_ubuntu2204
+      - put: out_s3_ubuntu22
         params:
           file: the-output/waiter.tar.gz
-  - name: ubuntu2404
+  - name: ubuntu24
     serial: true
     plan:
       - in_parallel:
@@ -97,7 +97,7 @@ jobs:
       - task: build_waiter
         file: monograph_waiter/concourse/task_build.yaml
         image: image_ubuntu2404
-      - put: out_s3_ubuntu2404
+      - put: out_s3_ubuntu24
         params:
           file: the-output/waiter.tar.gz
 
@@ -163,35 +163,35 @@ resources:
       bucket: eloq-release
       region_name: ap-northeast-1
       versioned_file: waiter/waiter-rocky9-amd64.tar.gz
-  - name: out_s3_ubuntu1804
+  - name: out_s3_ubuntu18
     type: s3
     source:
       access_key_id: ((aws-access))
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu1804-amd64.tar.gz
-  - name: out_s3_ubuntu2004
+      versioned_file: waiter/waiter-ubuntu18-amd64.tar.gz
+  - name: out_s3_ubuntu20
     type: s3
     source:
       access_key_id: ((aws-access))
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu2004-amd64.tar.gz
-  - name: out_s3_ubuntu2204
+      versioned_file: waiter/waiter-ubuntu20-amd64.tar.gz
+  - name: out_s3_ubuntu22
     type: s3
     source:
       access_key_id: ((aws-access))
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu2204-amd64.tar.gz
-  - name: out_s3_ubuntu2404
+      versioned_file: waiter/waiter-ubuntu22-amd64.tar.gz
+  - name: out_s3_ubuntu24
     type: s3
     source:
       access_key_id: ((aws-access))
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu2404-amd64.tar.gz
+      versioned_file: waiter/waiter-ubuntu24-amd64.tar.gz
