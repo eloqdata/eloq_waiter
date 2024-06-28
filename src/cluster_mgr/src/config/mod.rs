@@ -50,8 +50,8 @@ pub const GRAFANA_CONFIG_FILE: &str = "defaults.ini";
 pub const CREATE_MONITOR_USER_SQL_FILE: &str = "create_monitor_user.sql";
 pub const MYSQL_EXPORTER_CLIENT_CONFIG: &str = "mysql_exporter.cnf";
 
-pub const CLOUDFRONT: &str = "d143xau9fe26d8.cloudfront.net";
-pub const CDN: &str = "https://d143xau9fe26d8.cloudfront.net";
+pub const CLOUDFRONT: &str = "download.eloqdata.com";
+pub const CDN: &str = "https://download.eloqdata.com";
 
 #[macro_export]
 macro_rules! gen_db_script {

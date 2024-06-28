@@ -15,7 +15,5 @@ if [ $? -eq 0 ]; then
     version="${version} @${describe}"
 fi
 
-cat << EOF > $1/version
-version = $version
-compile = $compile
-EOF
+echo "version = ${version}"
+echo "compile = ${compile}"

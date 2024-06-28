@@ -3,11 +3,13 @@ set -exo pipefail
 
 # prepare environment
 source /etc/os-release
-if [ "$ID" == "centos" ]; then
+if [ "$ID" == "centos" ] || [ "$ID" == "rocky" ]; then
   if [ "$VERSION_ID" == "7" ]; then
-    sudo yum install -y epel-release && sudo yum update -y && sudo yum install -y sudo openssh-server iproute redis-tools
+    sudo yum install -y epel-release && sudo yum update -y
+    sudo yum install -y sudo openssh-server iproute redis-tools
   else
-    sudo dnf install -y epel-release && sudo dnf update -y && sudo dnf install -y sudo openssh-server iproute redis
+    # sudo dnf install -y epel-release && sudo dnf update -y
+    sudo dnf install -y sudo openssh-server iproute redis
   fi
   sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''
   sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_dsa_key -N ''

@@ -1,0 +1,197 @@
+jobs:
+  - name: centos7
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+              trigger: true
+            - get: image_centos7
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_centos7
+      - put: out_s3_centos7
+        params:
+          file: the-output/waiter.tar.gz
+  - name: centos8
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+            - get: image_centos8
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_centos8
+      - put: out_s3_centos8
+        params:
+          file: the-output/waiter.tar.gz
+  - name: rocky9
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+            - get: image_rocky9
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_rocky9
+      - put: out_s3_rocky9
+        params:
+          file: the-output/waiter.tar.gz
+
+  - name: ubuntu18
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+            - get: image_ubuntu1804
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_ubuntu1804
+      - put: out_s3_ubuntu18
+        params:
+          file: the-output/waiter.tar.gz
+  - name: ubuntu20
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+              trigger: true
+            - get: image_ubuntu2004
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_ubuntu2004
+      - put: out_s3_ubuntu20
+        params:
+          file: the-output/waiter.tar.gz
+  - name: ubuntu22
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+            - get: image_ubuntu2204
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_ubuntu2204
+      - put: out_s3_ubuntu22
+        params:
+          file: the-output/waiter.tar.gz
+  - name: ubuntu24
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: monograph_waiter
+            - get: image_ubuntu2404
+      - task: build_waiter
+        file: monograph_waiter/concourse/task_build.yaml
+        image: image_ubuntu2404
+      - put: out_s3_ubuntu24
+        params:
+          file: the-output/waiter.tar.gz
+
+resources:
+  - name: monograph_waiter
+    icon: github
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:monographdb/monograph_waiter.git
+    type: git
+
+  - name: image_centos7
+    source:
+      repository: monographdb/rust-centos7
+    type: registry-image
+  - name: image_centos8
+    source:
+      repository: monographdb/rust-centos8
+    type: registry-image
+  - name: image_rocky9
+    source:
+      repository: monographdb/rust-rocky9
+    type: registry-image
+  - name: image_ubuntu1804
+    source:
+      repository: monographdb/rust-ubuntu1804
+    type: registry-image
+  - name: image_ubuntu2004
+    source:
+      repository: monographdb/rust-ubuntu2004
+    type: registry-image
+  - name: image_ubuntu2204
+    source:
+      repository: monographdb/rust-ubuntu2204
+    type: registry-image
+  - name: image_ubuntu2404
+    source:
+      repository: monographdb/rust-ubuntu2404
+    type: registry-image
+
+  - name: out_s3_centos7
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-centos7-amd64.tar.gz
+  - name: out_s3_centos8
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-centos8-amd64.tar.gz
+  - name: out_s3_rocky9
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-rocky9-amd64.tar.gz
+  - name: out_s3_ubuntu18
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-ubuntu18-amd64.tar.gz
+  - name: out_s3_ubuntu20
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-ubuntu20-amd64.tar.gz
+  - name: out_s3_ubuntu22
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-ubuntu22-amd64.tar.gz
+  - name: out_s3_ubuntu24
+    type: s3
+    source:
+      access_key_id: ((aws-access))
+      secret_access_key: ((aws-secret))
+      bucket: eloq-release
+      region_name: ap-northeast-1
+      versioned_file: waiter/waiter-ubuntu24-amd64.tar.gz

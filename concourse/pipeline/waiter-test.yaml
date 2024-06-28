@@ -1,0 +1,153 @@
+jobs:
+  - name: centos7
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_centos7
+      - task: install-test
+        image: image_centos7
+        file: waiter_src/concourse/task_test.yaml
+  - name: centos8
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_centos8
+      - task: install-test
+        image: image_centos8
+        file: waiter_src/concourse/task_test.yaml
+  - name: rocky9
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_rocky9
+      - task: install-test
+        image: image_rocky9
+        file: waiter_src/concourse/task_test.yaml
+
+  - name: ubuntu18
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_ubuntu1804
+      - task: install-test
+        image: image_ubuntu1804
+        file: waiter_src/concourse/task_test.yaml
+  - name: ubuntu20
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_ubuntu2004
+      - task: install-test
+        image: image_ubuntu2004
+        file: waiter_src/concourse/task_test.yaml
+  - name: ubuntu22
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_ubuntu2204
+      - task: install-test
+        image: image_ubuntu2204
+        file: waiter_src/concourse/task_test.yaml
+  - name: ubuntu24
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: alarm-clock
+              trigger: true
+            - get: waiter_src
+            - get: image_ubuntu2404
+      - task: install-test
+        image: image_ubuntu2404
+        file: waiter_src/concourse/task_test.yaml
+
+resources:
+  - name: waiter_src
+    type: git
+    icon: github
+    source:
+      branch: main
+      uri: git@github.com:monographdb/monograph_waiter.git
+      private_key: ((git-key))
+
+  - name: image_centos7
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-centos7
+  - name: image_centos8
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-centos8
+  - name: image_rocky9
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-rocky9
+  - name: image_ubuntu1804
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-ubuntu1804
+  - name: image_ubuntu2004
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-ubuntu2004
+  - name: image_ubuntu2204
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-ubuntu2204
+  - name: image_ubuntu2404
+    type: registry-image
+    source:
+      username: monographdb
+      password: 
+      repository: monographdb/monograph-dev-ci-ubuntu2404
+
+  - name: alarm-clock
+    type: time
+    source:
+      start: 4:00 AM
+      stop: 4:00 AM
+      location: Asia/Shanghai
+      days: [Monday, Tuesday, Wednesday, Thursday, Friday]
