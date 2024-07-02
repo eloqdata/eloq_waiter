@@ -17,21 +17,20 @@ eval "${CLIENT} --execute 'SHOW DATABASES'"
 cluster_mgr stop demo-sql-cassandra --all
 cluster_mgr remove demo-sql-cassandra
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-sql --skip-deps --no-monitor
 cluster_mgr status demo-sql-cassandra --wait 5
 cluster_mgr remove demo-sql-cassandra
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-sql --skip-deps --union-wal
 cluster_mgr status demo-sql-cassandra --wait 5
 cluster_mgr remove demo-sql-cassandra
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-sql --skip-deps --union-wal --no-monitor
 cluster_mgr status demo-sql-cassandra --wait 5
 cluster_mgr remove demo-sql-cassandra
-
 
 # test eloq-kv
 sleep 15
@@ -55,17 +54,17 @@ cluster_mgr list
 cluster_mgr stop demo-kv-rocksdb --all
 cluster_mgr remove demo-kv-rocksdb
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-kv --skip-deps --no-monitor
 cluster_mgr status demo-kv-cassandra --wait 5
 cluster_mgr remove demo-kv-cassandra
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-kv --skip-deps --union-wal
 cluster_mgr status demo-kv-cassandra --wait 5
 cluster_mgr remove demo-kv-cassandra
 
-sleep 10
+sleep 15
 cluster_mgr demo eloq-kv --skip-deps --union-wal --no-monitor
 cluster_mgr status demo-kv-cassandra --wait 5
 cluster_mgr remove demo-kv-cassandra

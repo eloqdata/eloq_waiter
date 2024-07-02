@@ -7,9 +7,9 @@ source /etc/os-release
 KEYSPACE_NAME="waiter_${ID}${VERSION_ID%.*}"
 cqlsh ${CASSANDRA_HOST} -e "DROP KEYSPACE IF EXISTS ${KEYSPACE_NAME}"
 
-sed -i "s|monograph_keyspace_name=eloqsql|monograph_keyspace_name=${KEYSPACE_NAME}|" ${CLUSTER_MGR_HOME}/config/eloqsql.ini
-sed -i "s|#cass_keyspace=eloqkv|cass_keyspace=${KEYSPACE_NAME}|" ${CLUSTER_MGR_HOME}/config/eloqkv.ini
-sed -i "s|enable_data_store=none|enable_data_store=all|" ${CLUSTER_MGR_HOME}/config/eloqkv.ini
+sed -i "s|monograph_keyspace_name=eloqsql|monograph_keyspace_name=${KEYSPACE_NAME}|" ${CLUSTER_MGR_HOME}/config/EloqSql.ini
+sed -i "s|#cass_keyspace=eloqkv|cass_keyspace=${KEYSPACE_NAME}|" ${CLUSTER_MGR_HOME}/config/EloqKv.ini
+sed -i "s|enable_data_store=none|enable_data_store=all|" ${CLUSTER_MGR_HOME}/config/EloqKv.ini
 
 cluster_mgr demo eloq-sql --skip-deps --unlimited --ext-cass ${CASSANDRA_HOST}
 CLIENT=$(cluster_mgr -q connect demo-sql-cassandra)

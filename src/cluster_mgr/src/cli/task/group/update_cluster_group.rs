@@ -29,16 +29,16 @@ impl TaskGroup for UpdateClusterTaskGroup {
         let download_task = DownloadTask::from_config(&config)?;
         let mut upload_img = IndexMap::new();
         let mut unpack_tasks = IndexMap::new();
-        let mut upload_cnf = IndexMap::new();
+        // let mut upload_cnf = IndexMap::new();
         if update_eloq {
             upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
             unpack_tasks.extend(UnpackFileTask::unpack_eloq_servers_image(&config));
-            upload_cnf.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));
+            // upload_cnf.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));
         }
         if update_cass {
             upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
             unpack_tasks.extend(UnpackFileTask::unpack_cassandra_image(&config));
-            upload_cnf.extend(upload_tasks(UploadTaskBuilderType::CassConf, &config));
+            // upload_cnf.extend(upload_tasks(UploadTaskBuilderType::CassConf, &config));
         }
 
         // stop tx-service and log-service
@@ -66,7 +66,6 @@ impl TaskGroup for UpdateClusterTaskGroup {
             upload_img.len(),
             stop_tasks.len(),
             unpack_tasks.len(),
-            upload_cnf.len(),
             start_tasks.len(),
         ];
         let mut executable = IndexMap::new();
@@ -74,7 +73,6 @@ impl TaskGroup for UpdateClusterTaskGroup {
         executable.extend(upload_img);
         executable.extend(stop_tasks);
         executable.extend(unpack_tasks);
-        executable.extend(upload_cnf);
         executable.extend(start_tasks);
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),

@@ -10,7 +10,7 @@ use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
     config_template, load_yaml_config_template, DeploymentPackage, DownloadUrl, StorageProvider,
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CDN,
-    CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_TEMP, ELOQSQL_DYNAMO_TEMP, ELOQSQL_TEMP,
+    CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_INI, ELOQSQL_DYNAMO_INI, ELOQSQL_INI,
     JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC,
     SECTION_STORE, SET_FOR_ME,
 };
@@ -162,7 +162,7 @@ pub struct Codis {
 
 impl Codis {
     pub fn download_url() -> String {
-        format!("{CDN}/codis/codis.tar.gz")
+        format!("{CDN}/codis/codis-linux-amd64.tar.gz")
     }
     pub fn dir(install_dir: &str) -> String {
         format!("{install_dir}/codis")
@@ -264,7 +264,11 @@ impl Deployment {
     }
 
     pub fn tx_srv_ini(&self) -> String {
-        format!("{}/{}.ini", &self.tx_srv_home(), self.product().name())
+        let home = self.tx_srv_home();
+        match self.product() {
+            Product::EloqSQL => format!("{home}/{ELOQSQL_INI}"),
+            Product::EloqKV => format!("{home}/{ELOQKV_INI}"),
+        }
     }
 
     pub fn tx_srv_logs(&self) -> String {
@@ -360,7 +364,7 @@ impl Deployment {
         let mut my_ini = Ini::new();
         if let Some(cass) = self.storage_service.cassandra.as_ref() {
             my_ini
-                .load(config_template(ELOQSQL_TEMP)?.as_path())
+                .load(config_template(ELOQSQL_INI)?.as_path())
                 .unwrap();
             let hosts = cass.host.join(",");
             my_ini.set(SECTION_MARIADB, "monograph_cass_hosts", Some(hosts));
@@ -380,7 +384,7 @@ impl Deployment {
             }
         } else {
             my_ini
-                .load(config_template(ELOQSQL_DYNAMO_TEMP)?.as_path())
+                .load(config_template(ELOQSQL_DYNAMO_INI)?.as_path())
                 .unwrap();
 
             let dynamodb = self.storage_service.dynamodb.as_ref().unwrap();
@@ -472,7 +476,7 @@ impl Deployment {
         let is_host = tx_host.is_some();
         let mut my_ini = self.build_eloqsql_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
-            (host.clone(), upload_host_dir(&host).join("eloqsql.ini"))
+            (host.clone(), upload_host_dir(&host).join(ELOQSQL_INI))
         } else {
             my_ini.set(
                 SECTION_MARIADB,
@@ -549,7 +553,7 @@ impl Deployment {
 
     pub fn build_eloqkv_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut ini = Ini::new();
-        ini.load(config_template(ELOQKV_TEMP)?).unwrap();
+        ini.load(config_template(ELOQKV_INI)?).unwrap();
         match self.storage_service.provider().unwrap() {
             StorageProvider::Cassandra => {
                 let cass = self.storage_service.cassandra.as_ref().unwrap();
@@ -660,7 +664,7 @@ impl Deployment {
         let is_host = tx_host.is_some();
         let mut ini = self.build_eloqkv_config(is_host)?;
         let (host, cnf_path) = if let Some(host) = tx_host {
-            (host.clone(), upload_host_dir(&host).join("eloqkv.ini"))
+            (host.clone(), upload_host_dir(&host).join(ELOQKV_INI))
         } else {
             ini.set(SECTION_LOCAL, "ip", Some("127.0.0.1".to_owned()));
             ini.set(SECTION_LOCAL, "port", Some(self.client_port().to_string()));
