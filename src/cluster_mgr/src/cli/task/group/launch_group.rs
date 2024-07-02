@@ -6,7 +6,6 @@ use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
 use crate::cli::CommandArgs;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::CONFIG_PATH_DIR;
-use indexmap::IndexMap;
 use std::env;
 
 #[async_trait::async_trait]
@@ -32,11 +31,7 @@ impl TaskGroup for LaunchTaskGroup {
             }
         };
         let dep_tasks = if skip_deps {
-            TaskExecutionContext {
-                task_group: "dummy".to_owned(),
-                barrier: None,
-                executable: IndexMap::new(),
-            }
+            TaskExecutionContext::dummy()
         } else {
             let cmd = CommandArgs::RunDeps {
                 topology_file: topo_file.clone(),
