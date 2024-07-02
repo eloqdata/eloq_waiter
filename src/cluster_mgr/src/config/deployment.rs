@@ -888,16 +888,15 @@ impl Deployment {
         cluster_name: String,
     ) -> anyhow::Result<HashMap<String, Vec<PathBuf>>> {
         if self.storage_service.cassandra.is_none() {
-            return Err(anyhow!(GenCassandraConfigErr("Dynamodb".to_string())));
+            return Err(anyhow!(GenCassandraConfigErr("NotCassandra".to_string())));
         }
-        let has_cassandra_monitor = self
-            .storage_service
-            .gen_cassandra_env(install_dir, self.monitor.as_ref())?;
-        let cass_env_sh = if has_cassandra_monitor {
-            Some(upload_dir().join("cassandra-env.sh"))
-        } else {
-            None
-        };
+        let mut configs = vec![];
+        if let Some(monitor) = &self.monitor {
+            if monitor.cassandra_collector.is_some() {
+                let p = self.storage_service.gen_cassandra_env(install_dir)?;
+                configs.push(p);
+            }
+        }
         let jvm_temp = fs::read_to_string(config_template(CASSANDRA_JVM_TEMPLATE)?)?;
         let tune_jvm = jvm_temp.contains(JVM_SETTING_HOLDER);
         let cass = self.storage_service.cassandra.as_ref().unwrap();
@@ -936,10 +935,8 @@ impl Deployment {
                 let new_config_file = File::create(config_path.as_path()).unwrap();
                 let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
                 assert!(gen_config_write.is_ok());
-                let mut config_path_vec = vec![config_path];
-                if let Some(env_sh) = &cass_env_sh {
-                    config_path_vec.push(env_sh.clone());
-                }
+                let mut host_configs = configs.clone();
+                host_configs.push(config_path);
 
                 // Tune JVM for each cassandra node
                 // https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/operations/opsTuneJVM.html
@@ -970,8 +967,8 @@ impl Deployment {
                     .unwrap()
                     .write_all(jvm_opt.as_bytes())
                     .unwrap();
-                config_path_vec.push(opt_path);
-                (host.to_string(), config_path_vec)
+                host_configs.push(opt_path);
+                (host.to_string(), host_configs)
             })
             .collect::<HashMap<String, Vec<PathBuf>>>();
 

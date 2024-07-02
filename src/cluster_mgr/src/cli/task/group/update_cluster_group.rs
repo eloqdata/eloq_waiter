@@ -32,12 +32,12 @@ impl TaskGroup for UpdateClusterTaskGroup {
         // let mut upload_cnf = IndexMap::new();
         if update_eloq {
             upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
-            unpack_tasks.extend(UnpackFileTask::unpack_eloq_servers_image(&config));
+            unpack_tasks.extend(UnpackFileTask::unpack_eloqservers(&config));
             // upload_cnf.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));
         }
         if update_cass {
             upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
-            unpack_tasks.extend(UnpackFileTask::unpack_cassandra_image(&config));
+            unpack_tasks.extend(UnpackFileTask::unpack_cassandra(&config, true));
             // upload_cnf.extend(upload_tasks(UploadTaskBuilderType::CassConf, &config));
         }
 
