@@ -92,7 +92,7 @@ impl CommandExecutor {
         }
         .to_owned();
         let os_id = sysinfo::System::distribution_id();
-        let os_version = sysinfo::System::os_version().unwrap().replace('.', "");
+        let os_version = sysinfo::System::os_version().unwrap();
         Self {
             task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
@@ -139,7 +139,7 @@ impl CommandExecutor {
     }
 
     pub fn os_pretty(&self) -> String {
-        format!("{}{}", self.os_id, self.os_version)
+        format!("{}{}", self.os_id, self.os_version.replace('.', ""))
     }
 
     pub fn os_short(&self) -> String {
