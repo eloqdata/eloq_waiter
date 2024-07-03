@@ -53,6 +53,7 @@ impl CliMgrHttpServer {
     ) -> anyhow::Result<Server> {
         let listen_addr = server_listen_addr!(addr, "127.0.0.1".to_string());
         let listen_port = server_listen_addr!(port, 8090);
+        let home = CommandExecutor::home_init(home).expect("home dir init failed");
         let handler = GlobalCommandHandler::new(CommandExecutor::new(home)).await;
         let global_handler = web::Data::new(handler);
         let server = HttpServer::new(move || {

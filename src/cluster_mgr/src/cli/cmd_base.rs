@@ -1,5 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::{download_dir, upload_dir, CommandArgs, HOME_DIR};
+use crate::cli::{upload_dir, CommandArgs, HOME_DIR};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::{
@@ -14,6 +14,7 @@ use anyhow::{anyhow, bail, Result};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 use std::collections::HashSet;
 use std::env;
 use std::io::Write;
@@ -41,49 +42,15 @@ pub static HTTP_INTERNAL: LazyLock<reqwest::Client> = LazyLock::new(|| {
 pub struct CommandExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
-    cpu_arch: String,
-    os_id: String,
-    os_version: String,
-    home: PathBuf,
     pg_client: OnceLock<tokio_postgres::Client>,
-}
-
-impl Default for CommandExecutor {
-    fn default() -> Self {
-        Self::new(None)
-    }
+    pub cpu_arch: String,
+    pub os_id: String,
+    pub os_version: String,
+    pub home: PathBuf,
 }
 
 impl CommandExecutor {
-    pub fn new(home: Option<PathBuf>) -> Self {
-        info!("CommandExecutor init.");
-        let home = match home {
-            Some(home) => {
-                env::set_var(HOME_DIR, &home);
-                home
-            }
-            None => match env::var(HOME_DIR) {
-                Ok(v) => PathBuf::from(v),
-                Err(_) => {
-                    let home = env::current_dir().expect("can't know current directory");
-                    env::set_var(HOME_DIR, &home);
-                    home
-                }
-            },
-        };
-        // check config directory
-        let cnf_dir = home.join("config");
-        if !cnf_dir.exists() {
-            panic!("config path not exist: {} ", cnf_dir.display());
-        }
-        env::set_var(CONFIG_PATH_DIR, cnf_dir);
-        if !download_dir().exists() {
-            std::fs::create_dir(download_dir()).expect("can't init download directory");
-        }
-        if !upload_dir().exists() {
-            std::fs::create_dir(upload_dir()).expect("can't init upload directory");
-        }
-
+    pub fn new(home: PathBuf) -> Self {
         let mut cpu_arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
         cpu_arch = match cpu_arch.as_str() {
             "aarch64" | "arm64" => "arm64",
@@ -96,12 +63,44 @@ impl CommandExecutor {
         Self {
             task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
+            pg_client: OnceLock::new(),
             cpu_arch,
             os_id,
             os_version,
             home,
-            pg_client: OnceLock::new(),
         }
+    }
+
+    pub fn home_init(home: Option<PathBuf>) -> Result<PathBuf> {
+        let home = match home {
+            Some(home) => {
+                env::set_var(HOME_DIR, &home);
+                home
+            }
+            None => match env::var(HOME_DIR) {
+                Ok(v) => PathBuf::from(v),
+                Err(_) => {
+                    let home = env::current_dir()?;
+                    env::set_var(HOME_DIR, &home);
+                    home
+                }
+            },
+        };
+        // check config directory
+        let cnf_dir = home.join("config");
+        if !cnf_dir.exists() {
+            bail!("config path not exist: {} ", cnf_dir.display());
+        }
+        env::set_var(CONFIG_PATH_DIR, cnf_dir);
+        let down_dir = home.join("download");
+        if !down_dir.exists() {
+            std::fs::create_dir(down_dir)?;
+        }
+        let up_dir = home.join("upload");
+        if !up_dir.exists() {
+            std::fs::create_dir(up_dir)?;
+        }
+        Ok(home)
     }
 
     async fn pg_client(&self) -> Result<&tokio_postgres::Client> {
@@ -646,10 +645,10 @@ impl CommandExecutor {
         let len = resp
             .content_length()
             .ok_or_else(|| anyhow!("can't know package size"))?;
-        let mut cache_path = self.dir_download();
-        cache_path.push(filename);
-        if cache_path.exists() {
-            let local_len = std::fs::metadata(&cache_path)?.len();
+        let mut cached = self.dir_download();
+        cached.push(filename);
+        if cached.exists() {
+            let local_len = std::fs::metadata(&cached)?.len();
             info!("latest package length {len}, local package length {local_len}");
             if len == local_len {
                 println!("cluster_mgr is already latest");
@@ -658,16 +657,21 @@ impl CommandExecutor {
         }
         // start downloading new package
         let pg_bar = ProgressBar::new(len);
-        let mut file = pg_bar.wrap_write(std::fs::File::create(&cache_path)?);
+        let mut file = pg_bar.wrap_write(std::fs::File::create(&cached)?);
         let mut stream_reader = resp.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
             let chunk = stream_chunk.map_err(|e| anyhow!("download failed: {e}"))?;
             file.write_all(&chunk)
                 .map_err(|e| anyhow!("can't write file: {e}"))?;
         }
+        let tar_cmd = format!(
+            "tar -xzvf {} -C {} --strip-components 1 --overwrite",
+            cached.to_string_lossy(),
+            self.dir_home()
+        );
         println!(
-            "Execute the following command to complete the update:\n tar -xzvf {} -C {} --strip-components 1 --overwrite",
-            cache_path.to_string_lossy(), self.dir_home()
+            "Execute this command to complete the update:\n {}",
+            tar_cmd.bold()
         );
         Ok(())
     }
