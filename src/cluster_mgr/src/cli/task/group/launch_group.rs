@@ -3,7 +3,7 @@ use crate::cli::task::group::{
     InstallRuntimeDepsTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
 use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::CONFIG_PATH_DIR;
 use std::env;
@@ -12,15 +12,15 @@ use std::env;
 impl TaskGroup for LaunchTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let (skip_deps, topo_file) = match cmd_arg.clone() {
-            CommandArgs::Launch {
+            SubCommand::Launch {
                 topology_file,
                 skip_deps,
             } => (skip_deps, topology_file),
-            CommandArgs::Demo {
+            SubCommand::Demo {
                 product, skip_deps, ..
             } => {
                 let topo = format!("{}/demo-{product}.yaml", env::var(CONFIG_PATH_DIR)?);
@@ -33,7 +33,7 @@ impl TaskGroup for LaunchTaskGroup {
         let dep_tasks = if skip_deps {
             TaskExecutionContext::dummy()
         } else {
-            let cmd = CommandArgs::RunDeps {
+            let cmd = SubCommand::RunDeps {
                 topology_file: topo_file.clone(),
             };
             InstallRuntimeDepsTaskGroup
@@ -45,7 +45,7 @@ impl TaskGroup for LaunchTaskGroup {
             dep_tasks,
             CheckTaskGroup
                 .tasks(
-                    CommandArgs::Check {
+                    SubCommand::Check {
                         topology_file: topo_file.clone(),
                     },
                     config.clone(),
@@ -53,7 +53,7 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
             DeploymentTaskGroup
                 .tasks(
-                    CommandArgs::Deploy {
+                    SubCommand::Deploy {
                         topology_file: topo_file.clone(),
                     },
                     config.clone(),
@@ -61,7 +61,7 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
             InstallDBTaskGroup
                 .tasks(
-                    CommandArgs::Install {
+                    SubCommand::Install {
                         cluster: config.deployment.cluster_name.clone(),
                     },
                     config.clone(),
@@ -69,7 +69,7 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
             CtrlDBTaskGroup
                 .tasks(
-                    CommandArgs::Start {
+                    SubCommand::Start {
                         cluster: config.deployment.cluster_name.clone(),
                     },
                     config.clone(),
@@ -77,7 +77,7 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
             CtrlDBTaskGroup
                 .tasks(
-                    CommandArgs::Status {
+                    SubCommand::Status {
                         cluster: config.deployment.cluster_name.clone(),
                         user: None,
                         password: None,
@@ -88,7 +88,7 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
             MonitorCtlTaskGroup
                 .tasks(
-                    CommandArgs::Monitor {
+                    SubCommand::Monitor {
                         cluster: config.deployment.cluster_name.clone(),
                         command: "start".to_string(),
                     },

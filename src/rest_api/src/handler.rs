@@ -3,7 +3,7 @@ use crate::{MonographConnInfo, RequestPayload, ResponseData, WebHandleError};
 use actix_web::{get, post, web, HttpResponse, Responder};
 use anyhow::anyhow;
 use cluster_mgr::cli::task::task_base::TaskId;
-use cluster_mgr::cli::CommandArgs;
+use cluster_mgr::cli::SubCommand;
 use cluster_mgr::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -51,48 +51,48 @@ fn validate_command(command: &str, support_cmd: &[&str]) -> Result<(), WebHandle
     }
 }
 
-fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> CommandArgs {
+fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> SubCommand {
     match cmd_str {
-        "install" => CommandArgs::Install {
+        "install" => SubCommand::Install {
             cluster: cluster.unwrap(),
         },
-        "start" => CommandArgs::Start {
+        "start" => SubCommand::Start {
             cluster: cluster.unwrap(),
         },
-        "stop" => CommandArgs::Stop {
+        "stop" => SubCommand::Stop {
             cluster: cluster.unwrap(),
             force: false,
             all: false,
         },
-        "deploy" => CommandArgs::Deploy {
+        "deploy" => SubCommand::Deploy {
             topology_file: "_NONE".to_string(),
         },
-        "status" => CommandArgs::Status {
+        "status" => SubCommand::Status {
             cluster: cluster.unwrap(),
             user: None,
             password: None,
             wait: None,
         },
-        "run-deps" => CommandArgs::RunDeps {
+        "run-deps" => SubCommand::RunDeps {
             topology_file: "_NONE".to_string(),
         },
-        "start_monitor" => CommandArgs::Monitor {
+        "start_monitor" => SubCommand::Monitor {
             cluster: cluster.unwrap(),
             command: "start".to_string(),
         },
-        "stop_monitor" => CommandArgs::Monitor {
+        "stop_monitor" => SubCommand::Monitor {
             cluster: cluster.unwrap(),
             command: "stop".to_string(),
         },
-        "start_log" => CommandArgs::LogService {
+        "start_log" => SubCommand::LogService {
             cluster: cluster.unwrap(),
             command: "start".to_string(),
         },
-        "stop_log" => CommandArgs::LogService {
+        "stop_log" => SubCommand::LogService {
             cluster: cluster.unwrap(),
             command: "stop".to_string(),
         },
-        "launch" => CommandArgs::Launch {
+        "launch" => SubCommand::Launch {
             topology_file: "_NONE".to_owned(),
             skip_deps: false,
         },
@@ -244,7 +244,7 @@ pub async fn mono_service_status(
     conn_info: web::Json<MonographConnInfo>,
 ) -> Result<impl Responder, WebHandleError> {
     let mono_conn_info = conn_info.0;
-    let status_cmd = CommandArgs::Status {
+    let status_cmd = SubCommand::Status {
         cluster: param_cluster.to_string(),
         user: Some(mono_conn_info.user),
         password: Some(mono_conn_info.password),

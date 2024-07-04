@@ -5,7 +5,7 @@ use crate::cli::task::group::{InstallDBTaskGroup, TaskGroup};
 use crate::cli::task::monograph_bootstrap_task::MonographInstall;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost};
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
@@ -16,7 +16,7 @@ use tracing::info;
 impl TaskGroup for InstallDBTaskGroup {
     async fn tasks(
         &self,
-        cmd_args: CommandArgs,
+        cmd_args: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let conn_user = &config.connection.username;
@@ -31,7 +31,7 @@ impl TaskGroup for InstallDBTaskGroup {
             "InstallDBTaskGroup The bootstrap node is ={:?}",
             install_db_host
         );
-        let install_cmd = CommandArgs::Install {
+        let install_cmd = SubCommand::Install {
             cluster: config.clone().deployment.cluster_name,
         };
         let mut barrier = vec![];

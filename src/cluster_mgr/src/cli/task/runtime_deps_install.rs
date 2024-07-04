@@ -2,12 +2,14 @@ use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
+use crate::cli::util::{os_id, os_major_version};
 use crate::config::config_base::DeploymentConfig;
+use anyhow::bail;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::vec;
-use tracing::{debug, info};
+use tracing::info;
 use users::get_current_uid;
 
 #[derive(Clone, Debug)]
@@ -21,47 +23,48 @@ impl RuntimeDepsInstallation {
     pub fn from_config(
         config: &DeploymentConfig,
     ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
-        let os_and_deps_pair = DeploymentConfig::load_runtime_deps_by_os(None, None)?;
-        let os_name = os_and_deps_pair.0;
-        let os_version = os_and_deps_pair.1;
-        debug!("RuntimeDep from_config = {os_name}");
-        let  dep_cmd_partial = match os_name.as_str() {
-            "ubuntu" => {
-               vec![
-                "apt-get update", 
-                "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"]
-            }
-            "centos" => {
-                match os_version.as_str() {
-                    "8" => 
-                    vec![
-                        "dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y", 
+        let os_name = os_id();
+        let version = os_major_version();
+        let deps = DeploymentConfig::load_runtime_deps_by_os(&os_name)?;
+        info!("RuntimeDep from_config = {os_name} {version}");
+        let  cmd_header = match os_name.as_str() {
+            "ubuntu" => vec![
+                "apt update", 
+                "DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends"],
+            "rhel" => 
+                match version.as_str() {
+                    "7"=> vec![
+                        "yum install -y epel-release", 
+                        "yum update -y", 
+                        "yum install -y"],
+                    "8" => vec![
+                        "dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm", 
                         "/usr/bin/crb enable", 
-                        "yum install -y epel-release", 
-                        "yum update -y", 
-                        "yum install -y"],
-                    "7"=>  vec![
-                        "yum install -y epel-release", 
-                        "yum update -y", 
-                        "yum install -y"],
+                        "dnf install -y epel-release", 
+                        "dnf update -y", 
+                        "dnf install -y"],
+                    "9" => vec![
+                        "dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm", 
+                        "/usr/bin/crb enable", 
+                        "dnf install -y epel-release", 
+                        "dnf update -y", 
+                        "dnf install -y"],
                     _ => unreachable!()
                 }
-            }
             _=> {
-                panic!("For now MonographDB only run on Ubuntu or Centos7/Centos8");
+                bail!("For now MonographDB only run on Ubuntu or Centos7/Centos8");
             }
         };
-        let dep_cmd_partial = if get_current_uid() == 0 {
-            dep_cmd_partial.join(" && ")
+        let cmd_header = if get_current_uid() == 0 {
+            cmd_header.join(" && ")
         } else {
-            dep_cmd_partial
+            cmd_header
                 .iter()
                 .map(|e| format!("sudo {}", e))
                 .collect::<Vec<String>>()
                 .join(" && ")
         };
-        let dep_pkg = os_and_deps_pair.2;
-        let install_dep_cmd = format!("{dep_cmd_partial} {dep_pkg}");
+        let install_dep_cmd = format!("{cmd_header} {}", deps.join(" "));
 
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();

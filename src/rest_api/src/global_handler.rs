@@ -1,17 +1,17 @@
 use crate::{listen_exit_signal, RequestPayload};
-use cluster_mgr::cli::cmd_base::CommandExecutor;
+use cluster_mgr::cli::cmd_base::CmdExecutor;
 use std::sync::Arc;
 use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct GlobalCommandHandler {
-    cmd_executor: Arc<CommandExecutor>,
+    cmd_executor: Arc<CmdExecutor>,
     tx: crossbeam_channel::Sender<RequestPayload>,
     rx: crossbeam_channel::Receiver<RequestPayload>,
 }
 
 impl GlobalCommandHandler {
-    pub async fn new(cmd_executor: CommandExecutor) -> Self {
+    pub async fn new(cmd_executor: CmdExecutor) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
         let handler = GlobalCommandHandler {
             cmd_executor: Arc::new(cmd_executor),
@@ -37,7 +37,7 @@ impl GlobalCommandHandler {
         handler
     }
 
-    pub fn get_command_executor(&self) -> &CommandExecutor {
+    pub fn get_command_executor(&self) -> &CmdExecutor {
         &self.cmd_executor
     }
 
@@ -57,13 +57,13 @@ impl GlobalCommandHandler {
             info!("Global handler process command={cmd_str}");
             match cmd.as_ref() {
                 "deploy" | "run-deps" | "launch" => {
-                    let config = payload.config.unwrap();
-                    if let Err(err) = cmd_executor.run(cmd, Some(config)).await {
+                    let config = payload.config;
+                    if let Err(err) = cmd_executor.run(cmd, config, false).await {
                         error!("command {cmd_str} failed: {err}");
                     }
                 }
                 _ => {
-                    if let Err(err) = cmd_executor.run(cmd, None).await {
+                    if let Err(err) = cmd_executor.run(cmd, None, false).await {
                         error!("command {cmd_str} failed: {err}");
                     }
                 }

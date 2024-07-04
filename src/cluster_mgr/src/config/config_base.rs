@@ -3,12 +3,12 @@ use crate::config::connection::Connection;
 use crate::config::deployment::{Codis, Deployment, Hardware, Product, Version};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
-    config_path_string, config_template, DeploymentPackage, StorageProvider, CONFIG_PATH_DIR,
+    config_path_string, config_template, DeploymentPackage, StorageProvider,
     MONOGRAPH_INSTALL_SCRIPT, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
 use crate::gen_db_misc_files;
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -428,45 +428,20 @@ impl DeploymentConfig {
 
     /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
     /// for example: ubuntu_runtime_deps, centos_runtime_deps
-    pub fn load_runtime_deps_by_os(
-        os_name: Option<String>,
-        os_version: Option<String>,
-    ) -> anyhow::Result<(String, String, String)> {
-        let config_path_var_rs = std::env::var(CONFIG_PATH_DIR);
-        assert!(config_path_var_rs.is_ok());
-        let (curr_os_name, curr_os_version) = if let Some(short_os_name) = os_name {
-            let os_version_input = os_version.unwrap();
-            (short_os_name.to_lowercase(), os_version_input)
-        } else {
-            let curr_os_name = sysinfo::System::name();
-            let os_version = sysinfo::System::os_version();
-            assert!(curr_os_name.is_some());
-            assert!(os_version.is_some());
-            let os_name = curr_os_name.unwrap().to_lowercase();
-            if os_name.starts_with("ubuntu") {
-                ("ubuntu".to_string(), os_version.unwrap())
-            } else if os_name.starts_with("centos") {
-                ("centos".to_string(), os_version.unwrap())
-            } else {
-                unreachable!()
-            }
-        };
-        let runtime_deps_file = format!("{curr_os_name}_runtime_deps");
-        let config_path = config_path_var_rs.unwrap();
-        let deps_path = PathBuf::from(config_path.as_str()).join(runtime_deps_file);
-        let deps_file_opened = File::open(deps_path.as_path())?;
-        let lines = BufReader::new(deps_file_opened).lines();
-
-        let deps_string = lines
-            .filter_map(|line_rs| {
-                if let Ok(line) = line_rs {
-                    Some(line)
-                } else {
+    pub fn load_runtime_deps_by_os(os: &str) -> Result<Vec<String>> {
+        let deps_path = config_template(&format!("runtime_deps_{os}"))?;
+        let deps_file_opened = File::open(deps_path)?;
+        let deps_string = BufReader::new(deps_file_opened)
+            .lines()
+            .filter_map(|line_rs| match line_rs {
+                Ok(line) => Some(line),
+                Err(err) => {
+                    error!("invalid config line: {err}");
                     None
                 }
             })
-            .join(" ");
-        Ok((curr_os_name, curr_os_version, deps_string))
+            .collect();
+        Ok(deps_string)
     }
 
     pub fn load(path: Option<String>) -> anyhow::Result<Self> {
