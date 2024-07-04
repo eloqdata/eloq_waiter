@@ -363,9 +363,7 @@ impl CmdExecutor {
             _ => {
                 let task_mgr = self.task_mgr.clone();
                 let outfile = if quiet {
-                    let f = std::fs::OpenOptions::new()
-                        .append(true)
-                        .open(self.home.join("task_result"))?;
+                    let f = std::fs::File::create(self.home.join("task-result"))?;
                     Some(f)
                 } else {
                     None
