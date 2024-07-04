@@ -363,34 +363,28 @@ impl TaskMgr {
         let mut result_reader = self.task_controller.clone().try_stream();
         while let Some(Ok(TaskResultPair { task_id, result })) = result_reader.next().await {
             match result {
-                TaskResultEnum::Success(opt_rs) => {
+                TaskResultEnum::Success(Some(execution_value)) => {
                     let start = "=> ";
                     let end = "---------------------------";
-                    let out = if let Some(execution_value) = opt_rs {
-                        let cmd = TaskArgValue::into_inner_value::<String>(
-                            execution_value.get(CMD).unwrap().clone(),
-                        );
-                        let cmd_status = if TaskArgValue::into_inner_value::<i32>(
-                            execution_value.get(CMD_STATUS).unwrap().clone(),
-                        ) == 0
-                        {
-                            "Success".green().to_string()
-                        } else {
-                            "Failure".red().to_string()
-                        };
-                        let cmd_output = TaskArgValue::into_inner_value::<String>(
-                            execution_value.get(CMD_OUTPUT).unwrap().clone(),
-                        );
-                        format!("{start}{task_id}\n{cmd}\n{cmd_status}; {cmd_output}\n{end}\n")
+                    let cmd = TaskArgValue::into_inner_value::<String>(
+                        execution_value.get(CMD).unwrap().clone(),
+                    );
+                    let status = if TaskArgValue::into_inner_value::<i32>(
+                        execution_value.get(CMD_STATUS).unwrap().clone(),
+                    ) == 0
+                    {
+                        "Success".green().to_string()
                     } else {
-                        format!("{start}{task_id}\n{end}\n")
+                        "Failure".red().to_string()
                     };
-                    writer.write_all(out.as_bytes())?;
+                    let cmd_out = TaskArgValue::into_inner_value::<String>(
+                        execution_value.get(CMD_OUTPUT).unwrap().clone(),
+                    );
+                    let s = format!("{start}{task_id}\n{cmd}\n{status}; {cmd_out}\n{end}\n");
+                    writer.write_all(s.as_bytes())?;
                 }
-                TaskResultEnum::Error(err_msg) => {
-                    let err_msg = format!(r#"task {task_id} failed. cause by {err_msg}"#);
-                    error!("{}", err_msg.red());
-                }
+                TaskResultEnum::Success(None) => info!("task {task_id} finished"),
+                TaskResultEnum::Error(err_msg) => error!("{task_id} failed: {err_msg}"),
             }
         }
         Ok(())
