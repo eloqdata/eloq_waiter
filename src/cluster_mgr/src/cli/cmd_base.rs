@@ -1,5 +1,6 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::{download_dir, upload_dir, CommandArgs, HOME_DIR};
+use crate::cli::util::{cpu_arch, os_id, os_major_version};
+use crate::cli::{upload_dir, SubCommand, HOME_DIR};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::{
@@ -14,11 +15,12 @@ use anyhow::{anyhow, bail, Result};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 use std::collections::HashSet;
-use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, OnceLock};
+use std::{env, fs};
 use tokio_postgres::config::SslMode;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
@@ -38,25 +40,24 @@ pub static HTTP_INTERNAL: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("can't init http client for internal use")
 });
 
-pub struct CommandExecutor {
+pub struct CmdExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
-    cpu_arch: String,
-    os_id: String,
-    os_version: String,
-    home: PathBuf,
     pg_client: OnceLock<tokio_postgres::Client>,
+    pub home: PathBuf,
 }
 
-impl Default for CommandExecutor {
-    fn default() -> Self {
-        Self::new(None)
+impl CmdExecutor {
+    pub fn new(home: PathBuf) -> Self {
+        Self {
+            task_mgr: Arc::new(TaskMgr::new()),
+            state_mgr: Arc::new(STATE_MGR.clone()),
+            pg_client: OnceLock::new(),
+            home,
+        }
     }
-}
 
-impl CommandExecutor {
-    pub fn new(home: Option<PathBuf>) -> Self {
-        info!("CommandExecutor init.");
+    pub fn home_init(home: Option<PathBuf>) -> Result<PathBuf> {
         let home = match home {
             Some(home) => {
                 env::set_var(HOME_DIR, &home);
@@ -65,7 +66,7 @@ impl CommandExecutor {
             None => match env::var(HOME_DIR) {
                 Ok(v) => PathBuf::from(v),
                 Err(_) => {
-                    let home = env::current_dir().expect("can't know current directory");
+                    let home = env::current_dir()?;
                     env::set_var(HOME_DIR, &home);
                     home
                 }
@@ -74,34 +75,18 @@ impl CommandExecutor {
         // check config directory
         let cnf_dir = home.join("config");
         if !cnf_dir.exists() {
-            panic!("config path not exist: {} ", cnf_dir.display());
+            bail!("config path not exist: {} ", cnf_dir.display());
         }
         env::set_var(CONFIG_PATH_DIR, cnf_dir);
-        if !download_dir().exists() {
-            std::fs::create_dir(download_dir()).expect("can't init download directory");
+        let down_dir = home.join("download");
+        if !down_dir.exists() {
+            std::fs::create_dir(down_dir)?;
         }
-        if !upload_dir().exists() {
-            std::fs::create_dir(upload_dir()).expect("can't init upload directory");
+        let up_dir = home.join("upload");
+        if !up_dir.exists() {
+            std::fs::create_dir(up_dir)?;
         }
-
-        let mut cpu_arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
-        cpu_arch = match cpu_arch.as_str() {
-            "aarch64" | "arm64" => "arm64",
-            "x86" | "x86_64" | "amd64" => "amd64",
-            _ => panic!("unsupported cpu arch {cpu_arch}"),
-        }
-        .to_owned();
-        let os_id = sysinfo::System::distribution_id();
-        let os_version = sysinfo::System::os_version().unwrap();
-        Self {
-            task_mgr: Arc::new(TaskMgr::new()),
-            state_mgr: Arc::new(STATE_MGR.clone()),
-            cpu_arch,
-            os_id,
-            os_version,
-            home,
-            pg_client: OnceLock::new(),
-        }
+        Ok(home)
     }
 
     async fn pg_client(&self) -> Result<&tokio_postgres::Client> {
@@ -139,16 +124,7 @@ impl CommandExecutor {
     }
 
     pub fn os_vers(&self) -> String {
-        let version = match self.os_version.find('.') {
-            Some(i) => &self.os_version[..i],
-            None => &self.os_version,
-        };
-        let os = if self.os_id.contains("centos") || self.os_id.contains("rocky") {
-            "rhel"
-        } else {
-            &self.os_id
-        };
-        format!("{os}{version}")
+        format!("{}{}", os_id(), os_major_version())
     }
 
     fn dir_home(&self) -> &str {
@@ -196,10 +172,10 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<DeploymentConfig> {
+    async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<DeploymentConfig> {
         match cmd {
-            CommandArgs::Deploy { topology_file }
-            | CommandArgs::Launch {
+            SubCommand::Deploy { topology_file }
+            | SubCommand::Launch {
                 topology_file,
                 skip_deps: _,
             } => {
@@ -210,37 +186,37 @@ impl CommandExecutor {
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(config)
             }
-            CommandArgs::Demo { .. } => self.gen_demo_config(cmd).await,
-            CommandArgs::Install { cluster }
-            | CommandArgs::Stop {
+            SubCommand::Demo { .. } => self.gen_demo_config(cmd).await,
+            SubCommand::Install { cluster }
+            | SubCommand::Stop {
                 cluster,
                 force: _,
                 all: _,
             }
-            | CommandArgs::Start { cluster }
-            | CommandArgs::LogService {
+            | SubCommand::Start { cluster }
+            | SubCommand::LogService {
                 cluster,
                 command: _,
             }
-            | CommandArgs::Restart { cluster }
-            | CommandArgs::UpdateConf {
+            | SubCommand::Restart { cluster }
+            | SubCommand::UpdateConf {
                 cluster,
                 restart: _,
             }
-            | CommandArgs::Status {
+            | SubCommand::Status {
                 cluster,
                 user: _,
                 password: _,
                 wait: _,
             }
-            | CommandArgs::Monitor {
+            | SubCommand::Monitor {
                 command: _,
                 cluster,
             }
-            | CommandArgs::Inspect { cluster, .. }
-            | CommandArgs::Remove { cluster }
-            | CommandArgs::Connect { cluster }
-            | CommandArgs::Scale {
+            | SubCommand::Inspect { cluster, .. }
+            | SubCommand::Remove { cluster }
+            | SubCommand::Connect { cluster }
+            | SubCommand::Scale {
                 cluster,
                 add_tx_node: _,
                 del_tx_node: _,
@@ -252,13 +228,13 @@ impl CommandExecutor {
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
                 Ok(config)
             }
-            CommandArgs::RunDeps { topology_file }
-            | CommandArgs::Check { topology_file }
-            | CommandArgs::Exec {
+            SubCommand::RunDeps { topology_file }
+            | SubCommand::Check { topology_file }
+            | SubCommand::Exec {
                 command: _,
                 topology_file,
             } => Ok(DeploymentConfig::load(Some(topology_file))?),
-            CommandArgs::Update {
+            SubCommand::Update {
                 cluster: Some(cluster),
                 version,
                 cassandra,
@@ -307,22 +283,23 @@ impl CommandExecutor {
 
     pub async fn run(
         &'static self,
-        cmd: CommandArgs,
-        deployment_config: Option<DeploymentConfig>,
+        cmd: SubCommand,
+        config: Option<DeploymentConfig>,
+        quiet: bool,
     ) -> Result<()> {
         match &cmd {
-            CommandArgs::List => return self.list_clusters().await,
-            CommandArgs::Versions { product, store } => {
+            SubCommand::List => return self.list_clusters().await,
+            SubCommand::Versions { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await
             }
-            CommandArgs::Update { cluster: None, .. } => return self.update().await,
-            CommandArgs::Launch { .. }
-            | CommandArgs::Demo { .. }
-            | CommandArgs::Deploy { .. }
-            | CommandArgs::Update {
+            SubCommand::Update { cluster: None, .. } => return self.update().await,
+            SubCommand::Launch { .. }
+            | SubCommand::Demo { .. }
+            | SubCommand::Deploy { .. }
+            | SubCommand::Update {
                 cluster: Some(_), ..
             }
-            | CommandArgs::UpdateConf { .. } => {
+            | SubCommand::UpdateConf { .. } => {
                 std::fs::remove_dir_all(upload_dir())?;
                 std::fs::create_dir(upload_dir())?;
             }
@@ -330,7 +307,7 @@ impl CommandExecutor {
         }
 
         // fetch config from file or database
-        let config = match deployment_config {
+        let config = match config {
             Some(mut config) => {
                 config.connection.auth.check_keypair()?;
                 self.resolve_version(&mut config.deployment).await?;
@@ -342,17 +319,17 @@ impl CommandExecutor {
         };
 
         match cmd.clone() {
-            CommandArgs::Connect { .. } => {
+            SubCommand::Connect { .. } => {
                 println!("{}", config.client_conn());
             }
-            CommandArgs::Inspect { cluster: _, format } => match format {
+            SubCommand::Inspect { cluster: _, format } => match format {
                 Some(fmt) => match fmt {
                     TopoFormat::Yaml => println!("{}", config.to_yaml()),
                     TopoFormat::Json => println!("{}", config.to_json()),
                 },
                 None => println!("{:#?}", config),
             },
-            CommandArgs::Scale {
+            SubCommand::Scale {
                 cluster: _,
                 add_tx_node,
                 del_tx_node,
@@ -385,11 +362,21 @@ impl CommandExecutor {
             }
             _ => {
                 let task_mgr = self.task_mgr.clone();
+                let outfile = if quiet {
+                    let f = fs::OpenOptions::new()
+                        .create(true)
+                        .truncate(true)
+                        .append(true)
+                        .open(self.home.join("task-result"))?;
+                    Some(f)
+                } else {
+                    None
+                };
                 let recv_rs_and_print_join = tokio::task::spawn(async move {
-                    let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
-                    if not_print_task_rs.is_none() {
-                        task_mgr.print_task_result().await;
-                    }
+                    task_mgr
+                        .write_task_result(outfile)
+                        .await
+                        .expect("write task result failed");
                 });
                 // Generate and run tasks
                 let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
@@ -401,10 +388,10 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn finishing(&self, cmd: CommandArgs, config: DeploymentConfig) -> Result<()> {
+    async fn finishing(&self, cmd: SubCommand, config: DeploymentConfig) -> Result<()> {
         // After all tasks finished
         match cmd {
-            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
+            SubCommand::Launch { .. } | SubCommand::Demo { .. } => {
                 println!("Launch cluster finished, Enjoy!");
                 println!("Connect to server: \n\t{}", config.client_conn());
                 if let Some(moni) = &config.deployment.monitor {
@@ -418,11 +405,11 @@ impl CommandExecutor {
                     );
                 }
             }
-            CommandArgs::Remove { cluster } => {
+            SubCommand::Remove { cluster } => {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
                 info!("cluster state cleared rows={}", n);
             }
-            CommandArgs::Update {
+            SubCommand::Update {
                 cluster: Some(cluster),
                 ..
             } => {
@@ -463,7 +450,7 @@ impl CommandExecutor {
         }
 
         let list = client
-            .query(&sql, &[&self.cpu_arch, &self.os_vers()])
+            .query(&sql, &[&cpu_arch(), &self.os_vers()])
             .await?
             .into_iter()
             .map(|row| {
@@ -487,7 +474,7 @@ impl CommandExecutor {
 
     pub async fn resolve_version(&self, cnf: &mut Deployment) -> Result<()> {
         let product = cnf.product().name().to_owned();
-        let arch = &self.cpu_arch;
+        let arch = cpu_arch();
         let os = self.os_vers();
         let store = cnf.storage_service.pretty_name();
         if cnf.version.is_some() && cnf.version_str().to_ascii_lowercase() == "latest" {
@@ -533,9 +520,9 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn gen_demo_config(&self, cmd: CommandArgs) -> Result<DeploymentConfig> {
+    async fn gen_demo_config(&self, cmd: SubCommand) -> Result<DeploymentConfig> {
         match cmd {
-            CommandArgs::Demo {
+            SubCommand::Demo {
                 product,
                 store,
                 version,
@@ -635,7 +622,7 @@ impl CommandExecutor {
 
     async fn update(&self) -> Result<()> {
         let os = self.os_vers();
-        let arch = &self.cpu_arch;
+        let arch = cpu_arch();
         let filename = format!("waiter-{os}-{arch}.tar.gz");
         let url = format!("{CDN}/waiter/{filename}");
         info!("Fetching latest package {url}");
@@ -646,10 +633,10 @@ impl CommandExecutor {
         let len = resp
             .content_length()
             .ok_or_else(|| anyhow!("can't know package size"))?;
-        let mut cache_path = self.dir_download();
-        cache_path.push(filename);
-        if cache_path.exists() {
-            let local_len = std::fs::metadata(&cache_path)?.len();
+        let mut cached = self.dir_download();
+        cached.push(filename);
+        if cached.exists() {
+            let local_len = std::fs::metadata(&cached)?.len();
             info!("latest package length {len}, local package length {local_len}");
             if len == local_len {
                 println!("cluster_mgr is already latest");
@@ -658,16 +645,21 @@ impl CommandExecutor {
         }
         // start downloading new package
         let pg_bar = ProgressBar::new(len);
-        let mut file = pg_bar.wrap_write(std::fs::File::create(&cache_path)?);
+        let mut file = pg_bar.wrap_write(std::fs::File::create(&cached)?);
         let mut stream_reader = resp.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
             let chunk = stream_chunk.map_err(|e| anyhow!("download failed: {e}"))?;
             file.write_all(&chunk)
                 .map_err(|e| anyhow!("can't write file: {e}"))?;
         }
+        let tar_cmd = format!(
+            "tar -xzvf {} -C {} --strip-components 1 --overwrite",
+            cached.to_string_lossy(),
+            self.dir_home()
+        );
         println!(
-            "Execute the following command to complete the update:\n tar -xzvf {} -C {} --strip-components 1 --overwrite",
-            cache_path.to_string_lossy(), self.dir_home()
+            "Execute this command to complete the update:\n {}",
+            tar_cmd.bold()
         );
         Ok(())
     }

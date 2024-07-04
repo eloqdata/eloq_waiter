@@ -9,6 +9,7 @@ pub mod cmd_base;
 mod cmd_printer;
 pub mod ssh;
 pub mod task;
+pub mod util;
 
 pub const CMD_STATUS: &str = "_cmd_status_";
 pub const CMD_OUTPUT: &str = "_cmd_output_";
@@ -17,18 +18,18 @@ pub const CMD: &str = "_cmd_";
 #[derive(Parser, Default, Debug)]
 #[command(author, version = "0.0.0", about = "EloqData cluster management tool")]
 #[command(next_line_help = true)]
-pub struct ClusterMgrCommandArgs {
+pub struct Command {
     #[arg(long, value_name = "home-dir")]
     pub home: Option<PathBuf>,
     #[arg(short, long, default_value_t = false)]
     pub quiet: bool,
     #[command(subcommand)]
-    pub command: Option<CommandArgs>,
+    pub subcmd: Option<SubCommand>,
 }
 
 #[derive(Subcommand, Clone, Debug, Hash, PartialEq, Eq, AsRefStr)]
 #[command(next_line_help = true)]
-pub enum CommandArgs {
+pub enum SubCommand {
     #[strum(serialize = "deploy")]
     #[command(
         long_about = "Deploy the MonographDB cluster by specifying the cluster_topology.yaml file\n./cluster_mgr deploy ${PWD}/config/deployment.yaml

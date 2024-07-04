@@ -6,7 +6,7 @@ use crate::cli::task::task_base::{
     TaskInstance,
 };
 use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
-use crate::cli::{CommandArgs, CMD_STATUS};
+use crate::cli::{SubCommand, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::storage_service_config::Cassandra;
 use crate::config::DeploymentPackage;
@@ -148,11 +148,11 @@ pub struct CassandraCtlTask {
 
 impl CassandraCtlTask {
     pub fn from_config(
-        cmd: CommandArgs,
+        cmd: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let cassandra_task_ctrl_attr = match cmd {
-            CommandArgs::Start { cluster: _ } | CommandArgs::Restart { cluster: _ } => (
+            SubCommand::Start { cluster: _ } | SubCommand::Restart { cluster: _ } => (
                 "start",
                 TaskId {
                     cmd: "start".to_string(),
@@ -160,7 +160,7 @@ impl CassandraCtlTask {
                     host: "_NONE".to_string(),
                 },
             ),
-            CommandArgs::Install { cluster: _ } => (
+            SubCommand::Install { cluster: _ } => (
                 "start",
                 TaskId {
                     cmd: "start".to_string(),
@@ -168,7 +168,7 @@ impl CassandraCtlTask {
                     host: "_NONE".to_string(),
                 },
             ),
-            CommandArgs::Stop {
+            SubCommand::Stop {
                 cluster: _,
                 force: _,
                 all: _,

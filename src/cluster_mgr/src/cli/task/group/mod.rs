@@ -12,7 +12,7 @@ mod update_cluster_group;
 mod update_config_group;
 
 use crate::cli::task::task_base::TaskExecutionContext;
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use dyn_clone::DynClone;
 use once_cell::sync::OnceCell;
@@ -24,7 +24,7 @@ use std::collections::HashMap;
 pub trait TaskGroup: Send + Sync + DynClone {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext>;
 }

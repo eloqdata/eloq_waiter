@@ -14,6 +14,7 @@ pub(crate) struct CmdPrinter {
     data: RefCell<Vec<Printable>>,
 }
 
+#[allow(unused)]
 impl CmdPrinter {
     pub(crate) fn new() -> Self {
         Self {

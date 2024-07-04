@@ -5,7 +5,7 @@ use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment;
 use indexmap::IndexMap;
@@ -14,11 +14,11 @@ use indexmap::IndexMap;
 impl TaskGroup for CtrlDBTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let stop_all = match cmd_arg.clone() {
-            CommandArgs::Stop {
+            SubCommand::Stop {
                 cluster: _,
                 force: _,
                 all,
@@ -44,16 +44,16 @@ impl TaskGroup for CtrlDBTaskGroup {
         };
 
         let batch_cmd = match cmd_arg {
-            CommandArgs::Restart {
+            SubCommand::Restart {
                 cluster: ref cluster_name,
             } => {
                 vec![
-                    CommandArgs::Stop {
+                    SubCommand::Stop {
                         cluster: cluster_name.clone(),
                         force: false,
                         all: false,
                     },
-                    CommandArgs::Start {
+                    SubCommand::Start {
                         cluster: cluster_name.to_string(),
                     },
                 ]

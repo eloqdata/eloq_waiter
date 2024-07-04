@@ -5,7 +5,7 @@ use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::task::task_utils::{check_pid, parse_process_pid, PROCESS_PID};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::cli::CMD_STATUS;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::log_service::LogProcessKey;
@@ -35,7 +35,7 @@ get_ctl_cmd_string!(LogCtlCmd, Start, Stop, Status);
 impl LogCtlCmd {
     pub fn build_cmd(
         config: &DeploymentConfig,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
     ) -> HashMap<LogProcessKey, LogCtlCmd> {
         LogCtlCmd::build_cmd_with_predicate(
             config,
@@ -46,7 +46,7 @@ impl LogCtlCmd {
 
     fn build_cmd_with_predicate<F>(
         config: &DeploymentConfig,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         test: Option<Box<F>>,
     ) -> HashMap<LogProcessKey, LogCtlCmd>
     where
@@ -83,18 +83,18 @@ impl LogCtlCmd {
                     .replace("_COLUMN", "$2");
                 let log_start_cmd = format!("/bin/bash {home_dir}/start_tx_log_{log_port}.bash");
                 let log_cmd = match &cmd_arg {
-                    CommandArgs::Start { cluster: _ }
-                    | CommandArgs::Launch {
+                    SubCommand::Start { cluster: _ }
+                    | SubCommand::Launch {
                         topology_file: _,
                         skip_deps: _,
                     } => LogCtlCmd::Start(log_start_cmd),
-                    CommandArgs::Status {
+                    SubCommand::Status {
                         cluster: _,
                         user: _,
                         password: _,
                         wait: _,
                     } => LogCtlCmd::Status(ps_cmd_part),
-                    CommandArgs::Stop {
+                    SubCommand::Stop {
                         cluster: _,
                         force,
                         all: _,
@@ -107,7 +107,7 @@ impl LogCtlCmd {
                         };
                         LogCtlCmd::Stop(stop_cmd_string)
                     }
-                    CommandArgs::LogService {
+                    SubCommand::LogService {
                         cluster: _,
                         command: log_cmd,
                     } => {
@@ -154,12 +154,12 @@ impl MonographLogCtlTask {
         }
     }
 
-    fn cluster_cmd_string(cmd_arg: CommandArgs) -> String {
+    fn cluster_cmd_string(cmd_arg: SubCommand) -> String {
         let cmd_ref = cmd_arg.as_ref();
         match cmd_ref {
             "start" | "stop" | "status" => cmd_ref.to_string(),
             "log-srv" => match cmd_arg {
-                CommandArgs::LogService {
+                SubCommand::LogService {
                     cluster: _,
                     command: log_cmd,
                 } => log_cmd,
@@ -170,7 +170,7 @@ impl MonographLogCtlTask {
     }
 
     pub fn from_config(
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let deployment_ref = &config.deployment;
@@ -281,7 +281,7 @@ impl MonographLogCtlTask {
         &self,
         ssh_session: &SSHSession,
     ) -> anyhow::Result<HashMap<LogProcessKey, ExecutionValue>> {
-        let cluster_status_cmd = CommandArgs::Status {
+        let cluster_status_cmd = SubCommand::Status {
             cluster: self.config.deployment.cluster_name.to_string(),
             user: None,
             password: None,

@@ -3,7 +3,7 @@ use crate::cli::task::group::{CheckTaskGroup, TaskGroup};
 use crate::cli::task::task_base::{
     TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::{cassandra_used_ports, DeploymentPackage};
 use indexmap::IndexMap;
@@ -37,7 +37,7 @@ macro_rules! make_check_tasks {
 impl TaskGroup for CheckTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let mut executable = IndexMap::new();

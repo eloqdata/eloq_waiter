@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
 use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
-use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
@@ -15,7 +15,6 @@ use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use redis::Commands;
 use sqlx::{Connection, Executor, Row};
 use std::collections::HashMap;
 use std::io;
@@ -212,8 +211,7 @@ impl RedisProbe {
         let client = redis::Client::open(url.clone())?;
         loop {
             match client.get_connection() {
-                Ok(mut con) => {
-                    con.get("probe")?;
+                Ok(_) => {
                     return Ok(HashMap::from([
                         (CMD.to_string(), TaskArgValue::Str("GET probe".to_string())),
                         (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
@@ -247,7 +245,7 @@ pub struct MonographTxCtlTask {
 
 impl MonographTxCtlTask {
     pub fn from_config(
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let conn_user = &config.connection.username;
@@ -260,12 +258,12 @@ impl MonographTxCtlTask {
         let mut db_pwd = "_NONE".to_string();
         let mut is_force_stop = false;
         match cmd_arg.clone() {
-            CommandArgs::Stop {
+            SubCommand::Stop {
                 cluster: _,
                 force,
                 all: _,
             } => is_force_stop = force,
-            CommandArgs::Status {
+            SubCommand::Status {
                 cluster: _,
                 user,
                 password,

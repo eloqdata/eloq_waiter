@@ -6,7 +6,7 @@ use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use indexmap::IndexMap;
 
@@ -14,11 +14,11 @@ use indexmap::IndexMap;
 impl TaskGroup for UpdateClusterTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let (update_eloq, update_cass) = match &cmd_arg {
-            CommandArgs::Update {
+            SubCommand::Update {
                 version, cassandra, ..
             } => (version.is_some(), cassandra.is_some()),
             _ => unreachable!(),
@@ -61,7 +61,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
         let download_task = DownloadTask::instances(DownloadTask::from_urls(downloads));
 
         // stop tx-service and log-service
-        let stop_cmd = CommandArgs::Stop {
+        let stop_cmd = SubCommand::Stop {
             cluster: cluster.clone(),
             force: false,
             all: update_cass,
@@ -72,7 +72,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
         }
 
         // start log-service and tx-service
-        let start_cmd = CommandArgs::Start { cluster };
+        let start_cmd = SubCommand::Start { cluster };
         let mut start_tasks = IndexMap::new();
         if deployment.log_service.is_some() {
             start_tasks.extend(MonographLogCtlTask::from_config(start_cmd.clone(), &config));

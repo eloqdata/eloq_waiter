@@ -6,7 +6,7 @@ use crate::handler::{
 use crate::listen_exit_signal;
 use actix_server::Server;
 use actix_web::{middleware, web, App, HttpServer};
-use cluster_mgr::cli::cmd_base::CommandExecutor;
+use cluster_mgr::cli::cmd_base::CmdExecutor;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -53,7 +53,8 @@ impl CliMgrHttpServer {
     ) -> anyhow::Result<Server> {
         let listen_addr = server_listen_addr!(addr, "127.0.0.1".to_string());
         let listen_port = server_listen_addr!(port, 8090);
-        let handler = GlobalCommandHandler::new(CommandExecutor::new(home)).await;
+        let home = CmdExecutor::home_init(home).expect("home dir init failed");
+        let handler = GlobalCommandHandler::new(CmdExecutor::new(home)).await;
         let global_handler = web::Data::new(handler);
         let server = HttpServer::new(move || {
             App::new()
