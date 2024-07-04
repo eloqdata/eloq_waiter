@@ -2,7 +2,7 @@ use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{MonitorCtlTaskGroup, TaskGroup};
 use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 impl TaskGroup for MonitorCtlTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         if config.deployment.monitor.is_none() {
@@ -24,7 +24,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
             });
         }
         let monitor_ctl_cmd = match &cmd_arg {
-            CommandArgs::Monitor {
+            SubCommand::Monitor {
                 cluster: _,
                 command,
             } => command,

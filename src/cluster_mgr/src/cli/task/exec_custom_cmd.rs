@@ -2,7 +2,7 @@ use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::{ssh, CommandArgs, CMD_OUTPUT};
+use crate::cli::{ssh, SubCommand, CMD_OUTPUT};
 use crate::config::config_base::DeploymentConfig;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -62,7 +62,7 @@ impl ExecCustomCommand {
     }
 
     pub fn from_config(
-        cmd: &CommandArgs,
+        cmd: &SubCommand,
         task: &str,
         content: String,
         config: &DeploymentConfig,

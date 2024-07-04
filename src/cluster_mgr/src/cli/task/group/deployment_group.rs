@@ -5,7 +5,7 @@ use crate::cli::task::local_copy_task::LocalCopyTask;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
 use crate::state::state_mgr::STATE_MGR;
 use indexmap::IndexMap;
@@ -32,7 +32,7 @@ impl DeploymentTaskGroup {
 impl TaskGroup for DeploymentTaskGroup {
     async fn tasks(
         &self,
-        cmd_args: CommandArgs,
+        cmd_args: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cmd_ref = cmd_args.as_ref().to_string();

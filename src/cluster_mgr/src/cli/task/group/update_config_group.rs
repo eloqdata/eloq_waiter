@@ -2,7 +2,7 @@ use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use indexmap::IndexMap;
 
@@ -10,12 +10,12 @@ use indexmap::IndexMap;
 impl TaskGroup for UpdateConfigTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cluster_name = &config.deployment.cluster_name;
         let need_restart = match cmd_arg {
-            CommandArgs::UpdateConf {
+            SubCommand::UpdateConf {
                 cluster: _,
                 restart,
             } => restart,
@@ -28,7 +28,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
         if need_restart {
             barrier.push(executable.len());
             let stop_tx_task = MonographTxCtlTask::from_config(
-                CommandArgs::Stop {
+                SubCommand::Stop {
                     cluster: cluster_name.clone(),
                     force: false,
                     all: false,
@@ -37,7 +37,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
             );
 
             let start_tx_task = MonographTxCtlTask::from_config(
-                CommandArgs::Start {
+                SubCommand::Start {
                     cluster: cluster_name.to_string(),
                 },
                 &config,

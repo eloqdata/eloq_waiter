@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
 use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::{
     DeploymentConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,
     PROMETHEUS_FILE_KEY,
@@ -34,7 +34,7 @@ macro_rules! basic_component_ctl_task {
         let monitor = $config.deployment.monitor.as_ref();
         assert!(monitor.is_some());
         let task_name = match $cmd_args.clone() {
-            CommandArgs::Monitor {
+            SubCommand::Monitor {
                 cluster: _,
                 command,
             } => {
@@ -150,7 +150,7 @@ pub struct MonitorCtlTask {
     config: DeploymentConfig,
     task_id: TaskId,
     monitor_ctl: MonitorComponentCommand,
-    cmd_args: CommandArgs,
+    cmd_args: SubCommand,
 }
 
 impl MonitorCtlTask {
@@ -158,7 +158,7 @@ impl MonitorCtlTask {
         config: DeploymentConfig,
         task_id: TaskId,
         ctl_cmd: MonitorComponentCommand,
-        cmd_args: CommandArgs,
+        cmd_args: SubCommand,
     ) -> Self {
         Self {
             config,
@@ -169,21 +169,21 @@ impl MonitorCtlTask {
     }
 
     pub fn grafana_ctl_task(
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         basic_component_ctl_task!(cmd_arg, config, Grafana, grafana, GRAFANA_FILE_KEY)
     }
 
     pub fn prometheus_ctl_task(
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         basic_component_ctl_task!(cmd_arg, config, Prometheus, prometheus, PROMETHEUS_FILE_KEY)
     }
 
     pub fn exporter_ctl_task(
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: &DeploymentConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let cmd_str_ref = cmd_arg.as_ref();
@@ -270,7 +270,7 @@ impl TaskExecutor for MonitorCtlTask {
                 .await?;
 
         let cmd_str = match &self.cmd_args {
-            CommandArgs::Monitor {
+            SubCommand::Monitor {
                 cluster: _,
                 command,
             } => command.to_lowercase(),

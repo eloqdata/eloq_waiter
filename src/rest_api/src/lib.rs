@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use cluster_mgr::cli::CommandArgs;
+use cluster_mgr::cli::SubCommand;
 use cluster_mgr::config::config_base::DeploymentConfig;
 use derive_more::Error;
 use error::ResponseError;
@@ -28,7 +28,7 @@ pub struct MonographConnInfo {
 
 #[derive(Clone, Debug)]
 pub struct RequestPayload {
-    pub command: Option<CommandArgs>,
+    pub command: Option<SubCommand>,
     pub config: Option<DeploymentConfig>,
 }
 

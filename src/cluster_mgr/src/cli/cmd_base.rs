@@ -1,5 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
-use crate::cli::{upload_dir, CommandArgs, HOME_DIR};
+use crate::cli::{upload_dir, SubCommand, HOME_DIR};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::{
@@ -39,7 +39,7 @@ pub static HTTP_INTERNAL: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("can't init http client for internal use")
 });
 
-pub struct CommandExecutor {
+pub struct CmdExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
     pg_client: OnceLock<tokio_postgres::Client>,
@@ -49,7 +49,7 @@ pub struct CommandExecutor {
     pub home: PathBuf,
 }
 
-impl CommandExecutor {
+impl CmdExecutor {
     pub fn new(home: PathBuf) -> Self {
         let mut cpu_arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
         cpu_arch = match cpu_arch.as_str() {
@@ -195,10 +195,10 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn get_config(&self, cmd: CommandArgs) -> anyhow::Result<DeploymentConfig> {
+    async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<DeploymentConfig> {
         match cmd {
-            CommandArgs::Deploy { topology_file }
-            | CommandArgs::Launch {
+            SubCommand::Deploy { topology_file }
+            | SubCommand::Launch {
                 topology_file,
                 skip_deps: _,
             } => {
@@ -209,37 +209,37 @@ impl CommandExecutor {
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(config)
             }
-            CommandArgs::Demo { .. } => self.gen_demo_config(cmd).await,
-            CommandArgs::Install { cluster }
-            | CommandArgs::Stop {
+            SubCommand::Demo { .. } => self.gen_demo_config(cmd).await,
+            SubCommand::Install { cluster }
+            | SubCommand::Stop {
                 cluster,
                 force: _,
                 all: _,
             }
-            | CommandArgs::Start { cluster }
-            | CommandArgs::LogService {
+            | SubCommand::Start { cluster }
+            | SubCommand::LogService {
                 cluster,
                 command: _,
             }
-            | CommandArgs::Restart { cluster }
-            | CommandArgs::UpdateConf {
+            | SubCommand::Restart { cluster }
+            | SubCommand::UpdateConf {
                 cluster,
                 restart: _,
             }
-            | CommandArgs::Status {
+            | SubCommand::Status {
                 cluster,
                 user: _,
                 password: _,
                 wait: _,
             }
-            | CommandArgs::Monitor {
+            | SubCommand::Monitor {
                 command: _,
                 cluster,
             }
-            | CommandArgs::Inspect { cluster, .. }
-            | CommandArgs::Remove { cluster }
-            | CommandArgs::Connect { cluster }
-            | CommandArgs::Scale {
+            | SubCommand::Inspect { cluster, .. }
+            | SubCommand::Remove { cluster }
+            | SubCommand::Connect { cluster }
+            | SubCommand::Scale {
                 cluster,
                 add_tx_node: _,
                 del_tx_node: _,
@@ -251,13 +251,13 @@ impl CommandExecutor {
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
                 Ok(config)
             }
-            CommandArgs::RunDeps { topology_file }
-            | CommandArgs::Check { topology_file }
-            | CommandArgs::Exec {
+            SubCommand::RunDeps { topology_file }
+            | SubCommand::Check { topology_file }
+            | SubCommand::Exec {
                 command: _,
                 topology_file,
             } => Ok(DeploymentConfig::load(Some(topology_file))?),
-            CommandArgs::Update {
+            SubCommand::Update {
                 cluster: Some(cluster),
                 version,
                 cassandra,
@@ -306,22 +306,23 @@ impl CommandExecutor {
 
     pub async fn run(
         &'static self,
-        cmd: CommandArgs,
-        deployment_config: Option<DeploymentConfig>,
+        cmd: SubCommand,
+        config: Option<DeploymentConfig>,
+        quiet: bool,
     ) -> Result<()> {
         match &cmd {
-            CommandArgs::List => return self.list_clusters().await,
-            CommandArgs::Versions { product, store } => {
+            SubCommand::List => return self.list_clusters().await,
+            SubCommand::Versions { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await
             }
-            CommandArgs::Update { cluster: None, .. } => return self.update().await,
-            CommandArgs::Launch { .. }
-            | CommandArgs::Demo { .. }
-            | CommandArgs::Deploy { .. }
-            | CommandArgs::Update {
+            SubCommand::Update { cluster: None, .. } => return self.update().await,
+            SubCommand::Launch { .. }
+            | SubCommand::Demo { .. }
+            | SubCommand::Deploy { .. }
+            | SubCommand::Update {
                 cluster: Some(_), ..
             }
-            | CommandArgs::UpdateConf { .. } => {
+            | SubCommand::UpdateConf { .. } => {
                 std::fs::remove_dir_all(upload_dir())?;
                 std::fs::create_dir(upload_dir())?;
             }
@@ -329,7 +330,7 @@ impl CommandExecutor {
         }
 
         // fetch config from file or database
-        let config = match deployment_config {
+        let config = match config {
             Some(mut config) => {
                 config.connection.auth.check_keypair()?;
                 self.resolve_version(&mut config.deployment).await?;
@@ -341,17 +342,17 @@ impl CommandExecutor {
         };
 
         match cmd.clone() {
-            CommandArgs::Connect { .. } => {
+            SubCommand::Connect { .. } => {
                 println!("{}", config.client_conn());
             }
-            CommandArgs::Inspect { cluster: _, format } => match format {
+            SubCommand::Inspect { cluster: _, format } => match format {
                 Some(fmt) => match fmt {
                     TopoFormat::Yaml => println!("{}", config.to_yaml()),
                     TopoFormat::Json => println!("{}", config.to_json()),
                 },
                 None => println!("{:#?}", config),
             },
-            CommandArgs::Scale {
+            SubCommand::Scale {
                 cluster: _,
                 add_tx_node,
                 del_tx_node,
@@ -384,11 +385,16 @@ impl CommandExecutor {
             }
             _ => {
                 let task_mgr = self.task_mgr.clone();
+                let outfile = if quiet {
+                    let f = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(self.home.join("task_result"))?;
+                    Some(f)
+                } else {
+                    None
+                };
                 let recv_rs_and_print_join = tokio::task::spawn(async move {
-                    let not_print_task_rs = option_env!("NOT_PRINT_TASK_RESULT");
-                    if not_print_task_rs.is_none() {
-                        task_mgr.print_task_result().await;
-                    }
+                    task_mgr.write_task_result(outfile).await;
                 });
                 // Generate and run tasks
                 let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
@@ -400,10 +406,10 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn finishing(&self, cmd: CommandArgs, config: DeploymentConfig) -> Result<()> {
+    async fn finishing(&self, cmd: SubCommand, config: DeploymentConfig) -> Result<()> {
         // After all tasks finished
         match cmd {
-            CommandArgs::Launch { .. } | CommandArgs::Demo { .. } => {
+            SubCommand::Launch { .. } | SubCommand::Demo { .. } => {
                 println!("Launch cluster finished, Enjoy!");
                 println!("Connect to server: \n\t{}", config.client_conn());
                 if let Some(moni) = &config.deployment.monitor {
@@ -417,11 +423,11 @@ impl CommandExecutor {
                     );
                 }
             }
-            CommandArgs::Remove { cluster } => {
+            SubCommand::Remove { cluster } => {
                 let n = self.state_mgr.delete_cluster(&cluster).await?;
                 info!("cluster state cleared rows={}", n);
             }
-            CommandArgs::Update {
+            SubCommand::Update {
                 cluster: Some(cluster),
                 ..
             } => {
@@ -532,9 +538,9 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn gen_demo_config(&self, cmd: CommandArgs) -> Result<DeploymentConfig> {
+    async fn gen_demo_config(&self, cmd: SubCommand) -> Result<DeploymentConfig> {
         match cmd {
-            CommandArgs::Demo {
+            SubCommand::Demo {
                 product,
                 store,
                 version,

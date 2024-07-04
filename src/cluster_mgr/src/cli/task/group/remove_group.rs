@@ -6,7 +6,7 @@ use crate::cli::task::group::{CtrlDBTaskGroup, MonitorCtlTaskGroup, RemoveTaskGr
 use crate::cli::task::task_base::{
     merge_execution, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::CommandArgs;
+use crate::cli::SubCommand;
 use crate::config::config_base::DeploymentConfig;
 use crate::config::StorageProvider;
 use anyhow::bail;
@@ -17,11 +17,11 @@ use itertools::Itertools;
 impl TaskGroup for RemoveTaskGroup {
     async fn tasks(
         &self,
-        cmd_arg: CommandArgs,
+        cmd_arg: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cluster = match cmd_arg.clone() {
-            CommandArgs::Remove { cluster } => cluster,
+            SubCommand::Remove { cluster } => cluster,
             _ => {
                 unreachable!()
             }
@@ -30,7 +30,7 @@ impl TaskGroup for RemoveTaskGroup {
         let (mut barrier, mut executable) = merge_execution(vec![
             MonitorCtlTaskGroup
                 .tasks(
-                    CommandArgs::Monitor {
+                    SubCommand::Monitor {
                         cluster: cluster.clone(),
                         command: "stop".to_string(),
                     },
@@ -39,7 +39,7 @@ impl TaskGroup for RemoveTaskGroup {
                 .await?,
             CtrlDBTaskGroup
                 .tasks(
-                    CommandArgs::Stop {
+                    SubCommand::Stop {
                         cluster: cluster.clone(),
                         force: true,
                         all: true,

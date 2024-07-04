@@ -1,7 +1,6 @@
-use crate::cli::cmd_printer::{CmdPrinter, Printable};
 use crate::cli::task::group::init_task_group;
 use crate::cli::task::task_controller::TaskController;
-use crate::cli::{CommandArgs, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::load_remote_env;
 use crate::enum_into_trait;
@@ -15,6 +14,8 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs::File;
+use std::io::Write;
 use std::string::ToString;
 use thiserror::Error;
 use tracing::{debug, error, info};
@@ -353,39 +354,36 @@ impl TaskMgr {
         }
     }
 
-    pub async fn print_task_result(&self) {
-        self.recv_task_result(|task_result_pair| async {
-            let task_id: String = task_result_pair.task_id;
-            let result: TaskResultEnum = task_result_pair.result;
+    pub async fn write_task_result(&self, mut writer: Option<File>) {
+        let mut result_reader = self.task_controller.clone().try_stream();
+        while let Some(Ok(TaskResultPair { task_id, result })) = result_reader.next().await {
             match result {
                 TaskResultEnum::Success(opt_rs) => {
-                    let table_printer = CmdPrinter::new();
-                    if let Some(execution_value) = opt_rs {
-                        table_printer.add_row(
-                            task_id,
-                            execution_value,
-                            |task_id, execution_value| -> Printable {
-                                Printable {
-                                    task_id,
-                                    cmd: TaskArgValue::into_inner_value::<String>(
-                                        execution_value.get(CMD).unwrap().clone(),
-                                    ),
-
-                                    cmd_status: if TaskArgValue::into_inner_value::<i32>(
-                                        execution_value.get(CMD_STATUS).unwrap().clone(),
-                                    ) == 0
-                                    {
-                                        "Success".green().to_string()
-                                    } else {
-                                        "Failure".red().to_string()
-                                    },
-                                    cmd_output: TaskArgValue::into_inner_value::<String>(
-                                        execution_value.get(CMD_OUTPUT).unwrap().clone(),
-                                    ),
-                                }
-                            },
+                    let start = ">>> TaskID: ";
+                    let end = "---------------------------";
+                    let out = if let Some(execution_value) = opt_rs {
+                        let cmd = TaskArgValue::into_inner_value::<String>(
+                            execution_value.get(CMD).unwrap().clone(),
                         );
-                        table_printer.simple_print();
+                        let cmd_status = if TaskArgValue::into_inner_value::<i32>(
+                            execution_value.get(CMD_STATUS).unwrap().clone(),
+                        ) == 0
+                        {
+                            "Success".green().to_string()
+                        } else {
+                            "Failure".red().to_string()
+                        };
+                        let cmd_output = TaskArgValue::into_inner_value::<String>(
+                            execution_value.get(CMD_OUTPUT).unwrap().clone(),
+                        );
+                        format!("{start}{task_id}\n{cmd}\n{cmd_status}; {cmd_output}\n{end}")
+                    } else {
+                        format!("{start}{task_id}\n{end}")
+                    };
+                    if let Some(ref mut w) = writer {
+                        w.write_all(out.as_bytes()).unwrap();
+                    } else {
+                        println!("{out}");
                     }
                 }
                 TaskResultEnum::Error(err_msg) => {
@@ -393,13 +391,12 @@ impl TaskMgr {
                     error!("{}", err_msg.red());
                 }
             }
-        })
-        .await
+        }
     }
 
     pub async fn task_context(
         &self,
-        cmd_args: CommandArgs,
+        cmd_args: SubCommand,
         config: &DeploymentConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let group = cmd_args.as_ref();
@@ -418,7 +415,7 @@ impl TaskMgr {
 
     pub async fn run_tasks(
         &'static self,
-        cmd_args: CommandArgs,
+        cmd_args: SubCommand,
         config: DeploymentConfig,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let tasks_execution = self.task_context(cmd_args.clone(), &config).await?;
@@ -427,7 +424,7 @@ impl TaskMgr {
             tasks_execution.executable.len(),
             tasks_execution.barrier
         );
-        let err_brk = !matches!(cmd_args, CommandArgs::Remove { cluster: _ });
+        let err_brk = !matches!(cmd_args, SubCommand::Remove { cluster: _ });
         self.task_controller
             .run_all_tasks(tasks_execution, config, err_brk)
             .await
