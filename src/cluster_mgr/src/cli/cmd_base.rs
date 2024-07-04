@@ -1,4 +1,5 @@
 use crate::cli::task::task_base::TaskMgr;
+use crate::cli::util::{cpu_arch, os_id, os_major_version};
 use crate::cli::{upload_dir, SubCommand, HOME_DIR};
 use crate::config::config_base::{DeploymentConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
@@ -43,30 +44,15 @@ pub struct CmdExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
     pg_client: OnceLock<tokio_postgres::Client>,
-    pub cpu_arch: String,
-    pub os_id: String,
-    pub os_version: String,
     pub home: PathBuf,
 }
 
 impl CmdExecutor {
     pub fn new(home: PathBuf) -> Self {
-        let mut cpu_arch = sysinfo::System::cpu_arch().expect("can't know CPU arch info");
-        cpu_arch = match cpu_arch.as_str() {
-            "aarch64" | "arm64" => "arm64",
-            "x86" | "x86_64" | "amd64" => "amd64",
-            _ => panic!("unsupported cpu arch {cpu_arch}"),
-        }
-        .to_owned();
-        let os_id = sysinfo::System::distribution_id();
-        let os_version = sysinfo::System::os_version().unwrap();
         Self {
             task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
             pg_client: OnceLock::new(),
-            cpu_arch,
-            os_id,
-            os_version,
             home,
         }
     }
@@ -138,16 +124,7 @@ impl CmdExecutor {
     }
 
     pub fn os_vers(&self) -> String {
-        let version = match self.os_version.find('.') {
-            Some(i) => &self.os_version[..i],
-            None => &self.os_version,
-        };
-        let os = if self.os_id.contains("centos") || self.os_id.contains("rocky") {
-            "rhel"
-        } else {
-            &self.os_id
-        };
-        format!("{os}{version}")
+        format!("{}{}", os_id(), os_major_version())
     }
 
     fn dir_home(&self) -> &str {
@@ -468,7 +445,7 @@ impl CmdExecutor {
         }
 
         let list = client
-            .query(&sql, &[&self.cpu_arch, &self.os_vers()])
+            .query(&sql, &[&cpu_arch(), &self.os_vers()])
             .await?
             .into_iter()
             .map(|row| {
@@ -492,7 +469,7 @@ impl CmdExecutor {
 
     pub async fn resolve_version(&self, cnf: &mut Deployment) -> Result<()> {
         let product = cnf.product().name().to_owned();
-        let arch = &self.cpu_arch;
+        let arch = cpu_arch();
         let os = self.os_vers();
         let store = cnf.storage_service.pretty_name();
         if cnf.version.is_some() && cnf.version_str().to_ascii_lowercase() == "latest" {
@@ -640,7 +617,7 @@ impl CmdExecutor {
 
     async fn update(&self) -> Result<()> {
         let os = self.os_vers();
-        let arch = &self.cpu_arch;
+        let arch = cpu_arch();
         let filename = format!("waiter-{os}-{arch}.tar.gz");
         let url = format!("{CDN}/waiter/{filename}");
         info!("Fetching latest package {url}");

@@ -9,6 +9,7 @@ pub mod cmd_base;
 mod cmd_printer;
 pub mod ssh;
 pub mod task;
+pub mod util;
 
 pub const CMD_STATUS: &str = "_cmd_status_";
 pub const CMD_OUTPUT: &str = "_cmd_output_";
