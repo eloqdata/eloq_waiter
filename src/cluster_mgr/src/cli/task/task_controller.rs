@@ -3,6 +3,7 @@ use crate::cli::task::task_base::{TaskInstance, TaskResultEnum, TaskResultPair};
 use crate::config::config_base::DeploymentConfig;
 use crate::post_task_execute;
 use crate::state::task_status_operation::TaskStatusEntity;
+use anyhow::bail;
 use chrono::DateTime;
 use chrono::Utc;
 use futures_async_stream::try_stream;
@@ -165,11 +166,11 @@ impl TaskController {
                 .run_task_split(task_group_string.clone(), task_split, config.clone())
                 .await?;
             if err_brk {
-                rs.iter().for_each(|pair| {
-                    if !pair.result.is_success() {
-                        panic!("failed task found")
+                for pair in rs.iter() {
+                    if let TaskResultEnum::Error(err) = &pair.result {
+                        bail!("task failed: {err}");
                     }
-                });
+                }
             }
             task_result_vec.push(rs);
         }

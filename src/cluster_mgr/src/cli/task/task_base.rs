@@ -4,6 +4,7 @@ use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeploymentConfig;
 use crate::config::load_remote_env;
 use crate::enum_into_trait;
+use anyhow::Result;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use futures::StreamExt;
@@ -354,12 +355,16 @@ impl TaskMgr {
         }
     }
 
-    pub async fn write_task_result(&self, mut writer: Option<File>) {
+    pub async fn write_task_result(&self, writer: Option<File>) -> Result<()> {
+        let mut writer: Box<dyn Write + Send> = match writer {
+            Some(w) => Box::new(w),
+            None => Box::new(std::io::stdout()),
+        };
         let mut result_reader = self.task_controller.clone().try_stream();
         while let Some(Ok(TaskResultPair { task_id, result })) = result_reader.next().await {
             match result {
                 TaskResultEnum::Success(opt_rs) => {
-                    let start = ">>> TaskID: ";
+                    let start = "=> ";
                     let end = "---------------------------";
                     let out = if let Some(execution_value) = opt_rs {
                         let cmd = TaskArgValue::into_inner_value::<String>(
@@ -376,15 +381,11 @@ impl TaskMgr {
                         let cmd_output = TaskArgValue::into_inner_value::<String>(
                             execution_value.get(CMD_OUTPUT).unwrap().clone(),
                         );
-                        format!("{start}{task_id}\n{cmd}\n{cmd_status}; {cmd_output}\n{end}")
+                        format!("{start}{task_id}\n{cmd}\n{cmd_status}; {cmd_output}\n{end}\n")
                     } else {
-                        format!("{start}{task_id}\n{end}")
+                        format!("{start}{task_id}\n{end}\n")
                     };
-                    if let Some(ref mut w) = writer {
-                        w.write_all(out.as_bytes()).unwrap();
-                    } else {
-                        println!("{out}");
-                    }
+                    writer.write_all(out.as_bytes())?;
                 }
                 TaskResultEnum::Error(err_msg) => {
                     let err_msg = format!(r#"task {task_id} failed. cause by {err_msg}"#);
@@ -392,6 +393,7 @@ impl TaskMgr {
                 }
             }
         }
+        Ok(())
     }
 
     pub async fn task_context(

@@ -373,7 +373,10 @@ impl CmdExecutor {
                     None
                 };
                 let recv_rs_and_print_join = tokio::task::spawn(async move {
-                    task_mgr.write_task_result(outfile).await;
+                    task_mgr
+                        .write_task_result(outfile)
+                        .await
+                        .expect("write task result failed");
                 });
                 // Generate and run tasks
                 let rs = self.task_mgr.run_tasks(cmd.clone(), config.clone()).await?;
