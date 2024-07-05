@@ -1,13 +1,13 @@
-FROM centos:7
+FROM centos:8
 
 RUN set -eux; \
-    sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo; \
-    sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo; \
-    sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo; \
-    yum install -y epel-release; \
-    yum update -y; \
-    yum install -y sudo openssh-server iproute redis; \
-    yum clean all;
+    # https://stackoverflow.com/questions/70963985/error-failed-to-download-metadata-for-repo-appstream-cannot-prepare-internal
+    sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* ; \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* ; \
+    dnf install -y epel-release; \
+    dnf update -y; \
+    dnf install -y sudo openssh-server iproute redis; \
+    dnf clean all;
 
 RUN useradd -rm -s /bin/bash -g root -G wheel eloquser && \
     echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \

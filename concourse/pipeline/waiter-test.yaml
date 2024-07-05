@@ -106,13 +106,13 @@ resources:
     source:
       username: monographdb
       password: Mono_cz158#
-      repository: monographdb/monograph-dev-ci-centos7
+      repository: monographdb/waiter-test-centos7
   - name: image_centos8
     type: registry-image
     source:
       username: monographdb
       password: Mono_cz158#
-      repository: monographdb/monograph-dev-ci-centos8
+      repository: monographdb/waiter-test-centos8
   - name: image_rocky9
     type: registry-image
     source:

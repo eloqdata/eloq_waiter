@@ -1,1 +1,1 @@
-test-centos7.dockerfile
+test-centos8.dockerfile
