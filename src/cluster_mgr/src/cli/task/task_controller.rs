@@ -9,7 +9,7 @@ use chrono::Utc;
 use futures_async_stream::try_stream;
 use itertools::Itertools;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct TaskController {
@@ -76,6 +76,16 @@ impl TaskController {
             };
             if is_finish {
                 break;
+            }
+        }
+    }
+
+    pub async fn recv(&self) -> Option<TaskResultPair> {
+        match self.rx.recv() {
+            Ok(pair) => Some(pair),
+            Err(err) => {
+                warn!("task controller recevied: {err}");
+                None
             }
         }
     }
