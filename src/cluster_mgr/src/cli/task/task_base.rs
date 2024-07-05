@@ -355,11 +355,7 @@ impl TaskMgr {
         }
     }
 
-    pub async fn write_task_result(&self, writer: Option<File>) -> Result<()> {
-        let mut writer: Box<dyn Write + Send> = match writer {
-            Some(w) => Box::new(w),
-            None => Box::new(std::io::stdout()),
-        };
+    pub async fn write_task_result(&self, mut writer: Option<File>) -> Result<()> {
         let mut result_reader = self.task_controller.clone().try_stream();
         while let Some(Ok(TaskResultPair { task_id, result })) = result_reader.next().await {
             match result {
@@ -381,7 +377,10 @@ impl TaskMgr {
                         execution_value.get(CMD_OUTPUT).unwrap().clone(),
                     );
                     let s = format!("{start}{task_id}\n{cmd}\n{status}; {cmd_out}\n{end}\n");
-                    writer.write_all(s.as_bytes())?;
+                    match writer {
+                        Some(ref mut w) => w.write_all(s.as_bytes())?,
+                        None => println!("{s}"),
+                    }
                 }
                 TaskResultEnum::Success(None) => info!("task {task_id} finished"),
                 TaskResultEnum::Error(err_msg) => error!("{task_id} failed: {err_msg}"),
