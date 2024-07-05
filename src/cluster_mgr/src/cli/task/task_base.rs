@@ -356,10 +356,12 @@ impl TaskMgr {
     }
 
     pub async fn write_task_result(&self, mut writer: Option<File>) -> Result<()> {
-        let mut result_reader = self.task_controller.clone().try_stream();
-        while let Some(Ok(TaskResultPair { task_id, result })) = result_reader.next().await {
+        while let Some(TaskResultPair { task_id, result }) = self.task_controller.recv().await {
             match result {
                 TaskResultEnum::Success(Some(execution_value)) => {
+                    if execution_value.contains_key("_FINISH_SIGNAL") {
+                        break;
+                    }
                     let start = "=> ";
                     let end = "---------------------------";
                     let cmd = TaskArgValue::into_inner_value::<String>(

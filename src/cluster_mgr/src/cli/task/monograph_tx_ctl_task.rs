@@ -213,9 +213,9 @@ impl RedisProbe {
             match client.get_connection() {
                 Ok(_) => {
                     return Ok(HashMap::from([
-                        (CMD.to_string(), TaskArgValue::Str("GET probe".to_string())),
+                        (CMD.to_string(), TaskArgValue::Str(url)),
                         (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
-                        (CMD_OUTPUT.to_string(), TaskArgValue::Str("nil".to_owned())),
+                        (CMD_OUTPUT.to_string(), TaskArgValue::Str("OK".to_owned())),
                     ]));
                 }
                 Err(err) => {
