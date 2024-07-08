@@ -4,66 +4,78 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::util::{os_id, os_major_version};
 use crate::config::config_base::DeployConfig;
-use anyhow::bail;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use indexmap::IndexMap;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::vec;
 use tracing::info;
-use users::get_current_uid;
 
 #[derive(Clone, Debug)]
-pub struct InstallDepPkg {
-    install_dep_cmd: String,
+pub struct DepPkgTask {
     task_id: TaskId,
     config: DeployConfig,
+    prepare: Vec<String>,
+    head: String,
+    pkgs: Vec<String>,
+    pg_bar: ProgressBar,
 }
 
-impl InstallDepPkg {
-    pub fn from_config(config: &DeployConfig) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+impl DepPkgTask {
+    pub fn from_config(config: &DeployConfig) -> Result<IndexMap<TaskId, TaskInstance>> {
         let os_name = os_id();
         let version = os_major_version();
-        let deps = DeployConfig::load_runtime_deps_by_os(&os_name)?;
         info!("RuntimeDep from_config = {os_name} {version}");
-        let  cmd_header = match os_name.as_str() {
-            "ubuntu" => vec![
-                "apt update", 
-                "DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends"],
-            "rhel" => 
-                match version.as_str() {
-                    "7"=> vec![
-                        "yum install -y epel-release", 
-                        "yum update -y", 
-                        "yum install -y"],
-                    "8" => vec![
+        let (prepare, head);
+        match os_name.as_str() {
+            "ubuntu" => {
+                prepare = vec!["apt update"];
+                head = "DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends";
+            }
+            "rhel" => match version.as_str() {
+                "7" => {
+                    prepare = vec!["yum install -y epel-release", "yum update -y"];
+                    head = "yum install -y";
+                }
+                "8" => {
+                    prepare = vec![
                         "dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm", 
                         "/usr/bin/crb enable", 
                         "dnf install -y epel-release", 
-                        "dnf update -y", 
-                        "dnf install -y"],
-                    "9" => vec![
+                        "dnf update -y"];
+                    head = "dnf install -y";
+                }
+                "9" => {
+                    prepare = vec![
                         "dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm", 
                         "/usr/bin/crb enable", 
                         "dnf install -y epel-release", 
-                        "dnf update -y", 
-                        "dnf install -y"],
-                    _ => unreachable!()
+                        "dnf update -y"
+                        ];
+                    head = "dnf install -y";
                 }
-            _=> {
-                bail!("For now MonographDB only run on Ubuntu or Centos7/Centos8");
+                _ => unreachable!(),
+            },
+            _ => {
+                bail!("for now only support ubuntu/rhel linux");
             }
         };
-        let cmd_header = if get_current_uid() == 0 {
-            cmd_header.join(" && ")
+        let (prepare, head) = if config.connection.username == "root" {
+            let p = prepare.into_iter().map(|s| s.to_owned()).collect_vec();
+            (p, head.to_owned())
         } else {
-            cmd_header
-                .iter()
-                .map(|e| format!("sudo {}", e))
-                .collect::<Vec<String>>()
-                .join(" && ")
+            let p = prepare
+                .into_iter()
+                .map(|s| format!("sudo {s}"))
+                .collect_vec();
+            let h = format!("sudo {head}");
+            (p, h)
         };
-        let install_dep_cmd = format!("{cmd_header} {}", deps.join(" "));
+        let pkgs = DeployConfig::load_runtime_deps_by_os(&os_name)?;
 
+        let mpg_bar = MultiProgress::new();
         let conn_user = config.connection.clone().username;
         let ssh_port = config.connection.ssh_port();
         let host_values = config.get_unique_host_list();
@@ -75,20 +87,26 @@ impl InstallDepPkg {
                     task: format!("{os_name}_install_deps"),
                     host: host_name.clone(),
                 };
+                let pg_bar = mpg_bar.add(ProgressBar::hidden());
+                let task = DepPkgTask {
+                    task_id: task_id.clone(),
+                    config: config.clone(),
+                    prepare: prepare.clone(),
+                    head: head.clone(),
+                    pkgs: pkgs.clone(),
+                    pg_bar,
+                };
+                let task_host = TaskHost::Remote {
+                    user: conn_user.clone(),
+                    port: ssh_port as usize,
+                    hosts: host_name.to_string(),
+                };
                 (
-                    task_id.clone(),
+                    task_id,
                     TaskInstance {
                         task_input: HashMap::new(),
-                        task: Box::new(InstallDepPkg::new(
-                            install_dep_cmd.clone(),
-                            task_id,
-                            config.clone(),
-                        )),
-                        task_host: TaskHost::Remote {
-                            user: conn_user.clone(),
-                            port: ssh_port as usize,
-                            hosts: host_name.to_string(),
-                        },
+                        task: Box::new(task),
+                        task_host,
                     },
                 )
             })
@@ -96,18 +114,10 @@ impl InstallDepPkg {
 
         Ok(install_dep_task)
     }
-
-    pub fn new(install_dep_cmd: String, task_id: TaskId, config: DeployConfig) -> Self {
-        Self {
-            install_dep_cmd,
-            task_id,
-            config,
-        }
-    }
 }
 
 #[async_trait]
-impl TaskExecutor for InstallDepPkg {
+impl TaskExecutor for DepPkgTask {
     fn identifier(&self) -> TaskId {
         self.task_id.clone()
     }
@@ -116,30 +126,36 @@ impl TaskExecutor for InstallDepPkg {
         &self,
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
-    ) -> anyhow::Result<Option<ExecutionValue>> {
+    ) -> Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.pretty_string());
-        // TODO(zhanghao): progress bar
-        let ssh_session = SSHSession::from_task_host(
+        let (_, _, host) = task_host.ssh_conn_tuple();
+        let session = SSHSession::from_task_host(
             task_host.clone(),
             self.config.connection.ssh_auth_key().unwrap(),
         )
         .await?;
-        let (code, out) = ssh_session.execute(&self.install_dep_cmd).await?;
-        ssh_session.close().await?;
-        if code != 0 {
-            let host = match task_host {
-                TaskHost::Local => "127.0.0.1".to_owned(),
-                TaskHost::Remote {
-                    user: _,
-                    port: _,
-                    hosts,
-                } => hosts,
-            };
-            anyhow::bail!(
-                "install dependency failed on {host}, code={code}: {}: {out}",
-                self.install_dep_cmd
-            )
+        let pkg_cmds = self
+            .pkgs
+            .iter()
+            .map(|s| format!("{} {s}", self.head))
+            .collect_vec();
+        let temp = "{elapsed} [{msg}] {wide_bar:.cyan/blue} {pos}/{len}";
+        let style = ProgressStyle::default_bar().template(temp)?;
+        self.pg_bar.set_style(style);
+        self.pg_bar
+            .set_length((self.prepare.len() + pkg_cmds.len()) as u64);
+        for cmd in self.prepare.iter().chain(pkg_cmds.iter()) {
+            let msg = format!("{host} {cmd}");
+            self.pg_bar.set_message(msg);
+            let (code, out) = session.execute(&cmd).await?;
+            if code != 0 {
+                bail!("install package failed on {host}: '{cmd}' :{code}, {out}")
+            }
+            self.pg_bar.inc(1);
         }
+        let msg = format!("{host} done!");
+        self.pg_bar.finish_with_message(msg);
+        session.close().await?;
         Ok(None)
     }
 }
