@@ -3,7 +3,7 @@ mod check_group;
 mod custom_cmd_group;
 mod db_cluster_ctrl_group;
 mod deployment_group;
-mod install_runtime_deps_group;
+mod install_dep_pkg;
 mod launch_group;
 mod log_srv_ctl_group;
 mod monitor_ctl_group;
@@ -13,7 +13,7 @@ mod update_config_group;
 
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use dyn_clone::DynClone;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -25,7 +25,7 @@ pub trait TaskGroup: Send + Sync + DynClone {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext>;
 }
 
@@ -52,7 +52,7 @@ task_group_boxed! {
     {DeploymentTaskGroup},
     {CtrlDBTaskGroup},
     {CustomCmdTaskGroup},
-    {InstallRuntimeDepsTaskGroup},
+    {InstallDepPkgTaskGroup},
     {MonitorCtlTaskGroup},
     {LogServiceCtlTaskGroup},
     {UpdateClusterTaskGroup},
@@ -74,7 +74,7 @@ pub fn init_task_group() -> &'static HashMap<String, Box<dyn TaskGroup>> {
             ("restart".to_string(), CtrlDBTaskGroup::boxed()),
             ("status".to_string(), CtrlDBTaskGroup::boxed()),
             ("exec_cmd".to_string(), CustomCmdTaskGroup::boxed()),
-            ("run-deps".to_string(), InstallRuntimeDepsTaskGroup::boxed()),
+            ("run-deps".to_string(), InstallDepPkgTaskGroup::boxed()),
             ("monitor".to_string(), MonitorCtlTaskGroup::boxed()),
             ("log-srv".to_string(), LogServiceCtlTaskGroup::boxed()),
             ("update".to_string(), UpdateClusterTaskGroup::boxed()),

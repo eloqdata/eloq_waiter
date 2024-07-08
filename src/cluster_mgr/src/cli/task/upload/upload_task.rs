@@ -3,19 +3,19 @@ use crate::cli::ssh::SSHSession;
 use crate::cli::task::task_base::CmdErr;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
 use crate::cli::task::upload::upload_task_builder::{SCP_COMMAND, SOURCE_IP};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::task_return_value;
 use std::collections::HashMap;
 use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct UploadTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
 }
 
 impl UploadTask {
-    pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
+    pub fn new(config: DeployConfig, task_id: TaskId) -> Self {
         Self { config, task_id }
     }
 }

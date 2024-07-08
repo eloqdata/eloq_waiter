@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
 use crate::cli::{SubCommand, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::storage_service_config::Cassandra;
 use crate::config::DeploymentPackage;
 use crate::get_ctl_cmd_string;
@@ -142,15 +142,12 @@ get_ctl_cmd_string!(CassandraCmd, ProcessInfo, Start, Status, Stop);
 
 #[derive(Clone, Debug)]
 pub struct CassandraCtlTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
 }
 
 impl CassandraCtlTask {
-    pub fn from_config(
-        cmd: SubCommand,
-        config: &DeploymentConfig,
-    ) -> IndexMap<TaskId, TaskInstance> {
+    pub fn from_config(cmd: SubCommand, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let cassandra_task_ctrl_attr = match cmd {
             SubCommand::Start { cluster: _ } | SubCommand::Restart { cluster: _ } => (
                 "start",
@@ -227,7 +224,7 @@ impl CassandraCtlTask {
         barrier
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
+    pub fn new(config: DeployConfig, task_id: TaskId) -> Self {
         Self { config, task_id }
     }
 

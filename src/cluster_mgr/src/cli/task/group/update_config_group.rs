@@ -3,7 +3,7 @@ use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -11,7 +11,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cluster_name = &config.deployment.cluster_name;
         let need_restart = match cmd_arg {

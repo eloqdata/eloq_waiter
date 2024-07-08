@@ -5,7 +5,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::CMD_OUTPUT;
-use crate::config::config_base::{export_asan, DeploymentConfig};
+use crate::config::config_base::{export_asan, DeployConfig};
 use crate::config::deployment::{Product, Version};
 use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
 use crate::task_return_value;
@@ -17,13 +17,13 @@ use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct MonographInstall {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
 }
 
 impl MonographInstall {
     pub fn from_config(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         task_host: TaskHost,
     ) -> IndexMap<TaskId, TaskInstance> {
         let (_, _, host) = task_host.ssh_conn_tuple();
@@ -42,7 +42,7 @@ impl MonographInstall {
         )])
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
+    pub fn new(config: DeployConfig, task_id: TaskId) -> Self {
         Self { config, task_id }
     }
 

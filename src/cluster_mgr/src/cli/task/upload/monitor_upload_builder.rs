@@ -2,7 +2,7 @@ use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
-use crate::config::config_base::{DeploymentConfig, UploadFile};
+use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::monitor::{
     Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DASHBOARD_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR,
     MONOGRAPH_TX_JOB_NAME, MYSQL_EXPORTER_JOB_NAME, NODE_EXPORTER_JOB_NAME, PROMETHEUS_CONFIG_DIR,
@@ -16,7 +16,7 @@ use std::path::PathBuf;
 pub struct MonitorInfraConfUploadBuilder;
 
 impl MonitorInfraConfUploadBuilder {
-    fn dashboard_upload_files(&self, config: &DeploymentConfig) -> Option<UploadFile> {
+    fn dashboard_upload_files(&self, config: &DeployConfig) -> Option<UploadFile> {
         let files = config.load_monitor_dashboard(None);
         let install_dir = config.install_dir();
         let dashboard_conf_path_string = format!("{install_dir}/{GRAFANA_DASHBOARD_CONFIG_DIR}");
@@ -66,7 +66,7 @@ impl MonitorInfraConfUploadBuilder {
     fn monitor_config_upload_files(
         &self,
         monitor: &Monitor,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> Vec<UploadFile> {
         let all_host = config.get_host_as_map();
         let install_dir = config.install_dir();
@@ -164,7 +164,7 @@ impl MonitorInfraConfUploadBuilder {
 }
 
 impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let monitor_opt = config.deployment.monitor.as_ref();
         let source_host = get_source_host(None);
         if let Some(monitor) = monitor_opt {

@@ -3,7 +3,7 @@ use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::util::{os_id, os_major_version};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use anyhow::bail;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -13,19 +13,17 @@ use tracing::info;
 use users::get_current_uid;
 
 #[derive(Clone, Debug)]
-pub struct RuntimeDepsInstallation {
+pub struct InstallDepPkg {
     install_dep_cmd: String,
     task_id: TaskId,
-    config: DeploymentConfig,
+    config: DeployConfig,
 }
 
-impl RuntimeDepsInstallation {
-    pub fn from_config(
-        config: &DeploymentConfig,
-    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+impl InstallDepPkg {
+    pub fn from_config(config: &DeployConfig) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let os_name = os_id();
         let version = os_major_version();
-        let deps = DeploymentConfig::load_runtime_deps_by_os(&os_name)?;
+        let deps = DeployConfig::load_runtime_deps_by_os(&os_name)?;
         info!("RuntimeDep from_config = {os_name} {version}");
         let  cmd_header = match os_name.as_str() {
             "ubuntu" => vec![
@@ -81,7 +79,7 @@ impl RuntimeDepsInstallation {
                     task_id.clone(),
                     TaskInstance {
                         task_input: HashMap::new(),
-                        task: Box::new(RuntimeDepsInstallation::new(
+                        task: Box::new(InstallDepPkg::new(
                             install_dep_cmd.clone(),
                             task_id,
                             config.clone(),
@@ -99,7 +97,7 @@ impl RuntimeDepsInstallation {
         Ok(install_dep_task)
     }
 
-    pub fn new(install_dep_cmd: String, task_id: TaskId, config: DeploymentConfig) -> Self {
+    pub fn new(install_dep_cmd: String, task_id: TaskId, config: DeployConfig) -> Self {
         Self {
             install_dep_cmd,
             task_id,
@@ -109,7 +107,7 @@ impl RuntimeDepsInstallation {
 }
 
 #[async_trait]
-impl TaskExecutor for RuntimeDepsInstallation {
+impl TaskExecutor for InstallDepPkg {
     fn identifier(&self) -> TaskId {
         self.task_id.clone()
     }

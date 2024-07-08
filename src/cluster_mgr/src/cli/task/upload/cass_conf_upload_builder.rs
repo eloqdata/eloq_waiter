@@ -2,7 +2,7 @@ use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
-use crate::config::config_base::{DeploymentConfig, UploadFile};
+use crate::config::config_base::{DeployConfig, UploadFile};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
@@ -10,7 +10,7 @@ pub struct CassConfUploadBuilder;
 
 impl UploadTaskBuilder for CassConfUploadBuilder {
     /// Upload the cassandra.yaml and jvm11-server.options or cassandra-env.sh file to the remote host (remote host list from deployment.yaml).
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let deployment = config.deployment.clone();
         let install_dir = config.install_dir();
         let cass_config_rs = config

@@ -1,17 +1,17 @@
-use crate::cli::task::group::{InstallRuntimeDepsTaskGroup, TaskGroup};
-use crate::cli::task::runtime_deps_install::RuntimeDepsInstallation;
+use crate::cli::task::group::{InstallDepPkgTaskGroup, TaskGroup};
+use crate::cli::task::install_dep_pkg::InstallDepPkg;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 
 #[async_trait::async_trait]
-impl TaskGroup for InstallRuntimeDepsTaskGroup {
+impl TaskGroup for InstallDepPkgTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let install_runtime_deps = RuntimeDepsInstallation::from_config(&config)?;
+        let install_runtime_deps = InstallDepPkg::from_config(&config)?;
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),
             barrier: None,

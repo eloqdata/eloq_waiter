@@ -4,7 +4,7 @@ use crate::cli::task::task_base::{
     TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::{cassandra_used_ports, DeploymentPackage};
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -38,7 +38,7 @@ impl TaskGroup for CheckTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let mut executable = IndexMap::new();
         let input = HashMap::new();

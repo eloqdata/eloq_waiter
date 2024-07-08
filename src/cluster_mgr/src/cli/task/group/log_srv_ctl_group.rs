@@ -3,7 +3,7 @@ use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -11,7 +11,7 @@ impl TaskGroup for LogServiceCtlTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let log_ctl_cmd_name = match cmd_arg.clone() {
             SubCommand::LogService {

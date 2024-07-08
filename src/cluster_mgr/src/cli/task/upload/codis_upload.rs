@@ -4,7 +4,7 @@ use crate::{
         upload::upload_task_builder::{build_task_instance, get_source_host, UploadTaskBuilder},
     },
     config::{
-        config_base::{DeploymentConfig, UploadFile},
+        config_base::{DeployConfig, UploadFile},
         deployment::Codis,
     },
 };
@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 pub struct CodisUpload;
 
 impl UploadTaskBuilder for CodisUpload {
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let codis = config
             .deployment
             .codis

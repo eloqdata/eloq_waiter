@@ -2,7 +2,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{download_dir, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -41,9 +41,7 @@ macro_rules! build_copy_task_instances {
 }
 
 impl LocalCopyTask {
-    pub fn form_config(
-        config: &DeploymentConfig,
-    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+    pub fn form_config(config: &DeployConfig) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let mut local_copy_task_instance = IndexMap::new();
         let download_links = config.deployment.all_download_links()?;
         download_links

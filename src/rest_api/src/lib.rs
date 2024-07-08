@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use cluster_mgr::cli::SubCommand;
-use cluster_mgr::config::config_base::DeploymentConfig;
+use cluster_mgr::config::config_base::DeployConfig;
 use derive_more::Error;
 use error::ResponseError;
 use serde_json::Value;
@@ -29,7 +29,7 @@ pub struct MonographConnInfo {
 #[derive(Clone, Debug)]
 pub struct RequestPayload {
     pub command: Option<SubCommand>,
-    pub config: Option<DeploymentConfig>,
+    pub config: Option<DeployConfig>,
 }
 
 #[derive(Debug, Error)]

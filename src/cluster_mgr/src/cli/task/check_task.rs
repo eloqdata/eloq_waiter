@@ -3,7 +3,7 @@ use crate::{
         ssh,
         task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId},
     },
-    config::{config_base::DeploymentConfig, DeploymentPackage},
+    config::{config_base::DeployConfig, DeploymentPackage},
 };
 use anyhow::{bail, Ok, Result};
 use std::collections::HashMap;
@@ -12,11 +12,11 @@ use std::collections::HashMap;
 pub struct CheckTask {
     kind: DeploymentPackage,
     host: String,
-    config: DeploymentConfig,
+    config: DeployConfig,
 }
 
 impl CheckTask {
-    pub fn new(kind: DeploymentPackage, host: String, config: DeploymentConfig) -> Self {
+    pub fn new(kind: DeploymentPackage, host: String, config: DeployConfig) -> Self {
         CheckTask { kind, host, config }
     }
 

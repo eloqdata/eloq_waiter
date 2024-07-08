@@ -4,7 +4,7 @@ use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{file_process_progress, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::deployment::Codis;
 use crate::config::DownloadUrl;
 use anyhow::{anyhow, Ok, Result};
@@ -29,7 +29,7 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
-    pub fn from_config(config: &DeploymentConfig) -> Result<IndexMap<TaskId, TaskInstance>> {
+    pub fn from_config(config: &DeployConfig) -> Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
         let tx_download_str = deployment_ref.tx_image();
         let tx_download_url = DownloadUrl::from_url_str(tx_download_str)?;

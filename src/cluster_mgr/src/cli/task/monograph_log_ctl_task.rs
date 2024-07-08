@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
 use crate::cli::task::task_utils::{check_pid, parse_process_pid, PROCESS_PID};
 use crate::cli::SubCommand;
 use crate::cli::CMD_STATUS;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::log_service::LogProcessKey;
 use crate::{get_ctl_cmd_string, task_return_value};
 use futures::future;
@@ -34,7 +34,7 @@ get_ctl_cmd_string!(LogCtlCmd, Start, Stop, Status);
 
 impl LogCtlCmd {
     pub fn build_cmd(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         cmd_arg: SubCommand,
     ) -> HashMap<LogProcessKey, LogCtlCmd> {
         LogCtlCmd::build_cmd_with_predicate(
@@ -45,7 +45,7 @@ impl LogCtlCmd {
     }
 
     fn build_cmd_with_predicate<F>(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         cmd_arg: SubCommand,
         test: Option<Box<F>>,
     ) -> HashMap<LogProcessKey, LogCtlCmd>
@@ -136,14 +136,14 @@ impl LogCtlCmd {
 
 #[derive(Clone, Debug)]
 pub struct MonographLogCtlTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
     log_cmd: HashMap<LogProcessKey, LogCtlCmd>,
 }
 
 impl MonographLogCtlTask {
     pub fn new(
-        config: DeploymentConfig,
+        config: DeployConfig,
         task_id: TaskId,
         log_cmd: HashMap<LogProcessKey, LogCtlCmd>,
     ) -> Self {
@@ -171,7 +171,7 @@ impl MonographLogCtlTask {
 
     pub fn from_config(
         cmd_arg: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let deployment_ref = &config.deployment;
         let has_log_srv = deployment_ref.log_service.is_some();

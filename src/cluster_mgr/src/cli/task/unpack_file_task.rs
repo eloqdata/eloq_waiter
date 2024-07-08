@@ -2,7 +2,7 @@ use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::config::config_base::{DeploymentConfig, LOG_SERVICE_HOME};
+use crate::config::config_base::{DeployConfig, LOG_SERVICE_HOME};
 use crate::config::storage_service_config::CassKind;
 use crate::config::DownloadUrl;
 use crate::task_return_value;
@@ -25,7 +25,7 @@ pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
 
 #[derive(Debug, Clone)]
 pub struct UnpackFileTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
     tarball: String,
     unpack_dest: String,
@@ -43,9 +43,7 @@ fn extract_unpacked_name(raw_file_name: &str) -> String {
 }
 
 impl UnpackFileTask {
-    pub fn from_config(
-        config: &DeploymentConfig,
-    ) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
+    pub fn from_config(config: &DeployConfig) -> anyhow::Result<IndexMap<TaskId, TaskInstance>> {
         let deployment_ref = &config.deployment;
 
         let tx_image = DownloadUrl::from_url_str(deployment_ref.tx_image())
@@ -106,7 +104,7 @@ impl UnpackFileTask {
         Ok(unpack_task_instance)
     }
 
-    pub fn unpack_eloqservers(config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    pub fn unpack_eloqservers(config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let deploy_ref = &config.deployment;
         let image = deploy_ref.tx_image().split('/').last().unwrap();
         let tx_home = config.product().home().to_owned();
@@ -128,10 +126,7 @@ impl UnpackFileTask {
         tasks
     }
 
-    pub fn unpack_cassandra(
-        config: &DeploymentConfig,
-        ex_cnf: bool,
-    ) -> IndexMap<TaskId, TaskInstance> {
+    pub fn unpack_cassandra(config: &DeployConfig, ex_cnf: bool) -> IndexMap<TaskId, TaskInstance> {
         let deploy_ref = &config.deployment;
         if let Some(cass) = &deploy_ref.storage_service.cassandra {
             if let CassKind::Internal(cdp) = &cass.kind {
@@ -157,7 +152,7 @@ impl UnpackFileTask {
     }
 
     fn make_task_pair(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         host: &str,
         image: &str,
         home: &str,

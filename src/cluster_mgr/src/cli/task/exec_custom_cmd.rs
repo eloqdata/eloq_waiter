@@ -3,7 +3,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{ssh, SubCommand, CMD_OUTPUT};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -14,13 +14,13 @@ use tracing::{debug, info};
 pub struct ExecCustomCommand {
     cmd: String,
     task_id: TaskId,
-    config: DeploymentConfig,
+    config: DeployConfig,
 }
 
 impl ExecCustomCommand {
     pub fn build_task_by_host(
         cmd_string: String,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         hosts: Vec<String>,
         task_name: Option<String>,
     ) -> IndexMap<TaskId, TaskInstance> {
@@ -65,7 +65,7 @@ impl ExecCustomCommand {
         cmd: &SubCommand,
         task: &str,
         content: String,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let all_hosts = config.get_unique_host_list();
         let conn_user = &config.connection.username;
@@ -99,7 +99,7 @@ impl ExecCustomCommand {
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
-    pub fn new(cmd: String, task_id: TaskId, config: DeploymentConfig) -> Self {
+    pub fn new(cmd: String, task_id: TaskId, config: DeployConfig) -> Self {
         Self {
             cmd,
             task_id,

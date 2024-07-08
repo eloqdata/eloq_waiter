@@ -2,14 +2,14 @@ use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{CustomCmdTaskGroup, TaskGroup};
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 
 #[async_trait::async_trait]
 impl TaskGroup for CustomCmdTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cmd_ref = cmd_arg.as_ref().to_string();
         let user_command = match cmd_arg.clone() {
