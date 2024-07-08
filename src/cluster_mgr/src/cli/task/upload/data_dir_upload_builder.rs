@@ -3,14 +3,14 @@ use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
 use crate::cli::upload_dir;
-use crate::config::config_base::{DeploymentConfig, UploadFile};
+use crate::config::config_base::{DeployConfig, UploadFile};
 use indexmap::IndexMap;
 
 pub struct DataDirUploadBuilder;
 
 impl UploadTaskBuilder for DataDirUploadBuilder {
     /// Upload the MonographDB data_dir to the remote host.
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let deployment_ref = &config.deployment;
         let bootstrap_host = deployment_ref.bootstrap_host();
         let local = get_source_host(None);

@@ -7,7 +7,7 @@ use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use indexmap::IndexMap;
 
 #[async_trait::async_trait]
@@ -15,7 +15,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let (update_eloq, update_cass) = match &cmd_arg {
             SubCommand::Update {

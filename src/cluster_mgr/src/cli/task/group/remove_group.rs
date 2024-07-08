@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
     merge_execution, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::StorageProvider;
 use anyhow::bail;
 use indexmap::IndexMap;
@@ -18,7 +18,7 @@ impl TaskGroup for RemoveTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let cluster = match cmd_arg.clone() {
             SubCommand::Remove { cluster } => cluster,

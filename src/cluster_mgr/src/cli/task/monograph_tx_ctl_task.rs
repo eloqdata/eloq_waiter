@@ -8,7 +8,7 @@ use crate::cli::task::task_utils::{
     check_pid, ctl_action_wait_complete, parse_process_pid, PROCESS_PID,
 };
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
@@ -177,7 +177,7 @@ impl MySQLProbe {
     }
 
     pub async fn ssh_probe(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         ssh_sess: &SSHSession,
         mut wait_secs: i32,
     ) -> anyhow::Result<ExecutionValue> {
@@ -238,7 +238,7 @@ impl RedisProbe {
 
 #[derive(Debug, Clone)]
 pub struct MonographTxCtlTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
     ctl_cmd: TxCtlCmd,
 }
@@ -246,7 +246,7 @@ pub struct MonographTxCtlTask {
 impl MonographTxCtlTask {
     pub fn from_config(
         cmd_arg: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
@@ -338,7 +338,7 @@ impl MonographTxCtlTask {
             .collect::<IndexMap<TaskId, TaskInstance>>()
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId, ctl_cmd: TxCtlCmd) -> Self {
+    pub fn new(config: DeployConfig, task_id: TaskId, ctl_cmd: TxCtlCmd) -> Self {
         Self {
             config,
             task_id,

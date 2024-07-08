@@ -9,7 +9,7 @@ use crate::cli::task::task_utils::{
 };
 use crate::cli::SubCommand;
 use crate::config::config_base::{
-    DeploymentConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,
+    DeployConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,
     PROMETHEUS_FILE_KEY,
 };
 use crate::config::deployment::Product;
@@ -147,7 +147,7 @@ impl MonitorComponentCommand {
 
 #[derive(Clone, Debug)]
 pub struct MonitorCtlTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
     monitor_ctl: MonitorComponentCommand,
     cmd_args: SubCommand,
@@ -155,7 +155,7 @@ pub struct MonitorCtlTask {
 
 impl MonitorCtlTask {
     pub fn new(
-        config: DeploymentConfig,
+        config: DeployConfig,
         task_id: TaskId,
         ctl_cmd: MonitorComponentCommand,
         cmd_args: SubCommand,
@@ -170,21 +170,21 @@ impl MonitorCtlTask {
 
     pub fn grafana_ctl_task(
         cmd_arg: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         basic_component_ctl_task!(cmd_arg, config, Grafana, grafana, GRAFANA_FILE_KEY)
     }
 
     pub fn prometheus_ctl_task(
         cmd_arg: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         basic_component_ctl_task!(cmd_arg, config, Prometheus, prometheus, PROMETHEUS_FILE_KEY)
     }
 
     pub fn exporter_ctl_task(
         cmd_arg: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
         let cmd_str_ref = cmd_arg.as_ref();
         let monitor = config.deployment.monitor.as_ref().unwrap();

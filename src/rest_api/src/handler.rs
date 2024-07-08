@@ -4,7 +4,7 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use anyhow::anyhow;
 use cluster_mgr::cli::task::task_base::TaskId;
 use cluster_mgr::cli::SubCommand;
-use cluster_mgr::config::config_base::{DeploymentConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
+use cluster_mgr::config::config_base::{DeployConfig, DEPLOYMENT_CHECK_SUCCESS_TASK};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -103,7 +103,7 @@ fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> SubCommand 
 pub fn ctrl_cluster(
     cmd: &str,
     global_handler: web::Data<GlobalCommandHandler>,
-    post_deployment: web::Json<DeploymentConfig>,
+    post_deployment: web::Json<DeployConfig>,
 ) {
     let cmd_without_topology_file = build_command_from_str(cmd, None);
     global_handler.submit(RequestPayload {
@@ -115,7 +115,7 @@ pub fn ctrl_cluster(
 #[post("/launch")]
 pub async fn launch_cluster(
     global_handler: web::Data<GlobalCommandHandler>,
-    post_deployment: web::Json<DeploymentConfig>,
+    post_deployment: web::Json<DeployConfig>,
 ) -> impl Responder {
     ctrl_cluster("launch", global_handler, post_deployment);
     HttpResponse::Ok().finish()
@@ -124,7 +124,7 @@ pub async fn launch_cluster(
 #[post("/deploy")]
 pub async fn deploy_cluster(
     global_handler: web::Data<GlobalCommandHandler>,
-    post_deployment: web::Json<DeploymentConfig>,
+    post_deployment: web::Json<DeployConfig>,
 ) -> impl Responder {
     ctrl_cluster("deploy", global_handler, post_deployment);
     HttpResponse::Ok().finish()
@@ -133,7 +133,7 @@ pub async fn deploy_cluster(
 #[post("/install_run_deps")]
 pub async fn install_run_deps(
     global_handler: web::Data<GlobalCommandHandler>,
-    post_deployment: web::Json<DeploymentConfig>,
+    post_deployment: web::Json<DeployConfig>,
 ) -> impl Responder {
     ctrl_cluster("run-deps", global_handler, post_deployment);
     HttpResponse::Ok().finish()

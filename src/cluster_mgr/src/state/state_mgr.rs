@@ -1,5 +1,5 @@
 use crate::cli::HOME_DIR;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::CONFIG_PATH_DIR;
 use crate::state::deployment_operation::DeploymentOperation;
 use crate::state::service_status_operation::{ServiceInstanceEntity, ServiceInstanceOperation};
@@ -116,7 +116,7 @@ impl StateMgr {
         Ok(task_status_entity)
     }
 
-    pub async fn list_deployments(&self) -> Result<Vec<DeploymentConfig>> {
+    pub async fn list_deployments(&self) -> Result<Vec<DeployConfig>> {
         let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
         let deployment_entity_vec = deployment_state
             .load(|| -> Option<QueryCondition> { None })
@@ -125,15 +125,12 @@ impl StateMgr {
             .iter()
             .map(|deployment| {
                 let config_string = &deployment.deployment_config;
-                DeploymentConfig::load_from_string(config_string.to_string()).unwrap()
+                DeployConfig::load_from_string(config_string.to_string()).unwrap()
             })
             .collect_vec())
     }
 
-    pub async fn load_deployment_from_state(
-        &self,
-        cluster: &str,
-    ) -> Result<Option<DeploymentConfig>> {
+    pub async fn load_deployment_from_state(&self, cluster: &str) -> Result<Option<DeployConfig>> {
         let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
         let deployment_entity_vec = deployment_state
             .load(|| -> Option<QueryCondition> {
@@ -146,7 +143,7 @@ impl StateMgr {
 
         if let Some(deployment_entity) = deployment_entity_vec.first() {
             let config_content = &deployment_entity.deployment_config;
-            let config = DeploymentConfig::load_from_string(config_content.to_string())?;
+            let config = DeployConfig::load_from_string(config_content.to_string())?;
             Ok(Some(config))
         } else {
             Ok(None)

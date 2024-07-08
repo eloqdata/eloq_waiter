@@ -6,7 +6,7 @@ use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::deployment;
 use indexmap::IndexMap;
 
@@ -15,7 +15,7 @@ impl TaskGroup for CtrlDBTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let stop_all = match cmd_arg.clone() {
             SubCommand::Stop {

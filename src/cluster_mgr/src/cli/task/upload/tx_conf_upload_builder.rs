@@ -2,7 +2,7 @@ use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
-use crate::config::config_base::{DeploymentConfig, UploadFile};
+use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -10,7 +10,7 @@ use itertools::Itertools;
 pub struct TxConfUpload;
 
 impl UploadTaskBuilder for TxConfUpload {
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let all_conf_path = config
             .gen_all_monograph_configs()
             .expect("Failed generate my_HOST.cnf")

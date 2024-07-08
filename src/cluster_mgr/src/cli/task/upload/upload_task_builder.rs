@@ -7,7 +7,7 @@ use crate::cli::task::upload::monograph_upload_builder::{EloqUpload, MonographUp
 use crate::cli::task::upload::tx_conf_upload_builder::TxConfUpload;
 use crate::cli::task::upload::upload_task::UploadTask;
 use crate::cli::{upload_dir, upload_host_dir};
-use crate::config::config_base::{DeploymentConfig, UploadFile};
+use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::connection::Connection;
 use crate::config::deployment::{Deployment, Product};
 use crate::config::{CREATE_MONITOR_USER_SQL_FILE, MONOGRAPH_INSTALL_SCRIPT};
@@ -28,7 +28,7 @@ pub trait UploadTaskBuilder {
     /// 3. Uploading the Monitor component, including (NodeExporter, MySQLExporter, Prometheus, Grafana, Cassandra Monitor)
     ///    and configuration files for all components.
     /// 4. Modifying and uploading the configuration files for Cassandra config (cassandra.yml, jvm11-server.options).
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance>;
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance>;
 }
 
 pub(crate) const SCP_COMMAND: &str = "_scp_cmd_";
@@ -76,7 +76,7 @@ macro_rules! build_upload_tasks {
 
 pub fn upload_tasks(
     builder_type: UploadTaskBuilderType,
-    conf: &DeploymentConfig,
+    conf: &DeployConfig,
 ) -> IndexMap<TaskId, TaskInstance> {
     match builder_type {
         UploadTaskBuilderType::CassConf => CassConfUploadBuilder {}.build(conf),
@@ -147,7 +147,7 @@ pub(crate) fn list_files_by_host(host: &str, config: &Deployment) -> Vec<String>
 pub(crate) fn build_task_instance(
     source_host: String,
     upload_file: UploadFile,
-    config: &DeploymentConfig,
+    config: &DeployConfig,
     cmd: &str,
     task_name: &str,
 ) -> (TaskId, TaskInstance) {
