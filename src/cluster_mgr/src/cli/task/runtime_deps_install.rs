@@ -120,6 +120,7 @@ impl TaskExecutor for RuntimeDepsInstallation {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.pretty_string());
+        // TODO(zhanghao): progress bar
         let ssh_session = SSHSession::from_task_host(
             task_host.clone(),
             self.config.connection.ssh_auth_key().unwrap(),

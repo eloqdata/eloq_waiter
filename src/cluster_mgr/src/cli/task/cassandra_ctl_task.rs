@@ -340,6 +340,7 @@ impl TaskExecutor for CassandraCtlTask {
         )
         .await?;
         info!("execute {}", self.task_id.pretty_string());
+        // TODO(zhanghao): notify user wait
         let cmd_str = TaskArgValue::into_inner_value::<String>(
             task_arg.get(CASSANDRA_CMD_STR).unwrap().clone(),
         );
