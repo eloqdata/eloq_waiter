@@ -1,10 +1,15 @@
 #!/bin/bash
 set -exuo
 
+PLATFORM='linux/amd64,linux/arm64'
 build_image() {
     ln -s ${IMG_KIND}-${IMG_OS}.dockerfile Dockerfile
-    docker build -t monographdb/waiter-${IMG_KIND}-${IMG_OS} .
-    docker push monographdb/waiter-${IMG_KIND}-${IMG_OS}
+    if [ -z "$PLATFORM" ]; then
+        docker build -t monographdb/waiter-${IMG_KIND}-${IMG_OS} .
+        docker push monographdb/waiter-${IMG_KIND}-${IMG_OS}
+    else
+        docker buildx build --platform ${PLATFORM} -t monographdb/waiter-${IMG_KIND}-${IMG_OS} --push .
+    fi
     rm Dockerfile
 }
 
