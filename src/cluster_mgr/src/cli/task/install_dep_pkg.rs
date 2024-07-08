@@ -139,13 +139,13 @@ impl TaskExecutor for DepPkgTask {
             .iter()
             .map(|s| format!("{} {s}", self.head))
             .collect_vec();
-        let temp = "{elapsed} [{msg}] {wide_bar:.cyan/blue} {pos}/{len}";
+        let temp = "[{pos}/{len}] {elapsed} {bar:40.cyan/white} {wide_msg}";
         let style = ProgressStyle::default_bar().template(temp)?;
         self.pg_bar.set_style(style);
         self.pg_bar
             .set_length((self.prepare.len() + pkg_cmds.len()) as u64);
         for cmd in self.prepare.iter().chain(pkg_cmds.iter()) {
-            let msg = format!("{host} {cmd}");
+            let msg = format!("{host} '{cmd}'");
             self.pg_bar.set_message(msg);
             let (code, out) = session.execute(&cmd).await?;
             if code != 0 {
@@ -153,7 +153,7 @@ impl TaskExecutor for DepPkgTask {
             }
             self.pg_bar.inc(1);
         }
-        let msg = format!("{host} done!");
+        let msg = format!("{host} finished");
         self.pg_bar.finish_with_message(msg);
         session.close().await?;
         Ok(None)
