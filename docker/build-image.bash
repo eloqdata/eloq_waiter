@@ -1,5 +1,5 @@
 #!/bin/bash
-set -exuo
+set -eu
 
 PLATFORM='linux/amd64,linux/arm64'
 build_image() {
