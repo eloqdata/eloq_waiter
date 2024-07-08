@@ -1,7 +1,7 @@
 use crate::cli::task::task_base::TaskMgr;
 use crate::cli::util::{cpu_arch, os_id, os_major_version};
 use crate::cli::{upload_dir, SubCommand, HOME_DIR};
-use crate::config::config_base::{DeploymentConfig, VersionRow};
+use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::{
     CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
@@ -143,7 +143,7 @@ impl CmdExecutor {
         self.home.join("download")
     }
 
-    async fn save_deployment_config(&self, config: &DeploymentConfig, upsert: bool) -> Result<()> {
+    async fn save_deployment_config(&self, config: &DeployConfig, upsert: bool) -> Result<()> {
         let deployment_operation = self
             .state_mgr
             .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
@@ -176,14 +176,14 @@ impl CmdExecutor {
         Ok(())
     }
 
-    async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<DeploymentConfig> {
+    async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<DeployConfig> {
         match cmd {
             SubCommand::Deploy { topology_file }
             | SubCommand::Launch {
                 topology_file,
                 skip_deps: _,
             } => {
-                let mut config = DeploymentConfig::load(Some(topology_file))?;
+                let mut config = DeployConfig::load(Some(topology_file))?;
                 self.resolve_version(&mut config.deployment).await?;
                 config.scan_hardware().await?;
                 self.save_deployment_config(&config, false).await?;
@@ -237,7 +237,7 @@ impl CmdExecutor {
             | SubCommand::Exec {
                 command: _,
                 topology_file,
-            } => Ok(DeploymentConfig::load(Some(topology_file))?),
+            } => Ok(DeployConfig::load(Some(topology_file))?),
             SubCommand::Update {
                 cluster: Some(cluster),
                 version,
@@ -288,7 +288,7 @@ impl CmdExecutor {
     pub async fn run(
         &'static self,
         cmd: SubCommand,
-        config: Option<DeploymentConfig>,
+        config: Option<DeployConfig>,
         quiet: bool,
     ) -> Result<()> {
         match &cmd {
@@ -392,7 +392,7 @@ impl CmdExecutor {
         Ok(())
     }
 
-    async fn finishing(&self, cmd: SubCommand, config: DeploymentConfig) -> Result<()> {
+    async fn finishing(&self, cmd: SubCommand, config: DeployConfig) -> Result<()> {
         // After all tasks finished
         match cmd {
             SubCommand::Launch { .. } | SubCommand::Demo { .. } => {
@@ -524,7 +524,7 @@ impl CmdExecutor {
         Ok(())
     }
 
-    async fn gen_demo_config(&self, cmd: SubCommand) -> Result<DeploymentConfig> {
+    async fn gen_demo_config(&self, cmd: SubCommand) -> Result<DeployConfig> {
         match cmd {
             SubCommand::Demo {
                 product,
@@ -542,7 +542,7 @@ impl CmdExecutor {
                     "{}/demo-{product}.yaml",
                     self.dir_config().to_string_lossy()
                 );
-                let mut config = DeploymentConfig::load(Some(topology))?;
+                let mut config = DeployConfig::load(Some(topology))?;
                 let deploy = &mut config.deployment;
                 // set storage
                 match store {

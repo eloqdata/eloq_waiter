@@ -69,7 +69,7 @@ pub struct UploadFile {
 
 #[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct DeploymentConfig {
+pub struct DeployConfig {
     pub connection: Connection,
     pub deployment: Deployment,
     pub conf_opts: Option<HashMap<String, bool>>,
@@ -81,7 +81,7 @@ pub struct UnPackFileLocation {
     pub host: String,
 }
 
-impl DeploymentConfig {
+impl DeployConfig {
     fn unpack_links_map(&self) -> HashMap<DeploymentPackage, Vec<DownloadUrl>> {
         let all_hosts = self.get_host_as_map();
         let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
@@ -343,7 +343,7 @@ impl DeploymentConfig {
         let content = fs::read_to_string(path)?
             .replace("${USER}", &whoami::username())
             .replace(&format!("${{{HOME_DIR}}}"), &std::env::var(HOME_DIR)?);
-        let deployment_config = serde_yaml::from_str::<DeploymentConfig>(&content)?;
+        let deployment_config = serde_yaml::from_str::<DeployConfig>(&content)?;
         Ok(deployment_config)
     }
 
@@ -394,8 +394,7 @@ impl DeploymentConfig {
     }
 
     pub fn load_from_string(config_content: String) -> anyhow::Result<Self> {
-        let deployment_config_rs =
-            serde_yaml::from_str::<DeploymentConfig>(config_content.as_str());
+        let deployment_config_rs = serde_yaml::from_str::<DeployConfig>(config_content.as_str());
         if let Ok(deployment_config) = deployment_config_rs {
             Ok(deployment_config)
         } else {
@@ -447,7 +446,7 @@ impl DeploymentConfig {
     pub fn load(path: Option<String>) -> anyhow::Result<Self> {
         let path_string = config_path_string(path)?;
         info!("DeploymentConfig load file from {}", path_string);
-        let config = DeploymentConfig::read_config_from_file(path_string.clone())
+        let config = DeployConfig::read_config_from_file(path_string.clone())
             .map_err(|err| anyhow!("{path_string}: {err}"))?;
         config.connection.auth.check_keypair()?;
         Ok(config)
@@ -540,7 +539,7 @@ pub struct VersionRow {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::config_base::DeploymentConfig;
+    use crate::config::config_base::DeployConfig;
     use crate::config::monitor::MONOGRAPH_TX_JOB_NAME;
     use crate::config::{DeploymentPackage, CONFIG_PATH_DIR};
     use std::collections::HashMap;
@@ -556,8 +555,7 @@ mod tests {
     #[test]
     pub fn test_cass_env_gen() {
         let config_path_string = set_config_path_env_and_get();
-        let config_rs =
-            DeploymentConfig::load(Some(format!("{config_path_string}/deployment.yaml")));
+        let config_rs = DeployConfig::load(Some(format!("{config_path_string}/deployment.yaml")));
         assert!(config_rs.is_ok());
         let config = config_rs.unwrap();
         let monitor_opt = config.clone().deployment.monitor;

@@ -7,7 +7,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::task::task_utils::{check_pid, PROCESS_PID};
 use crate::cli::{SubCommand, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::storage_service_config::Cassandra;
 use crate::config::DeploymentPackage;
 use crate::get_ctl_cmd_string;
@@ -18,7 +18,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::time::Duration;
 use strum_macros::AsRefStr;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use users::{get_current_gid, get_current_uid};
 
 pub(crate) const CASSANDRA_CMD_STR: &str = "cassandra_cmd";
@@ -142,15 +142,12 @@ get_ctl_cmd_string!(CassandraCmd, ProcessInfo, Start, Status, Stop);
 
 #[derive(Clone, Debug)]
 pub struct CassandraCtlTask {
-    config: DeploymentConfig,
+    config: DeployConfig,
     task_id: TaskId,
 }
 
 impl CassandraCtlTask {
-    pub fn from_config(
-        cmd: SubCommand,
-        config: &DeploymentConfig,
-    ) -> IndexMap<TaskId, TaskInstance> {
+    pub fn from_config(cmd: SubCommand, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let cassandra_task_ctrl_attr = match cmd {
             SubCommand::Start { cluster: _ } | SubCommand::Restart { cluster: _ } => (
                 "start",
@@ -227,7 +224,7 @@ impl CassandraCtlTask {
         barrier
     }
 
-    pub fn new(config: DeploymentConfig, task_id: TaskId) -> Self {
+    pub fn new(config: DeployConfig, task_id: TaskId) -> Self {
         Self { config, task_id }
     }
 
@@ -270,19 +267,16 @@ impl CassandraCtlTask {
         start_cmd: String,
         ssh_conn: &SSHSession,
     ) -> anyhow::Result<ExecutionValue> {
-        let ssh_info = ssh_conn.ssh_conn_info();
-        let check_status = CassandraCmd::from_string(
-            "status",
-            self.config.deployment.cassandra_home(),
-            ssh_info.1,
-        );
-        debug!(
+        let (host, user) = ssh_conn.ssh_conn_info();
+        println!("starting cassandra server {user}@{host}, this may take a long time...");
+        let check_status =
+            CassandraCmd::from_string("status", self.config.deployment.cassandra_home(), user);
+        info!(
             "CassandraCtlTask check_node_status_cmd={}, start={}",
             check_status.cmd_value(),
             start_cmd
         );
         let start_rs = ssh_conn.command(start_cmd.as_str(), CollectOutput).await?;
-        let curr_cass_host = ssh_info.0;
         let cass_port = self
             .config
             .deployment
@@ -292,14 +286,14 @@ impl CassandraCtlTask {
             .unwrap()
             .client_port()?;
         let sleep_duration = Duration::from_secs(2);
-        let mut timeout_remaining = Duration::from_secs(5 * 60);
+        let mut timeout_remaining = Duration::from_mins(5);
         let id = TaskId {
             cmd: "start".to_string(),
             task: "check-cassandra-status".to_string(),
             host: "_local".to_string(),
         };
         let cql = check_status.cmd_value();
-        let cassandra_op = CassandraOpTask::new(id, curr_cass_host.clone(), cass_port, cql);
+        let cassandra_op = CassandraOpTask::new(id, host.clone(), cass_port, cql);
         loop {
             let op_status = cassandra_op
                 .execute(TaskHost::Local, HashMap::default())
@@ -308,14 +302,14 @@ impl CassandraCtlTask {
             let status_value = op_status.get(CMD_STATUS).unwrap();
             let status_code = TaskArgValue::into_inner_value::<i32>(status_value.clone());
             if status_code == 0 {
-                info!("Cassandra instance={:?} UP now", curr_cass_host.clone());
+                info!("Cassandra instance={host} UP now");
                 break;
             } else {
                 tokio::time::sleep(sleep_duration).await;
                 timeout_remaining -= sleep_duration;
             }
             if timeout_remaining.as_secs() == 0 {
-                warn!("Cassandra instance={:?} startup timeout", curr_cass_host);
+                warn!("Cassandra instance={host} startup timeout");
                 return Ok(op_status);
             }
         }

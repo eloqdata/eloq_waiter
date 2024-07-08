@@ -5,9 +5,7 @@ use super::task_base::{
 };
 use crate::{
     cli::ssh::{SSHCommandOption, SSHSession},
-    config::{
-        config_base::DeploymentConfig, deployment::Codis, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF,
-    },
+    config::{config_base::DeployConfig, deployment::Codis, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF},
 };
 use indexmap::IndexMap;
 
@@ -24,7 +22,7 @@ pub struct CodisTask {
 }
 
 impl CodisTask {
-    pub fn from_config(config: &DeploymentConfig, op: Operation) -> IndexMap<TaskId, TaskInstance> {
+    pub fn from_config(config: &DeployConfig, op: Operation) -> IndexMap<TaskId, TaskInstance> {
         let codis_conf = config.deployment.codis.as_ref().unwrap();
         let mut all_tasks = IndexMap::default();
         match op {
@@ -46,7 +44,7 @@ impl CodisTask {
         all_tasks
     }
 
-    fn start_dashboard(config: &DeploymentConfig) -> Self {
+    fn start_dashboard(config: &DeployConfig) -> Self {
         let dir = Codis::dir(&config.install_dir());
         let binary = format!("{dir}/codis-dashboard");
         let conf_path = format!("{dir}/{CODIS_DASHBOARD_CNF}");
@@ -61,7 +59,7 @@ impl CodisTask {
         }
     }
 
-    fn stop_server(config: &DeploymentConfig, host: String, name: &str) -> Self {
+    fn stop_server(config: &DeployConfig, host: String, name: &str) -> Self {
         let dir = Codis::dir(&config.install_dir());
         let pid_path = format!("{dir}/{name}.pid");
         let command = format!("kill -2 $(cat {pid_path})");
@@ -72,7 +70,7 @@ impl CodisTask {
         }
     }
 
-    fn start_proxy(config: &DeploymentConfig, host: String) -> Self {
+    fn start_proxy(config: &DeployConfig, host: String) -> Self {
         let codis_conf = config.deployment.codis.as_ref().unwrap();
         let dir = Codis::dir(&config.install_dir());
         let binary = format!("{dir}/codis-proxy");
@@ -89,7 +87,7 @@ impl CodisTask {
         }
     }
 
-    fn task_instance(self, config: &DeploymentConfig, tasks: &mut IndexMap<TaskId, TaskInstance>) {
+    fn task_instance(self, config: &DeployConfig, tasks: &mut IndexMap<TaskId, TaskInstance>) {
         let host = TaskHost::Remote {
             user: config.connection.username.clone(),
             port: config.connection.ssh_port() as usize,

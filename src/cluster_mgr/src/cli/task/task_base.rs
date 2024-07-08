@@ -1,7 +1,7 @@
 use crate::cli::task::group::init_task_group;
 use crate::cli::task::task_controller::TaskController;
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::load_remote_env;
 use crate::enum_into_trait;
 use anyhow::Result;
@@ -394,7 +394,7 @@ impl TaskMgr {
     pub async fn task_context(
         &self,
         cmd_args: SubCommand,
-        config: &DeploymentConfig,
+        config: &DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let group = cmd_args.as_ref();
         let task_groups = init_task_group();
@@ -413,7 +413,7 @@ impl TaskMgr {
     pub async fn run_tasks(
         &'static self,
         cmd_args: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let tasks_execution = self.task_context(cmd_args.clone(), &config).await?;
         info!(

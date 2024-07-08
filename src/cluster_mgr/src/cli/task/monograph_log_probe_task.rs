@@ -4,7 +4,7 @@ use crate::cli::task::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::log_service::LogReadiness;
 use crate::task_return_value;
 use futures::future;
@@ -54,7 +54,7 @@ pub struct MonographLogProbeTask {
 }
 
 impl MonographLogProbeTask {
-    pub fn from_config(config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    pub fn from_config(config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let deployment_ref = &config.deployment;
         let has_log_srv = deployment_ref.log_service.is_some();
         if !has_log_srv {

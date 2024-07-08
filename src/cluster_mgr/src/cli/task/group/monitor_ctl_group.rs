@@ -3,7 +3,7 @@ use crate::cli::task::group::{MonitorCtlTaskGroup, TaskGroup};
 use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::config::CREATE_MONITOR_USER_SQL_FILE;
@@ -14,7 +14,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         if config.deployment.monitor.is_none() {
             return Ok(TaskExecutionContext {

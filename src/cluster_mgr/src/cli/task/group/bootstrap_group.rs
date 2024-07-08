@@ -6,7 +6,7 @@ use crate::cli::task::monograph_bootstrap_task::MonographInstall;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost};
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
@@ -17,7 +17,7 @@ impl TaskGroup for InstallDBTaskGroup {
     async fn tasks(
         &self,
         cmd_args: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();

@@ -1,10 +1,10 @@
 use crate::cli::task::group::{
     CheckTaskGroup, CtrlDBTaskGroup, DeploymentTaskGroup, InstallDBTaskGroup,
-    InstallRuntimeDepsTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
+    InstallDepPkgTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
 use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
 use crate::cli::SubCommand;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::CONFIG_PATH_DIR;
 use std::env;
 
@@ -13,7 +13,7 @@ impl TaskGroup for LaunchTaskGroup {
     async fn tasks(
         &self,
         cmd_arg: SubCommand,
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
         let (skip_deps, topo_file) = match cmd_arg.clone() {
             SubCommand::Launch {
@@ -36,9 +36,7 @@ impl TaskGroup for LaunchTaskGroup {
             let cmd = SubCommand::RunDeps {
                 topology_file: topo_file.clone(),
             };
-            InstallRuntimeDepsTaskGroup
-                .tasks(cmd, config.clone())
-                .await?
+            InstallDepPkgTaskGroup.tasks(cmd, config.clone()).await?
         };
 
         let exe_ctx = vec![

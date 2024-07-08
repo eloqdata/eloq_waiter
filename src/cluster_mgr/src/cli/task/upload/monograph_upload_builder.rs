@@ -3,7 +3,7 @@ use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, list_files_by_host, UploadTaskBuilder,
 };
 use crate::config::config_base::{
-    DeploymentConfig, UploadFile, CASSANDRA_COLLECTOR_AGENT_FILE_KEY, CASSANDRA_FILE_KEY,
+    DeployConfig, UploadFile, CASSANDRA_COLLECTOR_AGENT_FILE_KEY, CASSANDRA_FILE_KEY,
     GRAFANA_FILE_KEY, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
     NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
@@ -16,7 +16,7 @@ use itertools::Itertools;
 pub struct MonographUploadBuilder;
 
 impl MonographUploadBuilder {
-    fn monograph_tar_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
+    fn monograph_tar_upload_file(&self, config: &DeployConfig) -> Vec<UploadFile> {
         let tx_hosts = config.get_host_list(DeploymentPackage::MonographTx);
         let log_hosts = config.get_host_list(DeploymentPackage::MonographLog);
         let storage_hosts = config.get_host_list(DeploymentPackage::Storage);
@@ -68,7 +68,7 @@ impl MonographUploadBuilder {
             .collect_vec()
     }
 
-    fn build_monograph_misc_upload_file(&self, config: &DeploymentConfig) -> Vec<UploadFile> {
+    fn build_monograph_misc_upload_file(&self, config: &DeployConfig) -> Vec<UploadFile> {
         let mut all_files_path = vec![
             // config.gen_tx_start_script().unwrap(),
             config.gen_bootstrap_db_script().unwrap(),
@@ -114,7 +114,7 @@ impl MonographUploadBuilder {
 impl UploadTaskBuilder for MonographUploadBuilder {
     /// Upload installation package, MonographDB configuration file,
     /// MonographDB install script, install config to remote host.
-    fn build(&self, config: &DeploymentConfig) -> IndexMap<TaskId, TaskInstance> {
+    fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
         let mut upload_files = self.build_monograph_misc_upload_file(config);
         let upload_tar_files = self.monograph_tar_upload_file(config);
 
@@ -224,7 +224,7 @@ impl EloqUpload {
     }
 
     pub fn build_tasks(
-        config: &DeploymentConfig,
+        config: &DeployConfig,
         cmd: &str,
         task: &str,
         uploads: Vec<UploadFile>,

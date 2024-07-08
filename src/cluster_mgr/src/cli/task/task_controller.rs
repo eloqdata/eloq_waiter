@@ -1,6 +1,6 @@
 use crate::cli::task::task_base::{init_finish_signal, TaskExecutionContext};
 use crate::cli::task::task_base::{TaskInstance, TaskResultEnum, TaskResultPair};
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::post_task_execute;
 use crate::state::task_status_operation::TaskStatusEntity;
 use anyhow::bail;
@@ -94,7 +94,7 @@ impl TaskController {
         &'static self,
         task_group: String,
         splits: &'static [TaskInstance],
-        config: DeploymentConfig,
+        config: DeployConfig,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let mut joins = vec![];
 
@@ -164,7 +164,7 @@ impl TaskController {
     pub async fn run_all_tasks(
         &'static self,
         task_execution_context: TaskExecutionContext,
-        config: DeploymentConfig,
+        config: DeployConfig,
         err_brk: bool,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
         let task_group_string = task_execution_context.clone().task_group;

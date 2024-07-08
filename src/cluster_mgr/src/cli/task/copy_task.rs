@@ -1,7 +1,7 @@
 use super::task_base::{TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_base::ExecutionValue;
 use crate::cli::upload_dir;
-use crate::config::config_base::DeploymentConfig;
+use crate::config::config_base::DeployConfig;
 use crate::config::connection::Connection;
 use anyhow::bail;
 use std::collections::HashMap;
@@ -33,7 +33,7 @@ impl CopyTask {
         }
     }
 
-    pub fn fetch_datafarm(deploy: &DeploymentConfig) -> (TaskId, TaskInstance) {
+    pub fn fetch_datafarm(deploy: &DeployConfig) -> (TaskId, TaskInstance) {
         let id = TaskId {
             cmd: "install".to_owned(),
             task: "fetch_datafarm".to_owned(),
