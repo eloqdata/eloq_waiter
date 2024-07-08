@@ -6,7 +6,7 @@ RUN set -eux; \
     sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo; \
     yum install -y epel-release; \
     yum update -y; \
-    yum install -y sudo openssh-server iproute redis; \
+    yum install -y sudo openssh-clients openssh-server iproute redis; \
     yum clean all;
 
 RUN useradd -rm -s /bin/bash -g root -G wheel eloquser && \
@@ -17,7 +17,7 @@ USER eloquser
 WORKDIR /home/eloquser
 
 COPY ssh /home/eloquser/.ssh
-RUN sudo chown -R eloquser /home/eloquser/.ssh && \
+RUN sudo chown -R eloquser /home/eloquser/.ssh && chmod 400 /home/eloquser/.ssh/* && \
     sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N '' && \
     sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_dsa_key -N '' && \
     sudo ssh-keygen -t rsa -f /etc/ssh/ssh_host_ed25519_key -N '' && \
