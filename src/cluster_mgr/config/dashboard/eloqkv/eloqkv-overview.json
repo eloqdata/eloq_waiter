@@ -455,7 +455,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "(1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[6s]))) / (1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[6s])) + sum(delta(cache_hit_or_miss_total{type=\"miss\",instance=~\"$eloqdata_server\"}[6s])))",
+          "expr": "(1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[5s]))) / (1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[5s])) + sum(delta(cache_hit_or_miss_total{type=\"miss\",instance=~\"$eloqdata_server\"}[5s])))",
           "legendFormat": "Current QPS",
           "range": true,
           "refId": "A"
@@ -522,7 +522,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(redis_command_total{instance=~\"$eloqdata_server\"}[6s]))",
+          "expr": "sum(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\"}[6s]))",
           "legendFormat": "Current TPS",
           "range": true,
           "refId": "A"
@@ -589,7 +589,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (access_type) (rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[6s]))",
+          "expr": "sum(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[6s]))",
           "legendFormat": "Current TPS",
           "range": true,
           "refId": "A"
@@ -622,7 +622,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "none"
         },
         "overrides": []
       },
@@ -656,7 +657,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (access_type) (rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[6s]))",
+          "expr": "sum(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[6s]))",
           "legendFormat": "Current TPS",
           "range": true,
           "refId": "A"
@@ -730,7 +731,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile($percentile / 100, sum by (le)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\"}[6s])))",
+          "expr": "histogram_quantile($percentile / 100, sum by (le)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\"}[6s])))",
           "legendFormat": "Current QPS",
           "range": true,
           "refId": "A"
@@ -804,7 +805,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[6s])))",
+          "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[6s])))",
           "legendFormat": "Current QPS",
           "range": true,
           "refId": "A"
@@ -878,7 +879,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[6s])))",
+          "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[6s])))",
           "legendFormat": "Current QPS",
           "range": true,
           "refId": "A"
@@ -1146,7 +1147,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1162,10 +1164,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 3
+            "y": 27
           },
           "id": 123235,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1194,7 +1196,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum (rate(redis_command_total{instance=~\"$eloqdata_server\"}[$__rate_interval]))",
+              "expr": "sum (rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1254,7 +1256,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1270,10 +1273,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 3
+            "y": 27
           },
           "id": 123378,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1302,7 +1305,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (instance)(rate(redis_command_total{instance=~\"$eloqdata_server\"}[$__rate_interval]))",
+              "expr": "sum by (instance)(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1362,7 +1365,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1378,10 +1382,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 13
+            "y": 37
           },
           "id": 123379,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1410,7 +1414,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1470,7 +1474,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1486,10 +1491,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 13
+            "y": 37
           },
           "id": 123374,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1518,7 +1523,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, instance)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le, instance)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1531,7 +1536,7 @@
           "type": "timeseries"
         }
       ],
-      "title": "Redis Command Metrics Overview",
+      "title": "Redis Command Aggregated Metrics Overview",
       "type": "row"
     },
     {
@@ -1592,7 +1597,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1608,10 +1614,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 31
+            "y": 28
           },
           "id": 123377,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1640,7 +1646,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (access_type) (rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval]))",
+              "expr": "sum(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1700,7 +1706,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1716,10 +1723,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 31
+            "y": 28
           },
           "id": 123390,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1748,7 +1755,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (instance, access_type)(rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval]))",
+              "expr": "sum by (instance, access_type)(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1808,7 +1815,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1824,10 +1832,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 41
+            "y": 38
           },
           "id": 123234,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1856,7 +1864,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -1916,7 +1924,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1932,10 +1941,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 41
+            "y": 38
           },
           "id": 123380,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -1964,7 +1973,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, instance, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le, instance, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"read\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2038,7 +2047,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2054,10 +2064,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 32
+            "y": 29
           },
           "id": 123387,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2086,7 +2096,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (access_type) (rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval]))",
+              "expr": "sum by (access_type) (rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2146,7 +2156,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2162,10 +2173,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 32
+            "y": 29
           },
           "id": 123373,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2194,7 +2205,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (instance, access_type)(rate(redis_command_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval]))",
+              "expr": "sum by (instance, access_type)(rate(redis_command_aggregated_total{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval]))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2254,7 +2265,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2270,10 +2282,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 42
+            "y": 39
           },
           "id": 123393,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2302,7 +2314,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2362,7 +2374,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2378,10 +2391,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 42
+            "y": 39
           },
           "id": 123396,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2410,7 +2423,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, instance, access_type)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le, instance, access_type)(rate(redis_command_aggregated_duration_bucket{instance=~\"$eloqdata_server\", access_type=\"write\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2484,7 +2497,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2500,10 +2514,10 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 33
+            "y": 90
           },
           "id": 123238,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2594,7 +2608,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2610,10 +2625,10 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 33
+            "y": 90
           },
           "id": 123406,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2719,7 +2734,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2735,10 +2751,10 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 34
+            "y": 91
           },
           "id": 123255,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2829,7 +2845,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2845,10 +2862,10 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 34
+            "y": 91
           },
           "id": 123410,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -2879,7 +2896,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "histogram_quantile($percentile / 100, sum by (le, type, instance)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", type=~\"$command_type\"}[$__rate_interval])))",
+              "expr": "histogram_quantile($percentile / 100, sum by (le,type,instance)(rate(redis_command_duration_bucket{instance=~\"$eloqdata_server\", type=~\"$command_type\"}[$__rate_interval])))",
               "format": "time_series",
               "instant": false,
               "interval": "",
@@ -2954,7 +2971,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2970,10 +2988,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 47
+            "y": 92
           },
           "id": 123141,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -3054,7 +3072,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3070,10 +3089,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 47
+            "y": 92
           },
           "id": 123145,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -3168,7 +3187,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3184,10 +3204,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 57
+            "y": 102
           },
           "id": 123139,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -3273,7 +3293,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3289,10 +3310,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 57
+            "y": 102
           },
           "id": 123148,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -3389,7 +3410,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3405,10 +3427,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 48
+            "y": 93
           },
           "id": 123151,
-          "interval": "6s",
+          "interval": "15s",
           "options": {
             "legend": {
               "calcs": [
@@ -3489,7 +3511,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3505,10 +3528,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 48
+            "y": 93
           },
           "id": 123152,
-          "interval": "6s",
+          "interval": "15s",
           "options": {
             "legend": {
               "calcs": [
@@ -3603,7 +3626,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3644,7 +3668,7 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 27
+            "y": 94
           },
           "id": 123170,
           "options": {
@@ -3729,7 +3753,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3745,7 +3770,7 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 27
+            "y": 94
           },
           "id": 123173,
           "options": {
@@ -3842,7 +3867,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3858,10 +3884,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 50
+            "y": 95
           },
           "id": 123214,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -3942,7 +3968,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -3958,10 +3985,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 50
+            "y": 95
           },
           "id": 123213,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4044,7 +4071,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4060,10 +4088,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 60
+            "y": 105
           },
           "id": 123212,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4148,7 +4176,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4164,10 +4193,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 60
+            "y": 105
           },
           "id": 123231,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4261,7 +4290,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4277,10 +4307,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 36
+            "y": 96
           },
           "id": 123367,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4360,7 +4390,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4376,10 +4407,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 36
+            "y": 96
           },
           "id": 123368,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4459,7 +4490,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4475,10 +4507,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 46
+            "y": 106
           },
           "id": 123321,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4558,7 +4590,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4574,10 +4607,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 46
+            "y": 106
           },
           "id": 123336,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4671,7 +4704,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4687,10 +4721,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 37
+            "y": 209
           },
           "id": 123177,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4770,7 +4804,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -4786,10 +4821,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 37
+            "y": 209
           },
           "id": 123178,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4885,10 +4920,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 47
+            "y": 219
           },
           "id": 123371,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -4984,10 +5019,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 47
+            "y": 219
           },
           "id": 123372,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5081,7 +5116,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5097,10 +5133,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 61
+            "y": 98
           },
           "id": 123179,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5180,7 +5216,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5196,10 +5233,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 61
+            "y": 98
           },
           "id": 123186,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5279,7 +5316,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5295,10 +5333,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 71
+            "y": 108
           },
           "id": 123188,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5378,7 +5416,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5394,10 +5433,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 71
+            "y": 108
           },
           "id": 123189,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5491,7 +5530,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5507,10 +5547,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 82
+            "y": 99
           },
           "id": 123193,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5591,7 +5631,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5607,10 +5648,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 82
+            "y": 99
           },
           "id": 123183,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5704,7 +5745,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5720,10 +5762,10 @@
             "h": 10,
             "w": 12,
             "x": 0,
-            "y": 43
+            "y": 100
           },
           "id": 123201,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5806,7 +5848,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -5822,10 +5865,10 @@
             "h": 10,
             "w": 12,
             "x": 12,
-            "y": 43
+            "y": 100
           },
           "id": 123194,
-          "interval": "6s",
+          "interval": "5s",
           "options": {
             "legend": {
               "calcs": [
@@ -5918,7 +5961,7 @@
       "type": "row"
     }
   ],
-  "refresh": "6s",
+  "refresh": "5s",
   "revision": 1,
   "schemaVersion": 38,
   "style": "dark",
