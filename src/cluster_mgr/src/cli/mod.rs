@@ -226,8 +226,7 @@ pub fn upload_host_dir(host: &str) -> PathBuf {
 }
 
 pub fn file_pg_bar() -> ProgressBar {
-    let temp =
-        "{spinner:.green} {elapsed} {bar:80.cyan/grey} {wide_msg} {bytes}/{total_bytes} ({eta})";
+    let temp = "{spinner:.green} {elapsed} {bar:80.cyan/grey} {msg} {bytes}/{total_bytes} ({eta})";
     let cmd_pb = ProgressBar::hidden();
     cmd_pb.set_style(ProgressStyle::default_spinner().template(temp).unwrap());
     cmd_pb

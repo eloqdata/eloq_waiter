@@ -163,7 +163,7 @@ impl TaskExecutor for DownloadTask {
         // start downloading
         self.pg_bar.set_length(file_len);
         self.pg_bar
-            .set_message(format!("[{} downloading]", self.name));
+            .set_message(format!("{} Downloading...", self.name));
         let mut stream_reader = response.bytes_stream();
         while let Some(stream_chunk) = stream_reader.next().await {
             if let Err(err) = stream_chunk {
@@ -178,7 +178,7 @@ impl TaskExecutor for DownloadTask {
             self.pg_bar.inc(chunk.len() as u64);
         }
         self.pg_bar
-            .finish_with_message(format!("[{} downloaded]", self.name));
+            .finish_with_message(format!("{} Downloaded!", self.name));
         fs::rename(part_path, save_path.as_path())
             .map_err(|err| DownloadErr(url.clone(), err.to_string()))?;
 
