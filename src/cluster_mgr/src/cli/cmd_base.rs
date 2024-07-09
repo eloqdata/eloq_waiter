@@ -13,7 +13,6 @@ use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use futures::StreamExt;
-use indicatif::ProgressBar;
 use itertools::Itertools;
 use owo_colors::OwoColorize;
 use std::collections::HashSet;
@@ -370,7 +369,6 @@ impl CmdExecutor {
                     let f = fs::OpenOptions::new()
                         .create(true)
                         .truncate(true)
-                        .append(true)
                         .open(self.home.join("task-result"))?;
                     Some(f)
                 } else {
