@@ -2,13 +2,15 @@ resources:
   - name: monograph_waiter
     icon: github
     source:
-      branch: main
+      branch: one-click
       private_key: ((git-key))
       uri: git@github.com:monographdb/monograph_waiter.git
     type: git
-  - name: image_ubuntu2004
+  - name: base_image
     source:
-      repository: monographdb/waiter-build-ubuntu20
+      username: monographdb
+      password: Mono_cz158#
+      repository: monographdb/monograph-dev-ci-ubuntu2004
     type: registry-image
 
 jobs:
@@ -19,7 +21,9 @@ jobs:
           limit: 2
           steps:
             - get: monograph_waiter
-            - get: image_ubuntu2004
-      - task: build_waiter
-        image: image_ubuntu2004
+            - get: base_image
+      - task: waiter-build
+        image: base_image
+        params:
+          PIPELINE: "waiter-build"
         file: monograph_waiter/concourse/one-click.yaml

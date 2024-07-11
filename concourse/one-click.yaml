@@ -12,8 +12,10 @@ run:
     - -cxe
     - |
       export TARGET='eloq'
+      export WAITER_SRC="${PWD}/monograph_waiter"
+      cd ${HOME}
       curl "${ADDRESS}/api/v1/cli?arch=amd64&platform=linux" -o "fly"
       chmod +x fly
-      mv fly /usr/local/bin/
+      sudo mv fly /usr/local/bin/
       fly --target ${TARGET} login --concourse-url ${ADDRESS} --username mono --password cz123321Cz
-      bash monograph_waiter/concourse/one-click.sh
+      bash ${WAITER_SRC}/concourse/one-click.sh
