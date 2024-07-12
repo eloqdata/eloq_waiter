@@ -6,6 +6,7 @@ inputs:
 params:
   PIPELINE: ""
   ADDRESS: http://13.115.58.127:8080
+  ERR_EXIT: false
 run:
   path: /bin/bash
   args:
