@@ -455,7 +455,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "(1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[5s]))) / (1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[5s])) + sum(delta(cache_hit_or_miss_total{type=\"miss\",instance=~\"$eloqdata_server\"}[5s])))",
+          "expr": "(1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[6s]))) / (1 + sum(delta(cache_hit_or_miss_total{type=\"hits\", instance=~\"$eloqdata_server\"}[6s])) + sum(delta(cache_hit_or_miss_total{type=\"miss\",instance=~\"$eloqdata_server\"}[6s])))",
           "legendFormat": "Current QPS",
           "range": true,
           "refId": "A"
@@ -1167,7 +1167,7 @@
             "y": 27
           },
           "id": 123235,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1276,7 +1276,7 @@
             "y": 27
           },
           "id": 123378,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1385,7 +1385,7 @@
             "y": 37
           },
           "id": 123379,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1494,7 +1494,7 @@
             "y": 37
           },
           "id": 123374,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1617,7 +1617,7 @@
             "y": 28
           },
           "id": 123377,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1726,7 +1726,7 @@
             "y": 28
           },
           "id": 123390,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1835,7 +1835,7 @@
             "y": 38
           },
           "id": 123234,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -1944,7 +1944,7 @@
             "y": 38
           },
           "id": 123380,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2067,7 +2067,7 @@
             "y": 29
           },
           "id": 123387,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2176,7 +2176,7 @@
             "y": 29
           },
           "id": 123373,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2285,7 +2285,7 @@
             "y": 39
           },
           "id": 123393,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2394,7 +2394,7 @@
             "y": 39
           },
           "id": 123396,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2517,7 +2517,7 @@
             "y": 90
           },
           "id": 123238,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2628,7 +2628,7 @@
             "y": 90
           },
           "id": 123406,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2754,7 +2754,7 @@
             "y": 91
           },
           "id": 123255,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2865,7 +2865,7 @@
             "y": 91
           },
           "id": 123410,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -2991,7 +2991,7 @@
             "y": 92
           },
           "id": 123141,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -3092,7 +3092,7 @@
             "y": 92
           },
           "id": 123145,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -3207,7 +3207,7 @@
             "y": 102
           },
           "id": 123139,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -3313,7 +3313,7 @@
             "y": 102
           },
           "id": 123148,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -3887,7 +3887,7 @@
             "y": 95
           },
           "id": 123214,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -3988,7 +3988,7 @@
             "y": 95
           },
           "id": 123213,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4091,7 +4091,7 @@
             "y": 105
           },
           "id": 123212,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4196,7 +4196,7 @@
             "y": 105
           },
           "id": 123231,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4310,7 +4310,7 @@
             "y": 96
           },
           "id": 123367,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4410,7 +4410,7 @@
             "y": 96
           },
           "id": 123368,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4510,7 +4510,7 @@
             "y": 106
           },
           "id": 123321,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4610,7 +4610,7 @@
             "y": 106
           },
           "id": 123336,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4724,7 +4724,7 @@
             "y": 209
           },
           "id": 123177,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4824,7 +4824,7 @@
             "y": 209
           },
           "id": 123178,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -4923,7 +4923,7 @@
             "y": 219
           },
           "id": 123371,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5022,7 +5022,7 @@
             "y": 219
           },
           "id": 123372,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5136,7 +5136,7 @@
             "y": 98
           },
           "id": 123179,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5236,7 +5236,7 @@
             "y": 98
           },
           "id": 123186,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5336,7 +5336,7 @@
             "y": 108
           },
           "id": 123188,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5436,7 +5436,7 @@
             "y": 108
           },
           "id": 123189,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5550,7 +5550,7 @@
             "y": 99
           },
           "id": 123193,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5651,7 +5651,7 @@
             "y": 99
           },
           "id": 123183,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5765,7 +5765,7 @@
             "y": 100
           },
           "id": 123201,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
@@ -5868,7 +5868,7 @@
             "y": 100
           },
           "id": 123194,
-          "interval": "5s",
+          "interval": "6s",
           "options": {
             "legend": {
               "calcs": [
