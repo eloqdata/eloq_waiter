@@ -1003,12 +1003,7 @@ impl Deployment {
                 format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={tx_ini} > {logout} 2>&1 &")
             }
             Product::EloqKV => {
-                let mut logout = "/dev/null".to_owned();
-                if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("1.0.8").unwrap() {
-                        logout = format!("{tx_dir}/logs/eloqkv.log")
-                    }
-                }
+                let logout = "/dev/null";
                 format!(
                     "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={tx_ini} --graceful_quit_on_sigterm=true > {logout} 2>&1 &"
                 )
