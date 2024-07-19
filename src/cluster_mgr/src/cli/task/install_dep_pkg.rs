@@ -31,8 +31,8 @@ impl DepPkgTask {
         let (prepare, head);
         match os_name.as_str() {
             "ubuntu" => {
-                prepare = vec!["sudo apt update", "export DEBIAN_FRONTEND=noninteractive"];
-                head = "sudo apt install -y --no-install-recommends";
+                prepare = vec!["sudo apt update"];
+                head = "sudo DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends";
             }
             "rhel" => match version.as_str() {
                 "7" => {
@@ -152,6 +152,7 @@ impl TaskExecutor for DepPkgTask {
             .set_length((self.prepare.len() + pkg_cmds.len()) as u64);
         for cmd in self.prepare.iter().chain(pkg_cmds.iter()) {
             let msg = format!("{host} $ {cmd}");
+            info!("install package {msg}");
             self.pg_bar.set_message(msg);
             let (code, out) = session.execute(cmd).await?;
             if code != 0 {
