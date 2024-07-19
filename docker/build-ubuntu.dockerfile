@@ -1,4 +1,5 @@
-FROM ubuntu:18.04
+ARG OS_ID
+FROM ubuntu:${OS_ID}.04
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
