@@ -1,6 +1,5 @@
 use crate::config::{deployment::Product, StorageProvider, TopoFormat};
 use clap::{Parser, Subcommand};
-use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use std::{env, fs::create_dir_all, path::PathBuf};
 use strum_macros::AsRefStr;
@@ -223,12 +222,4 @@ pub fn upload_host_dir(host: &str) -> PathBuf {
     let dir = upload_dir().join(host);
     create_dir_all(dir.as_path()).expect("create upload directory for host");
     dir
-}
-
-pub fn file_pg_bar() -> ProgressBar {
-    let temp =
-        "{spinner:.green} {bar:40.cyan/grey} {msg} [{bytes}/{total_bytes}] {elapsed}(ETA {eta})";
-    let cmd_pb = ProgressBar::hidden();
-    cmd_pb.set_style(ProgressStyle::default_spinner().template(temp).unwrap());
-    cmd_pb
 }
