@@ -12,7 +12,7 @@ use crate::config::{
     CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION, CASSANDRA_JVM_TEMPLATE, CDN,
     CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_INI, ELOQSQL_DYNAMO_INI, ELOQSQL_INI,
     JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC,
-    SECTION_STORE, SET_FOR_ME,
+    SECTION_STORE,
 };
 use anyhow::{anyhow, Result};
 use configparser::ini::Ini;
@@ -67,11 +67,7 @@ macro_rules! download_urls {
 macro_rules! set_by_user {
     ($opt_val:expr, $T:ty) => {
         if let Some(v) = $opt_val {
-            if v == SET_FOR_ME {
-                None
-            } else {
-                Some(v.parse::<$T>()?)
-            }
+            Some(v.parse::<$T>()?)
         } else {
             None
         }
@@ -521,10 +517,13 @@ impl Deployment {
 
         let mut core = 1;
         if let Some(hw) = opt_hw {
-            if union_cass {
-                core = core.max((hw.cpu * 3) / 8);
-            } else {
+            if self.tx_service.host.len() == 1 {
                 core = core.max((hw.cpu * 3) / 4);
+            } else {
+                core = core.max((hw.cpu * 2) / 5);
+            }
+            if union_cass {
+                core = (core + 1) / 2;
             }
         }
         let key = "thread_pool_size";
@@ -536,6 +535,14 @@ impl Deployment {
         let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
         if val.is_none() {
             my_ini.set(SECTION_MARIADB, key, Some(core.to_string()));
+        }
+        if self.tx_service.host.len() > 1 {
+            let key = "monograph_bthread_worker_num";
+            let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
+            if val.is_none() {
+                let n = (core + 2) / 3;
+                my_ini.set(SECTION_MARIADB, key, Some(n.to_string()));
+            }
         }
 
         let key = "monograph_node_memory_limit_mb";
