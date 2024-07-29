@@ -540,7 +540,7 @@ impl Deployment {
             let key = "monograph_bthread_worker_num";
             let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
             if val.is_none() {
-                let n = (core + 2) / 3;
+                let n = std::cmp::max(1, core / 3);
                 my_ini.set(SECTION_MARIADB, key, Some(n.to_string()));
             }
         }
