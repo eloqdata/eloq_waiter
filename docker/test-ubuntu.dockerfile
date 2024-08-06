@@ -13,7 +13,8 @@ USER eloquser
 WORKDIR /home/eloquser
 
 COPY ssh /home/eloquser/.ssh
-RUN sudo chown -R eloquser /home/eloquser/.ssh && chmod 400 /home/eloquser/.ssh/*
+RUN sudo chown -R eloquser /home/eloquser/.ssh && chmod 400 /home/eloquser/.ssh/* && \
+    sudo mkdir /run/sshd
 
 EXPOSE 22
 CMD ["sudo", "/usr/sbin/sshd", "-D"]
