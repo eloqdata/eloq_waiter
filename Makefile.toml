@@ -70,9 +70,13 @@ WORKSPACE_DIR="${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 CLUSTER_MGR_RELEASE=${WORKSPACE_DIR}/target/release/cluster_mgr
 echo "cluster_mgr_pkg.workspace = ${WORKSPACE_DIR}"
 mkdir -p EloqWaiter
-bash version.sh > EloqWaiter/version
-cp -r ${WORKSPACE_DIR}/src/cluster_mgr/config EloqWaiter/
-cp -r ${WORKSPACE_DIR}/tests EloqWaiter/
-cp "$CLUSTER_MGR_RELEASE" EloqWaiter/
+cd EloqWaiter
+../version.sh > version
+cp -r ${WORKSPACE_DIR}/src/cluster_mgr/config ./
+cp -r ${WORKSPACE_DIR}/tests ./
+cp "$CLUSTER_MGR_RELEASE" ./
+if [ ! -f eloqmgr ]; then
+  ln -s cluster_mgr eloqmgr
+fi
 '''
 dependencies = ["cluster_mgr_build"]
