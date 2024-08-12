@@ -8,7 +8,7 @@ if [ "$ID" == "centos" ] || [ "$ID" == "rocky" ] || [ "$ID" == "rhel" ]; then
 elif [ "$ID" == "ubuntu" ]; then
   sudo service ssh start
 fi
-export ELOQCTL_HOME="${HOME}/.eloqwaiter"
+export ELOQCTL_HOME="${HOME}/.eloqctl"
 bash waiter_src/concourse/install.sh
 export PATH="$PATH:$ELOQCTL_HOME/bin"
 

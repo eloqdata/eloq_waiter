@@ -12,7 +12,7 @@ jobs:
         image: image_centos7
       - put: out_s3_centos7
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
   - name: centos8
     serial: true
     plan:
@@ -26,7 +26,7 @@ jobs:
         image: image_centos8
       - put: out_s3_centos8
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
   - name: rocky9
     serial: true
     plan:
@@ -40,7 +40,7 @@ jobs:
         image: image_rocky9
       - put: out_s3_rocky9
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
 
   - name: ubuntu18
     serial: true
@@ -55,7 +55,7 @@ jobs:
         image: image_ubuntu1804
       - put: out_s3_ubuntu18
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
   - name: ubuntu20
     serial: true
     plan:
@@ -69,7 +69,7 @@ jobs:
         image: image_ubuntu2004
       - put: out_s3_ubuntu20
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
   - name: ubuntu22
     serial: true
     plan:
@@ -83,7 +83,7 @@ jobs:
         image: image_ubuntu2204
       - put: out_s3_ubuntu22
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
   - name: ubuntu24
     serial: true
     plan:
@@ -97,7 +97,7 @@ jobs:
         image: image_ubuntu2404
       - put: out_s3_ubuntu24
         params:
-          file: the-output/waiter.tar.gz
+          file: the-output/eloqctl.tar.gz
 
 resources:
   - name: monograph_waiter
