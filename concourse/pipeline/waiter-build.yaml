@@ -144,7 +144,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-rhel7-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-rhel7-amd64.tar.gz
   - name: out_s3_centos8
     type: s3
     source:
@@ -152,7 +152,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-rhel8-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-rhel8-amd64.tar.gz
   - name: out_s3_rocky9
     type: s3
     source:
@@ -160,7 +160,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-rhel9-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-rhel9-amd64.tar.gz
   - name: out_s3_ubuntu18
     type: s3
     source:
@@ -168,7 +168,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu18-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-ubuntu18-amd64.tar.gz
   - name: out_s3_ubuntu20
     type: s3
     source:
@@ -176,7 +176,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu20-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-ubuntu20-amd64.tar.gz
   - name: out_s3_ubuntu22
     type: s3
     source:
@@ -184,7 +184,7 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu22-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-ubuntu22-amd64.tar.gz
   - name: out_s3_ubuntu24
     type: s3
     source:
@@ -192,4 +192,4 @@ resources:
       secret_access_key: ((aws-secret))
       bucket: eloq-release
       region_name: ap-northeast-1
-      versioned_file: waiter/waiter-ubuntu24-amd64.tar.gz
+      versioned_file: eloqctl/eloqctl-ubuntu24-amd64.tar.gz

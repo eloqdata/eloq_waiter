@@ -15,7 +15,7 @@ pub const CMD_OUTPUT: &str = "_cmd_output_";
 pub const CMD: &str = "_cmd_";
 
 #[derive(Parser, Default, Debug)]
-#[command(author, version = "0.0.1", about = "EloqData cluster management tool")]
+#[command(author, version = "0.6.0", about = "EloqData cluster management tool")]
 #[command(next_line_help = true)]
 pub struct Command {
     #[arg(long, value_name = "home-dir")]
@@ -196,7 +196,7 @@ pub enum SubCommand {
     Connect { cluster: String },
 }
 
-pub const HOME_DIR: &str = "CLUSTER_MGR_HOME";
+pub const HOME_DIR: &str = "ELOQCTL_HOME";
 
 pub fn home_path() -> PathBuf {
     PathBuf::from(env::var(HOME_DIR).unwrap())
