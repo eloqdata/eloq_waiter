@@ -22,7 +22,6 @@ eloqctl status demo-sql-cassandra --wait 30
 eloqctl stop demo-sql-cassandra --all --force
 eloqctl remove demo-sql-cassandra
 
-sleep 15
 eloqctl demo eloq-kv --skip-deps
 eloqctl status demo-kv-cassandra --wait 30
 eloqctl stop demo-kv-cassandra
@@ -42,7 +41,6 @@ eloqctl start demo-kv-cassandra
 eloqctl status demo-kv-cassandra --wait 30
 eloqctl remove demo-kv-cassandra
 
-sleep 15
 eloqctl demo eloq-kv --store rocksdb --no-monitor --skip-deps
 eloqctl status demo-kv-rocksdb --wait 30
 eloqctl stop demo-kv-rocksdb

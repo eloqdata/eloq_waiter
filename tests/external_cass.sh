@@ -19,7 +19,6 @@ eloqctl monitor stop demo-sql-cassandra
 eloqctl stop demo-sql-cassandra --all
 eloqctl remove demo-sql-cassandra
 
-sleep 15
 eloqctl demo eloq-kv --skip-deps --unlimited --ext-cass ${CASSANDRA_HOST}
 CLIENT=$(eloqctl -q connect demo-kv-cassandra)
 eloqctl status demo-kv-cassandra --wait 30

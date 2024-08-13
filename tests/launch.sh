@@ -13,7 +13,6 @@ eloqctl status eloqsql-cluster --wait 30
 eval "${CLIENT} --execute 'SHOW DATABASES'"
 eloqctl stop eloqsql-cluster --all
 
-sleep 15
 eloqctl launch ${ELOQCTL_HOME}/config/examples/eloqkv_cassandra.yaml --skip-deps
 CLIENT=$(eloqctl -q connect eloqkv-cluster)
 eloqctl status eloqkv-cluster --wait 30
