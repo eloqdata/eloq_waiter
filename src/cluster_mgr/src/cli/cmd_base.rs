@@ -569,7 +569,7 @@ impl CmdExecutor {
                             host = vec!["127.0.0.1".to_owned()];
                             kind = CassKind::Internal(CassDeploy {
                                 mirror: None,
-                                version: "4.1.3".to_owned(),
+                                version: "4.1.5".to_owned(),
                                 cluster_name: None,
                             });
                         };
