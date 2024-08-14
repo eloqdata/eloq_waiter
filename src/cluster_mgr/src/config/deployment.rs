@@ -562,6 +562,12 @@ impl Deployment {
     pub fn build_eloqkv_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut ini = Ini::new();
         ini.load(config_template(ELOQKV_INI)?).unwrap();
+        ini.set(
+            SECTION_LOCAL,
+            "path",
+            Some(format!("{}/data", self.tx_srv_home())),
+        );
+
         match self.storage_service.provider().unwrap() {
             StorageProvider::Cassandra => {
                 let cass = self.storage_service.cassandra.as_ref().unwrap();
@@ -580,7 +586,10 @@ impl Deployment {
             }
             StorageProvider::Dynamodb => panic!("not supported"),
             StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
-                RocksDB::Local => {}
+                RocksDB::Local => {
+                    let rocks_path = format!("{}/rocksdb", self.tx_srv_home());
+                    ini.set(SECTION_STORE, "rocksdb_storage_path", Some(rocks_path));
+                }
                 RocksDB::S3(s3) => {
                     ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
                     ini.set(SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
