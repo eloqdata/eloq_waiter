@@ -14,8 +14,8 @@ export PATH="$PATH:$ELOQCTL_HOME/bin"
 
 cd $ELOQCTL_HOME
 cat version
-bash tests/demo.sh
 bash tests/launch.sh
+bash tests/demo.sh
 bash tests/update.sh
 bash tests/control.sh
 if [[ ! "$(python3 --version)" =~ "Python 3.12" ]]; then

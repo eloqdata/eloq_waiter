@@ -6,7 +6,7 @@ echo ">>> Test Demo command"
 eloqctl --version
 
 # test eloq-sql
-eloqctl demo eloq-sql
+eloqctl demo eloq-sql --skip-deps
 CLIENT=$(eloqctl -q connect demo-sql-cassandra)
 eloqctl status demo-sql-cassandra --wait 30
 eval "${CLIENT} --execute 'SHOW DATABASES'"
