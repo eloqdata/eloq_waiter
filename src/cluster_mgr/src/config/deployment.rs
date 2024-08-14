@@ -583,6 +583,8 @@ impl Deployment {
                         ini.set(SECTION_STORE, "cass_password", Some(pwd));
                     }
                 }
+                let factor = cass.host.len().min(3).to_string();
+                ini.set(SECTION_STORE, "cass_keyspace_replication", Some(factor));
             }
             StorageProvider::Dynamodb => panic!("not supported"),
             StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
