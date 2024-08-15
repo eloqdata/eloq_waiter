@@ -10,7 +10,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 *) ARCH= $(uname -m) ;;
 esac
 
-# PLATFORM='linux/amd64,linux/arm64'
+# BUILDX_PLATFORM='linux/amd64,linux/arm64'
 build_image() {
     ln -s ${IMG_KIND}-${IMG_OS}.dockerfile Dockerfile
     BUILD_ARGS=""
@@ -20,10 +20,10 @@ build_image() {
     else
         IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}-${ARCH}"
     fi
-    if [ -n "$PLATFORM" ]; then
-        docker buildx build --platform $PLATFORM -t $IMG_NAME $BUILD_ARGS --push .
+    if [ -n "$BUILDX_PLATFORM" ]; then
+        docker buildx build -t $IMG_NAME $BUILD_ARGS --platform $BUILDX_PLATFORM --push .
     else
-        docker build -t $IMG_NAME $BUILD_ARGS .
+        docker build -t $IMG_NAME $BUILD_ARGS --platform linux/$ARCH .
         docker push $IMG_NAME
     fi
     rm Dockerfile
