@@ -10,8 +10,8 @@ RUN set -eux; \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo; \
     sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo; \
     yum -y update; \
-    yum install -y wget git ca-certificates gcc glibc-devel pkg-config openssl-devel; \
-    yum install awscli; \
+    yum install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
+    yum install wget git awscli; \
     yum clean all; \
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \

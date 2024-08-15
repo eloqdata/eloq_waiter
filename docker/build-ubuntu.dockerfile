@@ -8,8 +8,8 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN set -eux; \
     apt update; \
-    apt install -y --no-install-recommends ca-certificates gcc libc6-dev pkg-config libssl-dev wget; \
-    apt install -y --no-install-recommends git awscli; \
+    apt install -y --no-install-recommends ca-certificates gcc libc6-dev pkg-config libssl-dev; \
+    apt install -y --no-install-recommends wget git awscli; \
     rm -rf /var/lib/apt/lists/* \
     # install rust
     dpkgArch="$(dpkg --print-architecture)"; \
