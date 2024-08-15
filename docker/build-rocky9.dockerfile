@@ -7,9 +7,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN set -eux; \
     dnf -y update; \
+    dnf install -y epel-release; \
     dnf install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
-    dnf install wget git awscli; \
+    dnf install -y wget git awscli; \
     dnf clean all; \
+    # install rust
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \
     amd64 | x86_64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='0b2f6c8f85a3d02fde2efc0ced4657869d73fccfce59defb4e8d29233116e6db' ;; \
@@ -26,5 +28,5 @@ RUN set -eux; \
     rustup --version; \
     cargo --version; \
     rustc --version; \
-    cargo install --force cargo-make; \
-    dnf autoremove -y wget;
+    # install cargo make
+    cargo install --force cargo-make; 

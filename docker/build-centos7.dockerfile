@@ -10,9 +10,11 @@ RUN set -eux; \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo; \
     sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo; \
     yum -y update; \
+    yum install -y epel-release; \
     yum install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
-    yum install wget git awscli; \
+    yum install -y wget git awscli; \
     yum clean all; \
+    # install rust
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \
     amd64 | x86_64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='0b2f6c8f85a3d02fde2efc0ced4657869d73fccfce59defb4e8d29233116e6db' ;; \
@@ -29,5 +31,5 @@ RUN set -eux; \
     rustup --version; \
     cargo --version; \
     rustc --version; \
-    cargo install --force cargo-make; \
-    yum autoremove -y wget;
+    # install cargo make
+    cargo install --force cargo-make; 
