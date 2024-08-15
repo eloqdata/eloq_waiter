@@ -11,7 +11,7 @@ RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt install -y --no-install-recommends ca-certificates gcc libc6-dev pkg-config libssl-dev; \
     apt install -y --no-install-recommends wget git awscli; \
-    rm -rf /var/lib/apt/lists/* \
+    rm -rf /var/lib/apt/lists/*; \
     # install rust
     dpkgArch="$(dpkg --print-architecture)"; \
     case "${dpkgArch##*-}" in \
