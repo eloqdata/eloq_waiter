@@ -7,13 +7,8 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN set -eux; \
     dnf -y update; \
-    dnf install -y \
-    wget git \
-    ca-certificates \
-    gcc \
-    glibc-devel \
-    pkg-config \
-    openssl-devel && \
+    dnf install -y wget git ca-certificates gcc glibc-devel pkg-config openssl-devel; \
+    dnf install awscli; \
     dnf clean all; \
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \

@@ -10,13 +10,8 @@ RUN set -eux; \
     sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* ; \
     sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* ; \
     dnf -y update; \
-    dnf install -y \
-    wget git \
-    ca-certificates \
-    gcc \
-    glibc-devel \
-    pkg-config \
-    openssl-devel && \
+    dnf install -y wget git ca-certificates gcc glibc-devel pkg-config openssl-devel; \
+    dnf install awscli; \
     dnf clean all; \
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \
