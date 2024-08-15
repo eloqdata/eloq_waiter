@@ -8,6 +8,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN set -eux; \
     apt update; \
+    export DEBIAN_FRONTEND=noninteractive; \
     apt install -y --no-install-recommends ca-certificates gcc libc6-dev pkg-config libssl-dev; \
     apt install -y --no-install-recommends wget git awscli; \
     rm -rf /var/lib/apt/lists/* \
