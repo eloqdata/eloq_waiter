@@ -4,15 +4,21 @@
 #   ./build.bash test centos7 centos8 rocky9 ubuntu
 set -e
 
+case $(uname -m) in
+amd64 | x86_64) ARCH=amd64 ;;
+arm64 | aarch64) ARCH=arm64 ;;
+*) ARCH= $(uname -m) ;;
+esac
+
 # PLATFORM='linux/amd64,linux/arm64'
 build_image() {
     ln -s ${IMG_KIND}-${IMG_OS}.dockerfile Dockerfile
     BUILD_ARGS=""
     if [ $IMG_OS = "ubuntu" ]; then
-        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}${UBUNTU_ID}"
+        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}${UBUNTU_ID}-${ARCH}"
         BUILD_ARGS="--build-arg UBT_ID=${UBUNTU_ID}.04"
     else
-        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}"
+        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}-${ARCH}"
     fi
     if [ -n "$PLATFORM" ]; then
         docker buildx build --platform $PLATFORM -t $IMG_NAME $BUILD_ARGS --push .
