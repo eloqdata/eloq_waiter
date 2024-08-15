@@ -110,31 +110,31 @@ resources:
 
   - name: image_centos7
     source:
-      repository: monographdb/waiter-build-centos7
+      repository: eloqdata/eloqctl-build-centos7
     type: registry-image
   - name: image_centos8
     source:
-      repository: monographdb/waiter-build-centos8
+      repository: eloqdata/eloqctl-build-centos8
     type: registry-image
   - name: image_rocky9
     source:
-      repository: monographdb/waiter-build-rocky9
+      repository: eloqdata/eloqctl-build-rocky9
     type: registry-image
   - name: image_ubuntu1804
     source:
-      repository: monographdb/waiter-build-ubuntu18
+      repository: eloqdata/eloqctl-build-ubuntu18
     type: registry-image
   - name: image_ubuntu2004
     source:
-      repository: monographdb/waiter-build-ubuntu20
+      repository: eloqdata/eloqctl-build-ubuntu20
     type: registry-image
   - name: image_ubuntu2204
     source:
-      repository: monographdb/waiter-build-ubuntu22
+      repository: eloqdata/eloqctl-build-ubuntu22
     type: registry-image
   - name: image_ubuntu2404
     source:
-      repository: monographdb/waiter-build-ubuntu24
+      repository: eloqdata/eloqctl-build-ubuntu24
     type: registry-image
 
   - name: out_s3_centos7

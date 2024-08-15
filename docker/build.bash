@@ -1,4 +1,7 @@
 #!/bin/bash
+# Example:
+#   ./build.bash build centos7 centos8 rocky9 ubuntu
+#   ./build.bash test centos7 centos8 rocky9 ubuntu
 set -e
 
 # PLATFORM='linux/amd64,linux/arm64'
@@ -6,10 +9,10 @@ build_image() {
     ln -s ${IMG_KIND}-${IMG_OS}.dockerfile Dockerfile
     BUILD_ARGS=""
     if [ $IMG_OS = "ubuntu" ]; then
-        IMG_NAME="monographdb/waiter-${IMG_KIND}-${IMG_OS}${UBUNTU_ID}"
-        BUILD_ARGS="--build-arg OS_ID=${UBUNTU_ID}"
+        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}${UBUNTU_ID}"
+        BUILD_ARGS="--build-arg UBT_ID=${UBUNTU_ID}.04"
     else
-        IMG_NAME="monographdb/waiter-${IMG_KIND}-${IMG_OS}"
+        IMG_NAME="eloqdata/eloqctl-${IMG_KIND}-${IMG_OS}"
     fi
     if [ -n "$PLATFORM" ]; then
         docker buildx build --platform $PLATFORM -t $IMG_NAME $BUILD_ARGS --push .
