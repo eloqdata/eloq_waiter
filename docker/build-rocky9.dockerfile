@@ -9,8 +9,12 @@ RUN set -eux; \
     dnf -y update; \
     dnf install -y epel-release; \
     dnf install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
-    dnf install -y wget git awscli; \
+    dnf install -y wget git curl unzip; \
     dnf clean all; \
+    # install aws cli
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    unzip awscliv2.zip && rm awscliv2.zip; \
+    ./aws/install && rm -r aws; \
     # install rust
     dpkgArch="$(uname -m)"; \
     case "${dpkgArch}" in \
