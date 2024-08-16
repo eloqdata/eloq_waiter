@@ -10,7 +10,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 *) ARCH= $(uname -m) ;;
 esac
 
-# BUILDX_PLATFORM='linux/amd64,linux/arm64'
+BUILDX_PLATFORM='linux/amd64,linux/arm64'
 build_image() {
     ln -s ${IMG_KIND}-${IMG_OS}.dockerfile Dockerfile
     BUILD_ARGS=""
@@ -42,29 +42,7 @@ if [ -n "$1" ]; then
         fi
     done
 else
-    IMG_KIND="build"
-    IMG_OS="centos7"
     build_image
-    IMG_OS="centos8"
-    build_image
-    IMG_OS="rocky9"
-    build_image
-    IMG_OS="ubuntu"
-    for UBUNTU_ID in 18 20 22 24; do
-        build_image
-    done
-
-    IMG_KIND="test"
-    IMG_OS="centos7"
-    build_image
-    IMG_OS="centos8"
-    build_image
-    IMG_OS="rocky9"
-    build_image
-    IMG_OS="ubuntu"
-    for UBUNTU_ID in 18 20 22 24; do
-        build_image
-    done
 fi
 
 echo "Done!"
