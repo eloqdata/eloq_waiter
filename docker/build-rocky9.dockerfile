@@ -5,9 +5,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.79.0
 
-RUN set -eux; \
-    dnf -y update; \
+RUN set -ex; \
+    dnf update -y; \
+    dnf install -y dnf-plugins-core; \
     dnf install -y epel-release; \
+    dnf config-manager --set-enabled crb; \
     dnf install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
     dnf install -y wget git curl unzip; \
     dnf clean all; \

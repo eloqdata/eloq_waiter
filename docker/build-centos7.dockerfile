@@ -5,11 +5,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.79.0
 
-RUN set -eux; \
+RUN set -ex; \
     sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo; \
     sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo; \
     sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo; \
-    yum -y update; \
+    yum update -y; \
     yum install -y epel-release; \
     yum install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
     yum install -y wget git curl unzip; \

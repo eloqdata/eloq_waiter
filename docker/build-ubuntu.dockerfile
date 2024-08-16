@@ -6,7 +6,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.79.0
 
-RUN set -eux; \
+RUN set -ex; \
     apt update; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt install -y --no-install-recommends ca-certificates gcc libc6-dev pkg-config libssl-dev; \
