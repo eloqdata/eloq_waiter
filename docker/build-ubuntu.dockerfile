@@ -34,6 +34,6 @@ RUN set -ex; \
     chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
     rustup --version; \
     cargo --version; \
-    rustc --version; \
-    # install cargo make
-    cargo install --force cargo-make
+    rustc --version;
+# install cargo make
+# cargo install --force cargo-make

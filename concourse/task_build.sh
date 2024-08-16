@@ -1,6 +1,6 @@
 #!/bin/bash
 
-WORK_DIR=$(pwd)
+cargo install --force cargo-make
 cd monograph_waiter
 cargo make --no-workspace --makefile Makefile.toml rest_api_pkg
 tar -czvf eloqctl.tar.gz eloqctl
