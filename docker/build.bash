@@ -29,16 +29,42 @@ build_image() {
     rm Dockerfile
 }
 
-IMG_KIND=$1
-for ((i = 2; i <= "$#"; i++)); do
-    IMG_OS=${!i}
-    if [ $IMG_OS = "ubuntu" ]; then
-        for UBUNTU_ID in 18 20 22 24; do
+if [ -n "$1" ]; then
+    IMG_KIND=$1
+    for ((i = 2; i <= "$#"; i++)); do
+        IMG_OS=${!i}
+        if [ $IMG_OS = "ubuntu" ]; then
+            for UBUNTU_ID in 18 20 22 24; do
+                build_image
+            done
+        else
             build_image
-        done
-    else
+        fi
+    done
+else
+    IMG_KIND="build"
+    IMG_OS="centos7"
+    build_image
+    IMG_OS="centos8"
+    build_image
+    IMG_OS="rocky9"
+    build_image
+    IMG_OS="ubuntu"
+    for UBUNTU_ID in 18 20 22 24; do
         build_image
-    fi
-done
+    done
+
+    IMG_KIND="test"
+    IMG_OS="centos7"
+    build_image
+    IMG_OS="centos8"
+    build_image
+    IMG_OS="rocky9"
+    build_image
+    IMG_OS="ubuntu"
+    for UBUNTU_ID in 18 20 22 24; do
+        build_image
+    done
+fi
 
 echo "Done!"
