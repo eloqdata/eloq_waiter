@@ -11,7 +11,7 @@ RUN set -ex; \
     dnf install -y epel-release; \
     dnf config-manager --set-enabled crb; \
     dnf install -y ca-certificates gcc glibc-devel pkg-config openssl-devel; \
-    dnf install -y wget git curl unzip; \
+    dnf install -y wget git unzip; \
     dnf clean all; \
     # install aws cli
     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
