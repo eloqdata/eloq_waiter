@@ -7,6 +7,8 @@ arm64 | aarch64) ARCH=arm64 ;;
 *) ARCH= $(uname -m) ;;
 esac
 
+# According to https://github.com/multiarch/alpine/issues/32, execute this command if you build failed with permission error:
+# docker run --privileged multiarch/qemu-user-static:latest --reset -p yes --credential yes
 BUILDX_PLATFORM='linux/amd64,linux/arm64'
 build_image() {
     IMG_KIND=$1
