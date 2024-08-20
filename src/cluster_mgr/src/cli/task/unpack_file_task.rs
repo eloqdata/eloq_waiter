@@ -214,7 +214,7 @@ impl TaskExecutor for UnpackFileTask {
         cmds.push(format!(
             "tar -zxvf {tarball} -C {target} --strip-components 1 --overwrite {exclude}"
         ));
-        cmds.push(format!("rm -rf {tarball}"));
+        cmds.push(format!("rm {tarball}"));
         let unpack_cmd = cmds.join(" && ");
         info!("UnpackFileTask cmd={unpack_cmd}");
 
