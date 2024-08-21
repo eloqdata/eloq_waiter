@@ -11,6 +11,10 @@ pub struct TxConfUpload;
 
 impl UploadTaskBuilder for TxConfUpload {
     fn build(&self, config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
+        if config.deployment.tx_service.is_none() {
+            return IndexMap::new();
+        }
+
         let all_conf_path = config
             .gen_all_monograph_configs()
             .expect("Failed generate my_HOST.cnf")

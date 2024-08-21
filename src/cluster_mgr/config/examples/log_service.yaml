@@ -1,0 +1,26 @@
+connection:
+  username: "${USER}"
+  auth_type: "keypair"
+  auth:
+    keypair: "/home/${USER}/.ssh/id_rsa"
+deployment:
+  cluster_name: "log-cluster"
+  install_dir: "/home/${USER}"
+  log_service:
+    image: "http://download.eloqdata.com/eloqkv/logservice/log-service-nightly-ubuntu24-amd64.tar.gz"
+    nodes:
+      - host: 127.0.0.1
+        port: 9000
+        data_dir:
+          - "/home/${USER}/log-cluster/wal_log1"
+      - host: 127.0.0.1
+        port: 9010
+        data_dir:
+          - "/home/${USER}/log-cluster/wal_log2"
+      - host: 127.0.0.1
+        port: 9020
+        data_dir:
+          - "/home/${USER}/log-cluster/wal_log3"
+    replica: 3
+  storage_service:
+    rocksdb: Local

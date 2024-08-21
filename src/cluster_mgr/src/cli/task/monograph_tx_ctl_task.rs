@@ -248,6 +248,9 @@ impl MonographTxCtlTask {
         cmd_arg: SubCommand,
         config: &DeployConfig,
     ) -> IndexMap<TaskId, TaskInstance> {
+        if config.deployment.tx_service.is_none() {
+            return IndexMap::new();
+        }
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
         let tx_bin = config.deployment.tx_srv_bin();

@@ -13,6 +13,9 @@ impl TaskGroup for UpdateConfigTaskGroup {
         cmd_arg: SubCommand,
         config: DeployConfig,
     ) -> anyhow::Result<TaskExecutionContext> {
+        if config.deployment.tx_service.is_none() {
+            return Ok(TaskExecutionContext::dummy());
+        }
         let cluster_name = &config.deployment.cluster_name;
         let need_restart = match cmd_arg {
             SubCommand::UpdateConf {
