@@ -32,8 +32,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
         };
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
-        if monitor_ctl_cmd.to_lowercase().eq("start") && config.product() == Some(Product::EloqSQL)
-        {
+        if monitor_ctl_cmd.to_lowercase().eq("start") && config.product() == Product::EloqSQL {
             let cli_conn = config.client_conn().unwrap();
             let create_monitor_user_cmd = format!(
                 "{cli_conn} < {}/{CREATE_MONITOR_USER_SQL_FILE}",

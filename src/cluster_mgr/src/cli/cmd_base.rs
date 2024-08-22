@@ -249,12 +249,13 @@ impl CmdExecutor {
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
                 let deploy = &mut config.deployment;
                 if let Some(v) = version {
-                    let txsrv = deploy.tx_service.as_mut().expect("tx srv missing");
-                    if txsrv.version == Some(v.clone()) {
+                    if deploy.version == Some(v.clone()) {
                         warn!("cluster version not changed")
                     }
-                    txsrv.version = Some(v);
-                    txsrv.image = None;
+                    deploy.version = Some(v);
+                    if let Some(txsrv) = &mut deploy.tx_service {
+                        txsrv.image = None;
+                    }
                     if let Some(logsrv) = &mut config.deployment.log_service {
                         logsrv.image = None;
                     }
@@ -485,46 +486,42 @@ impl CmdExecutor {
         let arch = cpu_arch();
         let os = self.os_vers();
         let store = cnf.storage_service.pretty_name();
-        let mut tx_vers = None;
-        let mut prefix = PathBuf::from(CDN);
-        if let Some(txsrv) = &mut cnf.tx_service {
-            let product = txsrv.product.name();
-            if let Some("latest") = txsrv.version.as_deref() {
-                // request latest release version ID
-                let client = self.pg_client().await?;
-                let row = client
-                                    .query_one(
-                                        "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3 AND store=$4
-                                             ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
-                                        &[&product, &arch, &os, &store],
-                                    )
-                                    .await
-                                    .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
-                if row.is_empty() {
-                    bail!("no available release found")
-                }
-                let major: i32 = row.get("version_major");
-                let minor: i32 = row.get("version_minor");
-                let build: i32 = row.get("version_build");
-                let latest: String = format!("{major}.{minor}.{build}");
-                info!("latest release version = {latest}");
-                txsrv.version = Some(latest);
+        let product = cnf.product.name();
+        if let Some("latest") = cnf.version.as_deref() {
+            // request latest release version ID
+            let client = self.pg_client().await?;
+            let row = client
+                                .query_one(
+                                    "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3 AND store=$4
+                                         ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
+                                    &[&product, &arch, &os, &store],
+                                )
+                                .await
+                                .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
+            if row.is_empty() {
+                bail!("no available release found")
             }
-            tx_vers = txsrv.version.clone();
-
-            prefix.push(product);
+            let major: i32 = row.get("version_major");
+            let minor: i32 = row.get("version_minor");
+            let build: i32 = row.get("version_build");
+            let latest: String = format!("{major}.{minor}.{build}");
+            info!("latest release version = {latest}");
+            cnf.version = Some(latest);
+        }
+        let mut prefix = PathBuf::from(CDN);
+        prefix.push(product);
+        let prefix = prefix.as_path().to_str().unwrap();
+        if let Some(txsrv) = &mut cnf.tx_service {
             if txsrv.image.is_none() {
-                let prefix = prefix.as_path().to_str().unwrap();
-                let vers = txsrv.version.as_deref().expect("tx version is missing");
+                let vers = cnf.version.as_deref().expect("tx version is missing");
                 let img = format!("{prefix}/{store}/{product}-{vers}-{os}-{arch}.tar.gz");
                 info!("tx service image is set: {img}");
                 txsrv.image = Some(img);
             }
         }
         if let Some(logsrv) = &mut cnf.log_service {
-            let prefix = prefix.as_path().to_str().unwrap();
             if logsrv.image.is_none() {
-                let vers = tx_vers.as_deref().expect("tx version is missing");
+                let vers = cnf.version.as_deref().expect("tx version is missing");
                 let img = format!("{prefix}/logservice/log-service-{vers}-{os}-{arch}.tar.gz");
                 info!("log service image is set: {img}");
                 logsrv.image = Some(img);
@@ -616,8 +613,7 @@ impl CmdExecutor {
                     }
                 }
                 // set version
-                let txsrv = deploy.tx_service.as_mut().expect("tx srv missing");
-                txsrv.version.replace(version);
+                deploy.version.replace(version);
                 // set image URL
                 self.resolve_version(deploy).await?;
                 // add kv-store name to cluster name suffix

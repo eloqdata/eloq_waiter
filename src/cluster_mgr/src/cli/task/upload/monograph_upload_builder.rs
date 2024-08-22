@@ -76,7 +76,7 @@ impl MonographUploadBuilder {
             all_files_path.extend(log_start_path);
         }
 
-        if config.product() == Some(Product::EloqSQL) {
+        if config.product() == Product::EloqSQL {
             let boostrap = config.gen_bootstrap_db_script().unwrap();
             all_files_path.push(boostrap);
             let all_mysql_exporter_conf = config.gen_all_mysql_exporter_config().unwrap();

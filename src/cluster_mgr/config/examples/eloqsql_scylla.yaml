@@ -6,9 +6,9 @@ connection:
 deployment:
   cluster_name: "eloqsql-cluster"
   install_dir: "/home/${USER}"
+  product: "EloqSQL"
+  version: "latest"
   tx_service:
-    product: "EloqSQL"
-    version: "latest"
     host: [127.0.0.1]
     port: 8000
     client_port: 3316

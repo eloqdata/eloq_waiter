@@ -6,9 +6,9 @@ connection:
 deployment:
   cluster_name: "demo-kv"
   install_dir: "${ELOQCTL_HOME}"
+  product: "EloqKV"
+  version: "latest"
   tx_service:
-    product: "EloqKV"
-    version: "latest"
     host: [127.0.0.1]
     client_port: 6389
   log_service:

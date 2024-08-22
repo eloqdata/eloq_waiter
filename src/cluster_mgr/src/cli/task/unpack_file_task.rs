@@ -70,7 +70,7 @@ impl UnpackFileTask {
                 let unpack_dest = if curr_file_name.eq(&log_image) {
                     LOG_SERVICE_HOME.to_string()
                 } else if curr_file_name.eq(&tx_image) {
-                    config.product().unwrap().home().to_owned()
+                    config.product().home().to_owned()
                 } else {
                     extract_unpacked_name(curr_file_name.as_str())
                 };
@@ -111,7 +111,7 @@ impl UnpackFileTask {
         let deploy_ref = &config.deployment;
         if let Some(txsrv) = &deploy_ref.tx_service {
             let image = txsrv.image.as_ref().unwrap().split('/').last().unwrap();
-            let tx_home = txsrv.product.home().to_owned();
+            let tx_home = deploy_ref.product.home().to_owned();
             tasks = txsrv
                 .host
                 .iter()

@@ -190,12 +190,12 @@ impl DeployConfig {
             return Ok(vec![]);
         }
         let txsrv = deploy.tx_service.as_ref().unwrap();
-        let mut path_vec = match txsrv.product {
+        let mut path_vec = match deploy.product {
             Product::EloqSQL => vec![deploy.gen_eloqsql_config_by_host(None)?],
             Product::EloqKV => vec![deploy.gen_eloqkv_config_by_host(None)?],
         };
         for h in txsrv.host.clone().into_iter().map(|h| Some(h.to_string())) {
-            let cfg = match txsrv.product {
+            let cfg = match deploy.product {
                 Product::EloqSQL => deploy.gen_eloqsql_config_by_host(h).unwrap(),
                 Product::EloqKV => deploy.gen_eloqkv_config_by_host(h).unwrap(),
             };
@@ -268,7 +268,7 @@ impl DeployConfig {
         }
         let txsrv = self.deployment.tx_service.as_ref().unwrap();
         let bin = self.deployment.client_bin();
-        let s = match txsrv.product {
+        let s = match self.deployment.product {
             Product::EloqSQL => format!(
                 "LD_LIBRARY_PATH={}/lib:$LD_LIBRARY_PATH {bin} --user={} -S /tmp/eloqsql{}.sock",
                 self.deployment.tx_srv_home(),
@@ -287,7 +287,7 @@ impl DeployConfig {
         Some(s)
     }
 
-    pub fn product(&self) -> Option<Product> {
+    pub fn product(&self) -> Product {
         self.deployment.product()
     }
 
@@ -315,11 +315,7 @@ impl DeployConfig {
             let log_start_template = fs::read_to_string(log_start_template_path.as_path())?;
             let all_start_cmd_by_hosts = log_srv.log_start_cmd();
             let log_home_dir = self.deployment.log_srv_home();
-            let version = if let Some(txsrv) = &self.deployment.tx_service {
-                txsrv.version.as_deref().unwrap_or("")
-            } else {
-                ""
-            };
+            let version = self.deployment.version.as_deref().unwrap_or("");
             let cmd_scripts = all_start_cmd_by_hosts
                 .iter()
                 .flat_map(|(host, cmd_items)| {
@@ -524,21 +520,11 @@ impl DeployConfig {
     }
 
     pub fn abstract_info(&self) -> DeployAbstract {
-        let product = if let Some(p) = self.product() {
-            p.to_string()
-        } else {
-            "".to_owned()
-        };
-        let version = if let Some(tx) = &self.deployment.tx_service {
-            tx.version.clone().unwrap_or_default()
-        } else {
-            "".to_owned()
-        };
         DeployAbstract {
             name: self.deployment.cluster_name.clone(),
-            product,
+            product: self.product().to_string(),
             store: self.deployment.storage_service.pretty_name(),
-            version,
+            version: self.deployment.version.clone().unwrap_or_default(),
             user: self.connection.username.clone(),
         }
     }

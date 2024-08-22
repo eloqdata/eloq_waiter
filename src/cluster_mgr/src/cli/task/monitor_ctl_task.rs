@@ -202,7 +202,7 @@ impl MonitorCtlTask {
             })
             .flat_map(|(pkg, hosts)| {
                 let mysql_expt = pkg.eq(&DeploymentPackage::MonographTx)
-                    && config.product() == Some(Product::EloqSQL)
+                    && config.product() == Product::EloqSQL
                     && monitor.mysql_exporter.is_some();
                 hosts
                     .iter()

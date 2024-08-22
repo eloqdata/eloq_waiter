@@ -383,7 +383,7 @@ impl TaskExecutor for MonographTxCtlTask {
             "status" => {
                 let wait_secs =
                     TaskArgValue::into_inner_value::<i32>(task_arg.get(WAIT_SECS).unwrap().clone());
-                match txsrv.product {
+                match self.config.deployment.product {
                     Product::EloqSQL => {
                         let db_user = TaskArgValue::into_inner_value::<String>(
                             task_arg.get(MONO_DB_USER).unwrap().clone(),

@@ -6,8 +6,9 @@ connection:
 deployment:
   cluster_name: "log-cluster"
   install_dir: "/home/${USER}"
+  product: "EloqKV"
+  version: "latest"
   log_service:
-    image: "http://download.eloqdata.com/eloqkv/logservice/log-service-nightly-ubuntu24-amd64.tar.gz"
     nodes:
       - host: 127.0.0.1
         port: 9000

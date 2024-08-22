@@ -114,8 +114,6 @@ pub struct MonographPort {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct MonographService {
-    pub product: Product,
-    pub version: Option<String>,
     pub image: Option<String>,
     pub host: Vec<String>,
     pub port: Option<u16>,
@@ -207,6 +205,8 @@ pub enum Version {
 pub struct Deployment {
     pub cluster_name: String,
     pub install_dir: String,
+    pub product: Product,
+    pub version: Option<String>,
     pub tx_service: Option<MonographService>,
     pub log_service: Option<LogService>,
     pub storage_service: StorageService,
@@ -241,11 +241,7 @@ impl Deployment {
     }
 
     pub fn version(&self) -> Option<Version> {
-        if let Some(txsrv) = &self.tx_service {
-            txsrv.version.as_ref().map(|ver| parse_version(ver))
-        } else {
-            None
-        }
+        self.version.as_ref().map(|ver| parse_version(ver))
     }
 
     pub fn install_dir(&self) -> String {
@@ -253,7 +249,7 @@ impl Deployment {
     }
 
     pub fn tx_srv_home(&self) -> String {
-        format!("{}/{}", &self.install_dir(), self.product().unwrap().home())
+        format!("{}/{}", &self.install_dir(), self.product().home())
     }
 
     pub fn log_srv_home(&self) -> String {
@@ -266,14 +262,14 @@ impl Deployment {
 
     pub fn tx_srv_ini(&self) -> String {
         let home = self.tx_srv_home();
-        match self.product().unwrap() {
+        match self.product() {
             Product::EloqSQL => format!("{home}/{ELOQSQL_INI}"),
             Product::EloqKV => format!("{home}/{ELOQKV_INI}"),
         }
     }
 
-    pub fn product(&self) -> Option<Product> {
-        self.tx_service.as_ref().map(|tx| tx.product.clone())
+    pub fn product(&self) -> Product {
+        self.product.clone()
     }
 
     pub fn tx_srv_logs(&self) -> String {
@@ -281,7 +277,7 @@ impl Deployment {
     }
 
     pub fn tx_srv_bin(&self) -> String {
-        match self.product().unwrap() {
+        match self.product() {
             Product::EloqSQL => format!("{}/bin/mariadbd", &self.tx_srv_home()),
             Product::EloqKV => format!("{}/bin/eloqkv", &self.tx_srv_home()),
         }
@@ -289,7 +285,7 @@ impl Deployment {
 
     pub fn client_bin(&self) -> String {
         let tx_home = self.tx_srv_home();
-        match self.product().unwrap() {
+        match self.product() {
             Product::EloqSQL => format!("{tx_home}/bin/mariadb"),
             Product::EloqKV => format!("{tx_home}/bin/eloqkv-cli"),
         }
@@ -324,7 +320,7 @@ impl Deployment {
     }
 
     pub fn get_keyspace(&self) -> Result<String> {
-        match self.product().unwrap() {
+        match self.product() {
             Product::EloqSQL => self.get_monograph_keyspace(),
             Product::EloqKV => self.get_redis_keyspace(),
         }
@@ -345,11 +341,11 @@ impl Deployment {
         let node_group = Vec::from_iter(ordered_members.values())
             .into_iter()
             .join(",");
-        let key_list = match self.product().unwrap() {
+        let key_list = match self.product() {
             Product::EloqSQL => "monograph_txlog_service_list".to_string(),
             Product::EloqKV => "txlog_service_list".to_string(),
         };
-        let key_replica = match self.product().unwrap() {
+        let key_replica = match self.product() {
             Product::EloqSQL => "monograph_txlog_group_replica_num".to_string(),
             Product::EloqKV => "txlog_group_replica_num".to_string(),
         };
@@ -1027,7 +1023,7 @@ impl Deployment {
         ld_lib.push_str(&format!(
             "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
         ));
-        match self.product().unwrap() {
+        match self.product() {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
                 if let Some(Version::Tag(nums)) = self.version() {
