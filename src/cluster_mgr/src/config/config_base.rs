@@ -12,7 +12,6 @@ use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::env::current_exe;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -456,28 +455,32 @@ impl DeployConfig {
     /// By default, the directory where cluster_mgr is located includes config dir.
     /// If it does not exist, users need to specify the config location through environment variables (MONO_CLUSTER_MGR_CONF).
     /// Recursively traverse all dashboard files
-    pub fn load_monitor_dashboard(&self, path_buf_opt: Option<PathBuf>) -> Vec<String> {
-        let dashboard_path = if let Some(spec_path_buf) = path_buf_opt {
-            spec_path_buf
-        } else if let Ok(curr) = current_exe() {
-            let parent = curr.parent().unwrap();
-            parent.join("config/dashboard")
-        } else {
-            return vec![];
-        };
-        info!("dashboard_path {dashboard_path:?}");
-        walkdir::WalkDir::new(dashboard_path)
+    pub fn load_monitor_dashboard(&self) -> Vec<String> {
+        let base = config_template("dashboard").expect("dashbord config not found");
+        info!("dashboard_path {base:?}");
+        let mut paths = vec![base.join("node")];
+        match self.deployment.product {
+            Product::EloqSQL => {
+                paths.push(base.join("eloqsql"));
+                paths.push(base.join("mysql"));
+            }
+            Product::EloqKV => {
+                paths.push(base.join("eloqkv"));
+            }
+        }
+        if self.deployment.storage_service.inner_cass().is_some() {
+            paths.push(base.join("cassandra"));
+        }
+        paths
             .into_iter()
-            .filter_map(|curr_path| curr_path.ok())
-            .filter(|dir_entry| {
-                let path = dir_entry.path();
-                path.is_file()
+            .map(|p| {
+                walkdir::WalkDir::new(p)
+                    .into_iter()
+                    .filter_map(|curr_path| curr_path.ok())
+                    .filter(|entry| entry.path().is_file())
+                    .map(|entry| entry.path().to_str().unwrap().to_string())
             })
-            .map(|file_entry| {
-                let path = file_entry.path();
-                let path_str = path.to_str().unwrap();
-                path_str.to_string()
-            })
+            .flatten()
             .collect_vec()
     }
 

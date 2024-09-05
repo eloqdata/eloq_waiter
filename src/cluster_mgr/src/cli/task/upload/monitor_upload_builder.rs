@@ -17,7 +17,7 @@ pub struct MonitorInfraConfUploadBuilder;
 
 impl MonitorInfraConfUploadBuilder {
     fn dashboard_upload_files(&self, config: &DeployConfig) -> Option<UploadFile> {
-        let files = config.load_monitor_dashboard(None);
+        let files = config.load_monitor_dashboard();
         let install_dir = config.install_dir();
         let dashboard_conf_path_string = format!("{install_dir}/{GRAFANA_DASHBOARD_CONFIG_DIR}");
         let monitor_opt = config.deployment.monitor.as_ref();
