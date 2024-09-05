@@ -190,7 +190,7 @@ pub enum Version {
 #[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Deployment {
-    pub product: Option<Product>,
+    pub product: Product,
     pub version: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
@@ -224,11 +224,7 @@ impl Deployment {
     }
 
     pub fn product(&self) -> Product {
-        if let Some(p) = self.product.clone() {
-            p
-        } else {
-            Product::EloqSQL
-        }
+        self.product.clone()
     }
 
     pub fn version_str(&self) -> &str {
