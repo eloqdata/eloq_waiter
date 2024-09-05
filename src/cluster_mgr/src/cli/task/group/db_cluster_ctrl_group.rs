@@ -99,7 +99,7 @@ impl CtrlDBTaskGroup {
         let mut executable = IndexMap::new();
 
         if deployment.codis.is_some() {
-            let codis_tasks = CodisTask::from_config(&config, codis_task::Operation::Stop);
+            let codis_tasks = CodisTask::from_config(config, codis_task::Operation::Stop);
             if !codis_tasks.is_empty() {
                 barrier.push(codis_tasks.len());
                 executable.extend(codis_tasks);
@@ -108,17 +108,17 @@ impl CtrlDBTaskGroup {
 
         // stop order: tx-server -> log-server -> cassandra
         if tx {
-            let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), &config);
+            let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), config);
             barrier.push(stop_tx.len());
             executable.extend(stop_tx);
         }
         if log && deployment.log_service.is_some() {
-            let stop_log = MonographLogCtlTask::from_config(cmd.clone(), &config);
+            let stop_log = MonographLogCtlTask::from_config(cmd.clone(), config);
             barrier.push(stop_log.len());
             executable.extend(stop_log);
         }
         if store && deployment.storage_service.inner_cass().is_some() {
-            let tasks = CassandraCtlTask::from_config(cmd, &config);
+            let tasks = CassandraCtlTask::from_config(cmd, config);
             barrier.push(tasks.len());
             executable.extend(tasks);
         }
@@ -135,25 +135,25 @@ impl CtrlDBTaskGroup {
         let mut executable = IndexMap::new();
         // start order: cassandra -> log-server -> tx-server
         if deployment.storage_service.inner_cass().is_some() {
-            let tasks = CassandraCtlTask::from_config(start_cmd.clone(), &config);
+            let tasks = CassandraCtlTask::from_config(start_cmd.clone(), config);
             let ba = CassandraCtlTask::start_barrier(tasks.len());
             barrier.extend(ba);
             executable.extend(tasks);
         }
         if deployment.log_service.is_some() {
-            let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), &config);
+            let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), config);
             barrier.push(start_log.len());
             executable.extend(start_log);
-            let probe = MonographLogProbeTask::from_config(&config);
+            let probe = MonographLogProbeTask::from_config(config);
             barrier.push(probe.len());
             executable.extend(probe);
         }
-        let start_tx = MonographTxCtlTask::from_config(start_cmd.clone(), &config);
+        let start_tx = MonographTxCtlTask::from_config(start_cmd.clone(), config);
         barrier.push(start_tx.len());
         executable.extend(start_tx);
 
         if deployment.codis.is_some() {
-            let codis_tasks = CodisTask::from_config(&config, codis_task::Operation::Start);
+            let codis_tasks = CodisTask::from_config(config, codis_task::Operation::Start);
             if !codis_tasks.is_empty() {
                 // start dashboard firstly, and then start all proxy servers
                 barrier.push(1);
@@ -173,7 +173,7 @@ impl CtrlDBTaskGroup {
             password: None,
             wait: Some(30),
         };
-        let status_tasks = self.status_tasks(status_cmd, &config);
+        let status_tasks = self.status_tasks(status_cmd, config);
         barrier.push(status_tasks.len());
         executable.extend(status_tasks);
 
@@ -188,10 +188,10 @@ impl CtrlDBTaskGroup {
         let deployment = &config.deployment;
         let mut executable = IndexMap::new();
         if deployment.log_service.is_some() {
-            let tasks = MonographLogCtlTask::from_config(cmd.clone(), &config);
+            let tasks = MonographLogCtlTask::from_config(cmd.clone(), config);
             executable.extend(tasks);
         }
-        let start_tx = MonographTxCtlTask::from_config(cmd, &config);
+        let start_tx = MonographTxCtlTask::from_config(cmd, config);
         executable.extend(start_tx);
         if deployment.codis.is_some() {
             //TODO
