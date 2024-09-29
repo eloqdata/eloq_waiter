@@ -1394,7 +1394,6 @@ impl Deployment {
         let mut ld_lib = if let Some(Version::Debug) = self.version() {
             export_asan(&format!("{tx_logs}/asan"))
         } else {
-            // TODO(ZX) ERROR: ld.so: object '/home/mono/eloqkv_standby/EloqKV/lib/libmimalloc.so.2' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
             format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
         };
         ld_lib.push_str(&format!(
