@@ -263,7 +263,7 @@ struct TaskGenerationContext<'a> {
 fn generate_tasks_for_host_ports(
     context: &TaskGenerationContext,
     host_ports: &[String],
-    host_type: &str,
+    server_type: &str, //only used in start commands
 ) -> IndexMap<TaskId, TaskInstance> {
     let cmd_str_ref = context.cmd_arg.as_ref();
     host_ports
@@ -278,14 +278,14 @@ fn generate_tasks_for_host_ports(
 
             let task_id = TaskId {
                 cmd: cmd_str_ref.to_string(),
-                task: format!("{}-{}-{}", host_type, cmd_str_ref, port),
+                task: format!("{}-{}-{}", server_type, cmd_str_ref, port),
                 host: host.to_string(),
             };
 
             // println!("cmd_str_ref:{cmd_str_ref}; host_type:{host_type}");
             let cmd_task_input_tuple = match cmd_str_ref {
                 "start" => (
-                    match host_type {
+                    match server_type {
                         "txservice" => {
                             TxCtlCmd::Start(context.config.deployment.tx_srv_start_cmd(port))
                         }
@@ -321,7 +321,6 @@ fn generate_tasks_for_host_ports(
                         ),
                     ]),
                 ),
-                // TODO(ZX) should connect to redis (any tx or standby nodes)and run `cluster slots` , then filter standby and voter process out, stop them before stop tx process
                 "stop" => {
                     if context.is_force_stop {
                         (
@@ -446,6 +445,54 @@ impl MonographTxCtlTask {
             &context,
             &tx_host_ports,
             "txservice",
+        ));
+
+        for (task_id, _task_instance) in &tasks {
+            println!(
+                "cmd: {}, task: {}, host: {}",
+                task_id.cmd, task_id.task, task_id.host
+            );
+        }
+
+        tasks
+    }
+
+    pub fn from_fetched_data(
+        cmd_arg: SubCommand,
+        config: &DeployConfig,
+        host_ports: &Vec<String>,
+    ) -> IndexMap<TaskId, TaskInstance> {
+        let conn_user = &config.connection.username;
+        let ssh_port = config.connection.ssh_port() as usize;
+        let tx_bin = config.deployment.tx_srv_bin();
+
+        let wait_secs = -1;
+        let db_user = "_NONE".to_string();
+        let db_pwd = "_NONE".to_string();
+        let mut is_force_stop = false;
+
+        match cmd_arg.clone() {
+            SubCommand::Stop { force, .. } => is_force_stop = force,
+            _ => {}
+        };
+
+        let context = TaskGenerationContext {
+            cmd_arg: &cmd_arg,
+            config,
+            conn_user,
+            ssh_port,
+            tx_bin: &tx_bin,
+            wait_secs,
+            db_user: &db_user,
+            db_pwd: &db_pwd,
+            is_force_stop,
+        };
+
+        let mut tasks = IndexMap::new();
+        tasks.extend(generate_tasks_for_host_ports(
+            &context,
+            &host_ports,
+            "fetched-server",
         ));
 
         for (task_id, _task_instance) in &tasks {

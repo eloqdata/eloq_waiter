@@ -1,16 +1,19 @@
 use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::codis_task::{self, CodisTask};
+// use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
+use super::MonitorCtlTaskGroup;
 use crate::cli::task::group::{CtrlDBTaskGroup, TaskGroup};
 use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::monograph_tx_ctl_task::MonographTxCtlTask;
+use crate::cli::task::redis_op_task::RedisOpTask;
+use crate::cli::task::task_base::TaskHost;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskId, TaskInstance};
 use crate::cli::SubCommand;
 use crate::config::config_base::DeployConfig;
 use anyhow::Result;
 use indexmap::IndexMap;
-
-use super::MonitorCtlTaskGroup;
+use std::collections::HashMap;
 
 #[async_trait::async_trait]
 impl TaskGroup for CtrlDBTaskGroup {
@@ -106,7 +109,48 @@ impl CtrlDBTaskGroup {
             }
         }
 
-        // stop order: tx-server -> log-server -> cassandra
+        let standby_host_ports: Vec<String> = vec![];
+        let voter_host_ports: Vec<String> = vec![];
+        let tx_host_ports: Vec<String> = vec![];
+
+        let host = "127.0.0.1";
+        let task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "check-topology".to_string(),
+            host: "_local".to_string(),
+        };
+        let redis_cmd = format!("cluster info");
+        let topology_task = RedisOpTask::new(task_id.clone(), host.to_string(), redis_cmd);
+        let inst = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(topology_task),
+            task_host: TaskHost::Local,
+        };
+        barrier.push(1);
+        executable.insert(task_id, inst);
+
+        // Q? how to pass the result of redis_op_task and to MonographTxCtlTask?
+
+        // stop order: standby-server -> voter-server -> tx-server -> log-server -> cassandra
+        if tx {
+            let has_standby = config.deployment.tx_service.standby_host_ports.is_some();
+            if has_standby {
+                let stop_standby =
+                    MonographTxCtlTask::from_fetched_data(cmd.clone(), config, &standby_host_ports);
+                barrier.push(stop_standby.len());
+                executable.extend(stop_standby);
+
+                let stop_voter =
+                    MonographTxCtlTask::from_fetched_data(cmd.clone(), config, &voter_host_ports);
+                barrier.push(stop_voter.len());
+                executable.extend(stop_voter);
+            }
+            let stop_tx =
+                MonographTxCtlTask::from_fetched_data(cmd.clone(), config, &tx_host_ports);
+            barrier.push(stop_tx.len());
+            executable.extend(stop_tx);
+        }
+
         if tx {
             let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), config);
             barrier.push(stop_tx.len());
