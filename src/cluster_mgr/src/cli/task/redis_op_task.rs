@@ -215,14 +215,11 @@ impl TaskExecutor for RedisOpTask {
                 let unique_replicas: Vec<NodeInfo> = replicas.into_iter().collect();
 
                 // For debugging: print the unique masters and replicas
-                println!("Masters:");
                 for master in &unique_masters {
-                    println!("  {}:{}", master.ip, master.port);
+                    info!("Masters:  {}:{}", master.ip, master.port);
                 }
-
-                println!("Replicas:");
                 for replica in &unique_replicas {
-                    println!("  {}:{}", replica.ip, replica.port);
+                    info!("Replicas:  {}:{}", replica.ip, replica.port);
                 }
 
                 let cluster_nodes = ClusterNodes {

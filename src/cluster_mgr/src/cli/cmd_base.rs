@@ -92,7 +92,6 @@ impl CmdExecutor {
         if !log_dir.exists() {
             std::fs::create_dir(log_dir)?;
         }
-        // println!("home:{}", home.display());
         Ok(home)
     }
 

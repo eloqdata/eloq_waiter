@@ -64,7 +64,6 @@ impl TaskGroup for InstallDBTaskGroup {
         let bootstrap_tasks: IndexMap<TaskId, TaskInstance> = hosts
             .into_iter()
             .map(|host| {
-                // println!("InstallDBTaskGroup host:{host}");
                 let install_db_host = TaskHost::Remote {
                     user: conn_user.clone(),
                     port: ssh_port as usize,

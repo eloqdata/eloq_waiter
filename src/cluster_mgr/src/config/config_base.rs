@@ -256,10 +256,6 @@ impl DeployConfig {
                             let parts: Vec<&str> = hostport.split(':').collect();
                             let host = parts.first().unwrap_or(&"").to_string(); // Get host part
                             let port = parts.get(1).unwrap_or(&"").to_string(); // Get port part
-
-                            println!("Standby host: {}, port: {}", host, port);
-
-                            // Use `host` and `port` as needed
                             self.deployment
                                 .gen_eloqkv_standby_config(host, port)
                                 .unwrap()
@@ -286,10 +282,6 @@ impl DeployConfig {
                             let parts: Vec<&str> = hostport.split(':').collect();
                             let host = parts.first().unwrap_or(&"").to_string(); // Get host part
                             let port = parts.get(1).unwrap_or(&"").to_string(); // Get port part
-
-                            println!("Voter host: {}, port: {}", host, port);
-
-                            // Use `host` and `port` as needed
                             self.deployment.gen_eloqkv_voter_config(host, port).unwrap()
                         })
                     })
@@ -297,10 +289,6 @@ impl DeployConfig {
             };
             path_vec.extend(all_voter_config_path);
         }
-
-        // for path in &path_vec {
-        //     println!("Path: {}", path.display());
-        // }
 
         Ok(path_vec)
     }
