@@ -234,7 +234,6 @@ pub fn load_remote_env(path: Option<String>) -> anyhow::Result<HashMap<String, S
 pub fn config_template(file_name: &str) -> anyhow::Result<PathBuf> {
     let config_path = std::env::var(CONFIG_PATH_DIR)?;
     let path_buf = PathBuf::from(config_path.as_str()).join(file_name);
-    // println!("path_buf {}", path_buf.display());
     if path_buf.exists() {
         Ok(path_buf)
     } else {

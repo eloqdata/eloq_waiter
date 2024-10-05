@@ -36,8 +36,6 @@ impl UploadTaskBuilder for TxConfUpload {
             })
             .collect_vec();
 
-        println!("{:?}", upload_cnf_files);
-
         let source_host = get_source_host(None);
         upload_cnf_files
             .iter()
