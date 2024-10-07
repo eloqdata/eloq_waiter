@@ -46,26 +46,6 @@ pub enum ServerType {
 
 get_ctl_cmd_string!(TxCtlCmd, Start, Stop, ForceStop, Status);
 
-macro_rules! monograph_cmd {
-    ($ctl_cmd:ty, $tx_srv_bin:expr, $user:expr) => {{
-        let ctl_cmd = stringify!($ctl_cmd);
-        let pid_cmd = format!(
-            "ps uxwe -u {} | grep {} | grep -v grep | ",
-            $user, $tx_srv_bin
-        );
-        let output_pid = r#"awk '{print $2}'"#;
-        match ctl_cmd {
-            "TxCtlCmd::Status" => {
-                let ps_cmd = format!(r#"{} {} "#, pid_cmd, output_pid);
-                TxCtlCmd::Status(ps_cmd)
-            }
-            _ => {
-                unreachable!()
-            }
-        }
-    }};
-}
-
 macro_rules! monograph_cmd_with_port {
     ($ctl_cmd:ty, $tx_srv_bin:expr, $user:expr, $port:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
@@ -406,7 +386,7 @@ fn generate_tasks_for_host_ports(
                     task_host: TaskHost::Remote {
                         user: context.conn_user.to_string(),
                         port: context.ssh_port,
-                        hosts: host.to_string(),
+                        host: host.to_string(),
                     },
                 },
             )
@@ -716,8 +696,6 @@ impl TaskExecutor for MonographTxCtlTask {
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
-                println!("stop_cmd: {stop_cmd}");
-
                 let mut matching_ports: Vec<String> = Vec::new();
                 match server_type {
                     "txservice" => {
@@ -781,8 +759,6 @@ impl TaskExecutor for MonographTxCtlTask {
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
-                println!("start_cmd: {start_cmd}");
-                println!("check_status_cmd: {check_status_cmd}");
                 tx_ctl!(self, check_process_status, {==, "NONE"}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 })
@@ -799,10 +775,6 @@ impl TaskExecutor for MonographTxCtlTask {
         } else {
             self.ctl_cmd.cmd_value()
         };
-        println!(
-            "task finish, Current thread ID: {:?}",
-            thread::current().id()
-        );
         task_return_value!(
             ctl_rtn_value,
             |status_code: i32| -> CmdErr {

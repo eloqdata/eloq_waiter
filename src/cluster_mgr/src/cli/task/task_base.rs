@@ -224,7 +224,7 @@ pub enum TaskHost {
     Remote {
         user: String,
         port: usize,
-        hosts: String,
+        host: String,
     },
 }
 
@@ -232,7 +232,7 @@ impl TaskHost {
     pub fn ssh_conn_tuple(&self) -> (String, usize, String) {
         match self {
             TaskHost::Local => ("_local".to_string(), 22, "localhost".to_string()),
-            TaskHost::Remote { user, port, hosts } => (user.clone(), *port, hosts.clone()),
+            TaskHost::Remote { user, port, host } => (user.clone(), *port, host.clone()),
         }
     }
 }

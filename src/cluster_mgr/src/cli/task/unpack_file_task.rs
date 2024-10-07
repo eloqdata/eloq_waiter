@@ -77,7 +77,7 @@ impl UnpackFileTask {
                 let task_host = TaskHost::Remote {
                     user: conn_usr.clone(),
                     port: ssh_port as usize,
-                    hosts: remote_host.clone(),
+                    host: remote_host.clone(),
                 };
                 let task_id = TaskId {
                     cmd: "deploy".to_string(),
@@ -166,7 +166,7 @@ impl UnpackFileTask {
         let task_host = TaskHost::Remote {
             user: config.connection.username.clone(),
             port: config.connection.ssh_port() as usize,
-            hosts: host.to_owned(),
+            host: host.to_owned(),
         };
         let task_id = TaskId {
             cmd: "update".to_string(),

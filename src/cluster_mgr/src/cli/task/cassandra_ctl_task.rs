@@ -198,7 +198,7 @@ impl CassandraCtlTask {
                         task_host: TaskHost::Remote {
                             user: conn_user.clone(),
                             port: ssh_port as usize,
-                            hosts: host.clone(),
+                            host: host.clone(),
                         },
                     },
                 )

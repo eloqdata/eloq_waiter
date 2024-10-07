@@ -341,7 +341,7 @@ impl CmdExecutor {
                 if add.intersection(&del).count() > 0 {
                     bail!("add_tx_node is overlaped with del_tx_node")
                 }
-                let hosts: HashSet<String> = HashSet::from_iter(
+                let host_ports: HashSet<String> = HashSet::from_iter(
                     config
                         .deployment
                         .tx_service
@@ -349,10 +349,15 @@ impl CmdExecutor {
                         .clone()
                         .into_iter(),
                 );
-                if add.intersection(&hosts).count() > 0 {
+                let mut host_set: HashSet<String> = HashSet::new();
+                for host_port in host_ports {
+                    let host = host_port.split(':').next().unwrap(); // Handle empty strings
+                    host_set.insert(host.to_string());
+                }
+                if add.intersection(&host_set).count() > 0 {
                     bail!("can't add node already in cluster")
                 }
-                if !del.is_subset(&hosts) {
+                if !del.is_subset(&host_set) {
                     bail!("deleted node not found")
                 }
                 if add.is_empty() && del.is_empty() {
@@ -361,7 +366,12 @@ impl CmdExecutor {
                 }
                 // TODO(zhanghao): scale cluster
                 let mut config = config;
-                let tx_hosts = &mut config.deployment.tx_service.tx_host_ports;
+                let tx_host_ports = &mut config.deployment.tx_service.tx_host_ports;
+                let mut tx_hosts: Vec<String> = Vec::new();
+                for host_port in tx_host_ports {
+                    let host = host_port.split(':').next().unwrap(); // Handle empty strings
+                    tx_hosts.push(host.to_string());
+                }
                 tx_hosts.retain(|h| !del_tx_node.contains(h));
                 tx_hosts.extend(add_tx_node);
                 // self.save_deployment_config(&config, true).await?;

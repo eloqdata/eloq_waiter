@@ -187,7 +187,7 @@ impl MonographLogCtlTask {
                 let task_host = TaskHost::Remote {
                     user: user.to_string(),
                     port,
-                    hosts: host.to_string(),
+                    host: host.to_string(),
                 };
                 let task_id = TaskId {
                     cmd: format!("monograph_log_{cluster_arg_ref}"),

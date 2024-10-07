@@ -51,15 +51,10 @@ impl SSHSession {
             TaskHost::Remote {
                 user,
                 port: ssh_port,
-                hosts: host_port,
+                host: host_str,
             } => {
                 info!("ssh connect key {key_path}");
-
-                // Split the host_port into host and port parts
-                let parts: Vec<&str> = host_port.split(':').collect();
-                let h = parts.first().unwrap(); // Get the host part (h)
-
-                SSHSession::connect(key_path, user.as_str(), h, ssh_port).await
+                SSHSession::connect(key_path, user.as_str(), &host_str, ssh_port).await
             }
             _ => {
                 unreachable!()
@@ -197,7 +192,7 @@ impl SSHSession {
             let task_host = TaskHost::Remote {
                 user: user.to_owned(),
                 port,
-                hosts: host.clone(),
+                host: host.clone(),
             };
             let key_path = key.clone();
             let c = content.to_owned();
