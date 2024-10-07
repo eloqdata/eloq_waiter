@@ -64,7 +64,7 @@ impl TaskGroup for RemoveTaskGroup {
                     let task_host = TaskHost::Remote {
                         user: conn_user.clone(),
                         port: ssh_port as usize,
-                        hosts: host.clone(),
+                        host: host.clone(),
                     };
                     let task_id = TaskId {
                         cmd: cmd_arg.as_ref().to_string(),
