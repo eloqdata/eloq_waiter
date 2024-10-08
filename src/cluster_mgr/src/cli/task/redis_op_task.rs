@@ -12,8 +12,7 @@ use tracing::{error, info};
 #[derive(Clone, Debug)]
 pub struct RedisOpTask {
     task_id: TaskId,
-    redis_host: String,
-    redis_port: String,
+    redis_host_ports: Vec<String>,
     redis_cmd: String,
     sender: watch::Sender<ClusterNodes>,
 }
@@ -21,15 +20,13 @@ pub struct RedisOpTask {
 impl RedisOpTask {
     pub fn new(
         task_id: TaskId,
-        redis_host: String,
-        redis_port: String,
+        redis_host_ports: Vec<String>,
         redis_cmd: String,
         sender: watch::Sender<ClusterNodes>,
     ) -> Self {
         Self {
             task_id,
-            redis_host,
-            redis_port,
+            redis_host_ports,
             redis_cmd,
             sender,
         }
@@ -156,7 +153,12 @@ impl TaskExecutor for RedisOpTask {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         // Use a vector of node addresses to create a ClusterClient
-        let nodes = vec![format!("redis://{}:{}", self.redis_host, self.redis_port)];
+        let nodes: Vec<String> = self
+            .redis_host_ports
+            .iter()
+            .map(|host_port| format!("redis://{}", host_port))
+            .collect();
+
         let client = ClusterClient::new(nodes)?;
 
         // Use asynchronous multiplexed connection
@@ -171,14 +173,18 @@ impl TaskExecutor for RedisOpTask {
         // Execute the Redis command asynchronously
         let result = match cmd_lower.as_str() {
             "topology" => {
-                redis::cmd("CLUSTER")
+                let query_result = redis::cmd("CLUSTER")
                     .arg("SLOTS")
                     .query_async::<_, Value>(&mut con)
-                    .await
+                    .await;
 
                 // TODO(ZX) later, this operation should store the fetched info into the internal database,
                 // and let the further stop or scale tasks to use the cluster info from internal database,
                 // rather than from deployment config
+
+                // Closing connection explicitly if successful or failed
+                drop(con); // Manually close connection
+                query_result
             }
             _ => {
                 error!("Unsupported command: {}", self.redis_cmd);
@@ -191,6 +197,7 @@ impl TaskExecutor for RedisOpTask {
             }
         };
 
+        // Processing the result
         match result {
             Ok(value) => {
                 // Parse the cluster slots
