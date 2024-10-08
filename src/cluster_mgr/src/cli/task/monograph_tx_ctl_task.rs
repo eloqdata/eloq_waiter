@@ -600,44 +600,44 @@ impl TaskExecutor for MonographTxCtlTask {
         let mut standby_host_ports = Vec::new();
         // Receive the cluster nodes in execute
         if let Some(receiver) = &self.receiver {
-            let has_result = tokio::time::timeout(Duration::from_secs(5), async {
-                loop {
-                    if receiver.has_changed().unwrap() {
-                        break; // Succeed if there are changes
-                    }
-                    // Avoid busy looping
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            });
+            let timeout = Duration::from_secs(5);
+            let start_time = tokio::time::Instant::now();
 
-            tokio::select! {
-                result = has_result => {
-                    match result {
-                        Ok(_) => {
-                            // If succeed, get the data from the receiver
-                            let cluster_nodes = receiver.borrow();
-                            debug!(
-                                "Received cluster nodes: {:?}, Current thread ID: {:?}",
-                                cluster_nodes,
-                                thread::current().id()
-                            );
+            loop {
+                if receiver.has_changed().unwrap_or(false) {
+                    // The receiver has changed; get the data
+                    let cluster_nodes = receiver.borrow();
+                    debug!(
+                        "Received cluster nodes: {:?}, Current thread ID: {:?}",
+                        cluster_nodes,
+                        thread::current().id()
+                    );
 
-                            // Process the cluster_nodes
-                            for node in cluster_nodes.masters.iter() {
-                                let host_port = format!("{}:{}", node.ip, node.port);
-                                master_host_ports.push(host_port);
-                            }
-                            for node in cluster_nodes.replicas.iter() {
-                                let host_port = format!("{}:{}", node.ip, node.port);
-                                standby_host_ports.push(host_port);
-                            }
-                        },
-                        Err(_) => {
-                            // If the 5-second timeout is reached, panic and terminate the execution.
-                            panic!("Receiver did not receive any result for 5 seconds, fail to execute stop command");
-                        }
+                    // Process the cluster_nodes
+                    for node in &cluster_nodes.masters {
+                        master_host_ports.push(format!("{}:{}", node.ip, node.port));
                     }
+                    for node in &cluster_nodes.replicas {
+                        standby_host_ports.push(format!("{}:{}", node.ip, node.port));
+                    }
+                    break;
                 }
+
+                if start_time.elapsed() >= timeout {
+                    // If the 5-second timeout is reached, panic and terminate the execution.
+                    panic!("Receiver did not receive any result for 5 seconds, fail to execute stop command");
+                    // TODO(ZX) return timeout error
+                    // task_return_value!(
+                    //     redis_cmd_result,
+                    //     |status_code: i32| -> CmdErr {
+                    //         CmdErr::MonographCtlErr(exec_cmd, status_code.to_string())
+                    //     },
+                    //     "MonographCtlTask"
+                    // )
+                }
+
+                // Avoid busy looping
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
 
