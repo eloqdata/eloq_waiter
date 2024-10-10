@@ -25,22 +25,19 @@ bash waiter_src/concourse/install.sh "$version_id"
 cd $ELOQCTL_HOME
 cat version
 
-# Q? this has to be in order?
+# Run the 'launch.sh' script first to install dependencies
 bash tests/launch.sh
-bash tests/demo.sh
-bash tests/update.sh
-bash tests/control.sh
 
-# # Loop through all .sh files in the 'tests' directory
-# for script in tests/*.sh; do
-#     # Skip 'external_cass.sh'
-#     if [[ "$script" == "tests/external_cass.sh" ]]; then
-#         continue
-#     fi
+# Loop through all .sh files in the 'tests' directory
+for script in tests/*.sh; do
+    # Skip 'launch.sh' and 'external_cass.sh'
+    if [[ "$script" == "tests/launch.sh" || "$script" == "tests/external_cass.sh" ]]; then
+        continue
+    fi
 
-#     # Execute the script
-#     bash "$script"
-# done
+    # Execute the script
+    bash "$script"
+done
 
 # Check if Python version is not 3.12
 if [[ ! "$(python3 --version)" =~ "Python 3.12" ]]; then
