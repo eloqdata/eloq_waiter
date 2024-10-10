@@ -21,7 +21,7 @@ esac
 
 # Handle tagged versions
 if [ -n "${TAGGED}" ]; then
-    TAG=$(git tag --points-at HEAD --sort=-version:refname | head -n 1)
+    TAG=$(git tag --sort=-v:refname | head -n 1)
     if [ -z "${TAG}" ]; then
         echo "No tag found for HEAD. Exiting."
         exit 1
@@ -29,13 +29,12 @@ if [ -n "${TAGGED}" ]; then
 else
     TAG="main"
 fi
-
-git checkout "${TAG}"
 TX_TARBALL="eloqctl-${TAG}-${OS_ID}-${ARCH}.tar.gz"
 
 # Build
+git checkout "${TAG}"
 cargo make --no-workspace --makefile Makefile.toml rest_api_pkg
-tar -czvf eloqctl.tar.gz eloqctl
+tar -czvf ../output/"${TX_TARBALL}" eloqctl
 
-# Upload to S3
-aws s3 cp eloqctl.tar.gz s3://eloq-release/eloqctl/${TX_TARBALL}
+# Upload to S3 using concourse put
+# aws s3 cp eloqctl.tar.gz s3://eloq-release/eloqctl/${TX_TARBALL}
