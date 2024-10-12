@@ -12,17 +12,32 @@ fi
 export ELOQCTL_HOME="${HOME}/.eloqctl"
 export PATH="$PATH:$ELOQCTL_HOME/bin"
 
-VERSION_FILE="eloqctl-tarball/url"
-# Check if the version file exists
-if [ ! -f "$VERSION_FILE" ]; then
-    echo "Version file not found: $VERSION_FILE"
+# Find the file named 'url' inside the 'eloqctl-tarball-*' directories
+VERSION_FILE=$(find . -type f -path "./eloqctl-tarball-*/url" 2>/dev/null)
+
+# Check if the version file was found
+if [ -z "$VERSION_FILE" ]; then
+    echo "Version file not found"
     exit 1
 fi
-version_id=$(sed -n 's|.*eloqctl-\([0-9]\+\.[0-9]\+\.[0-9]\+\).*|\1|p' "$VERSION_FILE")
 
-bash waiter_src/concourse/install.sh "$version_id"
+# Extract version from the version file
+version_id=$(sed -n 's|.*eloqctl-\([0-9]\+\.[0-9]\+\.[0-9]\+\)-.*|\1|p' "$VERSION_FILE")
 
-cd $ELOQCTL_HOME
+# Check if version was extracted successfully
+if [ -z "$version_id" ]; then
+    echo "Failed to extract version from the version file"
+    exit 1
+fi
+
+echo "Extracted version: $version_id"
+
+sudo chown -R $(whoami) waiter_src
+cd waiter_src
+git checkout "$version_id"
+bash ./concourse/install.sh "$version_id"
+
+cd "$ELOQCTL_HOME"
 cat version
 
 # Run the 'launch.sh' script first to install dependencies
