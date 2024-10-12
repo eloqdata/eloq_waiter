@@ -21,7 +21,7 @@ esac
 
 # Handle tagged versions
 if [ -n "${TAGGED}" ]; then
-    TAG=$(git tag --sort=-v:refname | head -n 1)
+    TAG=$(git tag | sort -V | tail -n 1)
     if [ -z "${TAG}" ]; then
         echo "No tag found for HEAD. Exiting."
         exit 1
