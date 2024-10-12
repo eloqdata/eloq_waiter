@@ -4,7 +4,7 @@ FROM ubuntu:$UBT_ID
 RUN set -eux; \
     apt update; \
     export DEBIAN_FRONTEND=noninteractive; \
-    apt install -y --no-install-recommends sudo curl ca-certificates openssh-server iproute2 redis-tools; \
+    apt install -y --no-install-recommends sudo curl ca-certificates openssh-server iproute2 redis-tools git; \
     rm -rf /var/lib/apt/lists/*;
 
 RUN useradd -rm -s /bin/bash -g sudo eloquser && \
