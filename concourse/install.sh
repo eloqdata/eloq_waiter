@@ -34,7 +34,7 @@ mkdir -p "$bin_dir"
 
 install_binary() {
     # Download the specific version using TAG
-    curl "$repo/eloqctl/eloqctl-${TAG}-${OS_ID}-${ARCH}.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/eloqctl.tar.gz" || return 1
+    curl "$repo/eloqctl/${ARCH}/${TAG}/eloqctl-${TAG}-${OS_ID}-${ARCH}.tar.gz?$(date "+%Y%m%d%H%M%S")" -o "/tmp/eloqctl.tar.gz" || return 1
     tar -zxf "/tmp/eloqctl.tar.gz" -C "$ELOQCTL_HOME" --strip-components 1 --overwrite || return 1
     return 0
 }
