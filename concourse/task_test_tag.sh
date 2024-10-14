@@ -21,6 +21,8 @@ if [ -z "$VERSION_FILE" ]; then
     exit 1
 fi
 
+# TODO(ZX) extract ${ARCH}, ${TAG} and ${OS_ID} to use in pipeline
+
 # Extract version from the version file
 version_id=$(sed -n 's|.*eloqctl-\([0-9]\+\.[0-9]\+\.[0-9]\+\)-.*|\1|p' "$VERSION_FILE")
 
