@@ -32,14 +32,14 @@ fi
 TX_TARBALL="eloqctl-${TAG}-${OS_ID}-${ARCH}.tar.gz"
 
 # Build
-git checkout "${TAG}"
+if [[ "$TAG" != "main" ]]; then
+    echo "Checking out to $TAG..."
+    git checkout "${TAG}"
+else
+    echo "TAG is 'main', no checkout performed."
+fi
 cargo make --no-workspace --makefile Makefile.toml rest_api_pkg
 tar -czvf ../output/"${TX_TARBALL}" eloqctl
 
-# Upload to S3 using concourse put
-if [[ "$ARCH" == "arm64" ]]; then
-    echo "concourse-arm does not support put-to-s3 task in pipeline"
-    aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/${TX_TARBALL}
-else
-    echo "Upload to S3 using concourse put"
-fi
+# Upload to S3
+aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/${ARCH}/${TAG}/${TX_TARBALL}
