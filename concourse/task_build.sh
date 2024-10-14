@@ -36,10 +36,16 @@ git checkout "${TAG}"
 cargo make --no-workspace --makefile Makefile.toml rest_api_pkg
 tar -czvf ../output/"${TX_TARBALL}" eloqctl
 
+# export variables so that they are available in the pipeline step
+export ARCH
+export TAG
+export OS_ID
+
+
 # Upload to S3 using concourse put
 if [[ "$ARCH" == "arm64" ]]; then
     echo "concourse-arm does not support put-to-s3 task in pipeline"
-    aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/${TX_TARBALL}
+    aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/arm64/${TAG}/${TX_TARBALL}
 else
     echo "Upload to S3 using concourse put"
 fi
