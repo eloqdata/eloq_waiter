@@ -1,4 +1,5 @@
 use crate::cli::ssh::SSHSession;
+use crate::cli::task::monograph_tx_ctl_task::ServerType;
 use crate::cli::{upload_dir, upload_host_dir};
 use crate::config::config_base::CASSANDRA_FILE_KEY;
 use crate::config::config_base::{
@@ -20,6 +21,7 @@ use configparser::ini::Ini;
 use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -379,6 +381,31 @@ impl Deployment {
         }
     }
 
+    pub fn find_srv_ini(&self, port: &str) -> String {
+        let home = self.tx_srv_home();
+        println!("home: {home}, port: {port}");
+
+        let port_pattern = format!(r"(?i)-{}\.ini$", port); // Match case-insensitively for `-<port>.ini`.
+        let re = Regex::new(&port_pattern).expect("Invalid regex pattern");
+
+        match self.product() {
+            Product::EloqSQL => panic!("not supported yet"),
+            Product::EloqKV => std::fs::read_dir(&home)
+                .unwrap_or_else(|_| panic!("Failed to read directory: {home}"))
+                .filter_map(Result::ok)
+                .find_map(|entry| {
+                    let file_name = entry.file_name();
+                    file_name
+                        .to_str()
+                        .filter(|name| re.is_match(name))
+                        .map(|name| format!("{}/{}", home, name))
+                })
+                .unwrap_or_else(|| {
+                    panic!("Cannot find the ini file corresponding to the starting node.")
+                }),
+        }
+    }
+
     pub fn asan_logs(&self) -> String {
         format!("{}/logs", &self.tx_srv_home())
     }
@@ -393,6 +420,21 @@ impl Deployment {
 
     pub fn voter_srv_logs(&self, port: &str) -> String {
         format!("{}/logs/voter-{}", &self.tx_srv_home(), port)
+    }
+
+    pub fn find_srv_logs(&self, port: &str) -> String {
+        let logs_dir = format!("{}/logs", self.tx_srv_home());
+        if let Ok(entries) = std::fs::read_dir(&logs_dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                if let Some(file_name_str) = file_name.to_str() {
+                    if file_name_str.ends_with(port) {
+                        return format!("{}/{}", logs_dir, file_name_str);
+                    }
+                }
+            }
+        }
+        panic!("can not find the log path corresponding to the starting node.");
     }
 
     pub fn tx_srv_bin(&self) -> String {
@@ -786,7 +828,7 @@ impl Deployment {
 
         let tx_host_ports = &self.tx_service.tx_host_ports;
         if set_ip_list {
-            // TODO(ZX) check if there are 3 processes to form a group, if not, panic here. Also refactor to use list(-) in yaml
+            // TODO(ZX) later, check if there are 3 processes to form a group, if not, panic here. Also refactor to use list(-) in yaml
 
             // Set the ip_port_list
             let tx_ip_port_list = tx_host_ports
@@ -1388,22 +1430,34 @@ impl Deployment {
         Ok(cass_config_vec)
     }
 
-    pub fn tx_srv_start_cmd(&self, port: &str) -> String {
-        let tx_ini = self.tx_srv_ini(port);
+    pub fn srv_start_cmd(&self, port: &str, server_type: ServerType) -> String {
+        let ini_file = match server_type {
+            ServerType::Tx => self.tx_srv_ini(port),
+            ServerType::Standby => self.standby_srv_ini(port),
+            ServerType::Voter => self.voter_srv_ini(port),
+            ServerType::Node => self.find_srv_ini(port),
+        };
         let tx_dir = self.tx_srv_home();
         let tx_bin = self.tx_srv_bin();
-        let tx_logs = self.tx_srv_logs(port);
+        let logs_dir = match server_type {
+            ServerType::Tx => self.tx_srv_logs(port),
+            ServerType::Standby => self.standby_srv_logs(port),
+            ServerType::Voter => self.voter_srv_logs(port),
+            ServerType::Node => self.find_srv_logs(port),
+        };
+
         let glog = format!(
-            "mkdir -p {tx_logs} ; export GLOG_log_dir={tx_logs} ; export GLOG_max_log_size=1024"
+            "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
         );
         let mut ld_lib = if let Some(Version::Debug) = self.version() {
-            export_asan(&format!("{tx_logs}/asan"))
+            export_asan(&format!("{logs_dir}/asan"))
         } else {
             format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
         };
         ld_lib.push_str(&format!(
             "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
         ));
+
         match self.product() {
             Product::EloqSQL => {
                 let mut logout = "/dev/null".to_owned();
@@ -1412,79 +1466,13 @@ impl Deployment {
                         logout = format!("{tx_dir}/logs/eloqsql.log")
                     }
                 }
-                format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={tx_ini} > {logout} 2>&1 &")
-            }
-            Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={tx_ini} --graceful_quit_on_sigterm=true > logs/std-out 2>&1 &"
+                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={ini_file} > {logout} 2>&1 &"
                 )
             }
-        }
-    }
-
-    pub fn standby_srv_start_cmd(&self, port: &str) -> String {
-        let standby_ini = self.standby_srv_ini(port);
-        let tx_dir = self.tx_srv_home();
-        let tx_bin = self.tx_srv_bin();
-        let standby_logs = self.standby_srv_logs(port);
-        let glog = format!(
-            "mkdir -p {standby_logs} ; export GLOG_log_dir={standby_logs} ; export GLOG_max_log_size=1024"
-        );
-        let mut ld_lib = if let Some(Version::Debug) = self.version() {
-            export_asan(&format!("{standby_logs}/asan"))
-        } else {
-            format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
-        };
-        ld_lib.push_str(&format!(
-            "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
-        ));
-        match self.product() {
-            Product::EloqSQL => {
-                let mut logout = "/dev/null".to_owned();
-                if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("0.4.2").unwrap() {
-                        logout = format!("{tx_dir}/logs/eloqsql.log")
-                    }
-                }
-                format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={standby_ini} > {logout} 2>&1 &")
-            }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={standby_ini} --graceful_quit_on_sigterm=true > logs/std-out 2>&1 &"
-                )
-            }
-        }
-    }
-
-    pub fn voter_srv_start_cmd(&self, port: &str) -> String {
-        let voter_ini = self.voter_srv_ini(port);
-        let tx_dir = self.tx_srv_home();
-        let tx_bin = self.tx_srv_bin();
-        let voter_logs = self.voter_srv_logs(port);
-        let glog = format!(
-            "mkdir -p {voter_logs} ; export GLOG_log_dir={voter_logs} ; export GLOG_max_log_size=1024"
-        );
-        let mut ld_lib = if let Some(Version::Debug) = self.version() {
-            export_asan(&format!("{voter_logs}/asan"))
-        } else {
-            format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
-        };
-        ld_lib.push_str(&format!(
-            "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
-        ));
-        match self.product() {
-            Product::EloqSQL => {
-                let mut logout = "/dev/null".to_owned();
-                if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("0.4.2").unwrap() {
-                        logout = format!("{tx_dir}/logs/eloqsql.log")
-                    }
-                }
-                format!("cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={voter_ini} > {logout} 2>&1 &")
-            }
-            Product::EloqKV => {
-                format!(
-                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={voter_ini} --graceful_quit_on_sigterm=true > logs/std-out 2>&1 &"
+                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-out 2>&1 &"
                 )
             }
         }

@@ -62,9 +62,14 @@ pub enum SubCommand {
         #[arg(short, long, default_value_t = false)]
         skip_deps: bool,
     },
+    // TODO(ZX) add tests on start --nodes
     #[strum(serialize = "start")]
     #[command(long_about = "Start cluster(TxService/LogService/Storage)")]
-    Start { cluster: String },
+    Start {
+        cluster: String,
+        #[arg(long)]
+        nodes: Vec<String>,
+    },
     #[command(long_about = "Stop cluster components")]
     #[strum(serialize = "stop")]
     Stop {
