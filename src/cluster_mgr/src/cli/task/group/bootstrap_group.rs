@@ -53,7 +53,7 @@ impl TaskGroup for InstallDBTaskGroup {
             }
         }
 
-        // Bootstrap all TX/Standby/Voter nodes to make Standby/Voter information durable.
+        // Bootstrap on all leader nodes to make cluster information durable.
         let conn_user = &config.connection.username;
         let ssh_port = config.connection.ssh_port();
 
