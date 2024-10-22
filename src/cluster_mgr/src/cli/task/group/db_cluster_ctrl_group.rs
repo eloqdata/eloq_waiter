@@ -201,6 +201,9 @@ impl CtrlDBTaskGroup {
             executable.extend(probe);
         }
 
+        let start_tx = MonographTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Tx);
+        barrier.push(start_tx.len());
+        executable.extend(start_tx);
         if config.deployment.tx_service.standby_host_ports.is_some() {
             let start_standby =
                 MonographTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Standby);
@@ -213,9 +216,6 @@ impl CtrlDBTaskGroup {
             barrier.push(start_voter.len());
             executable.extend(start_voter);
         }
-        let start_tx = MonographTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Tx);
-        barrier.push(start_tx.len());
-        executable.extend(start_tx);
 
         if deployment.codis.is_some() {
             let codis_tasks = CodisTask::from_config(config, codis_task::Operation::Start);
