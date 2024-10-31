@@ -21,4 +21,5 @@ deployment:
           - "/home/${USER}/eloqkv_with_hot_standby_and_voter/wal_eloqkv"
     replica: 1
   storage_service:
-    rocksdb: Local
+    rocksdb: !LOCAL
+      # path: /tmp

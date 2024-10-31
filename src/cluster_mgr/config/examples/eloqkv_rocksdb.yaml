@@ -19,7 +19,8 @@ deployment:
           - "/home/${USER}/eloqkv-cluster/wal_eloqkv"
     replica: 1
   storage_service:
-    rocksdb: Local
+    rocksdb: !LOCAL
+      # path: /tmp
   monitor:
     data_dir: ""
     monograph_metrics:

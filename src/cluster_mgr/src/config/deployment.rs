@@ -21,7 +21,6 @@ use configparser::ini::Ini;
 use core::panic;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -386,26 +385,13 @@ impl Deployment {
 
     pub fn find_srv_ini(&self, port: &str) -> String {
         let home = self.tx_srv_home();
-        println!("home: {home}, port: {port}");
-
-        let port_pattern = format!(r"(?i)-{}\.ini$", port); // Match case-insensitively for `-<port>.ini`.
-        let re = Regex::new(&port_pattern).expect("Invalid regex pattern");
+        // println!("home: {home}, port: {port}");
 
         match self.product() {
             Product::EloqSQL => panic!("not supported yet"),
-            Product::EloqKV => std::fs::read_dir(&home)
-                .unwrap_or_else(|_| panic!("Failed to read directory: {home}"))
-                .filter_map(Result::ok)
-                .find_map(|entry| {
-                    let file_name = entry.file_name();
-                    file_name
-                        .to_str()
-                        .filter(|name| re.is_match(name))
-                        .map(|name| format!("{}/{}", home, name))
-                })
-                .unwrap_or_else(|| {
-                    panic!("Cannot find the ini file corresponding to the starting node.")
-                }),
+            Product::EloqKV => {
+                format!(r"$(find /{home}/ -maxdepth 1 -regex '.*/.*-{port}\.ini' -print -quit)")
+            }
         }
     }
 
@@ -426,18 +412,10 @@ impl Deployment {
     }
 
     pub fn find_srv_logs(&self, port: &str) -> String {
-        let logs_dir = format!("{}/logs", self.tx_srv_home());
-        if let Ok(entries) = std::fs::read_dir(&logs_dir) {
-            for entry in entries.flatten() {
-                let file_name = entry.file_name();
-                if let Some(file_name_str) = file_name.to_str() {
-                    if file_name_str.ends_with(port) {
-                        return format!("{}/{}", logs_dir, file_name_str);
-                    }
-                }
-            }
-        }
-        panic!("can not find the log path corresponding to the starting node.");
+        let tx_home = self.tx_srv_home();
+        // println!("home: {tx_home}, port: {port}");
+
+        format!(r"$(find {tx_home}/logs/ -maxdepth 1 -regex '.*/.*-{port}' -print -quit)")
     }
 
     pub fn tx_srv_bin(&self) -> String {
@@ -765,11 +743,22 @@ impl Deployment {
             }
             StorageProvider::Dynamodb => panic!("not supported"),
             StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
-                RocksDB::Local => {
-                    let rocks_path = if port.is_empty() {
-                        format!("{}/rocksdb", self.tx_srv_home())
-                    } else {
-                        format!("{}/rocksdb-{}", self.tx_srv_home(), port)
+                RocksDB::LOCAL(local) => {
+                    let rocks_path = match &local.path {
+                        Some(path) => {
+                            if port.is_empty() {
+                                format!("{}/{}/rocksdb", path, self.cluster_name)
+                            } else {
+                                format!("{}/{}/rocksdb-{}", path, self.cluster_name, port)
+                            }
+                        }
+                        None => {
+                            if port.is_empty() {
+                                format!("{}/rocksdb", self.tx_srv_home())
+                            } else {
+                                format!("{}/rocksdb-{}", self.tx_srv_home(), port)
+                            }
+                        }
                     };
 
                     ini.set(SECTION_STORE, "rocksdb_storage_path", Some(rocks_path));
