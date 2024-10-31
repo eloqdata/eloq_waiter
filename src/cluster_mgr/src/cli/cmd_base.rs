@@ -4,7 +4,7 @@ use crate::cli::{upload_dir, SubCommand, HOME_DIR};
 use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::{
-    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB,
+    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB, RocksLocal,
 };
 use crate::config::{StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
@@ -593,7 +593,9 @@ impl CmdExecutor {
                     }
                     StorageProvider::Dynamodb => unimplemented!(),
                     StorageProvider::Rocksdb => {
-                        deploy.storage_service.rocksdb = Some(RocksDB::Local);
+                        deploy.storage_service.rocksdb = Some(RocksDB::LOCAL(RocksLocal {
+                            path: Some("/tmp".to_string()),
+                        }));
                     }
                 }
                 // deploy log-service jointly

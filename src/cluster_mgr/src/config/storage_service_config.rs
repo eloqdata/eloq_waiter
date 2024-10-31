@@ -102,6 +102,11 @@ pub struct Dynamodb {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct RocksLocal {
+    pub path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct RocksS3 {
     pub aws_id: String,
     pub aws_secret: String,
@@ -123,7 +128,7 @@ pub struct RocksGCP {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum RocksDB {
-    Local,
+    LOCAL(RocksLocal),
     S3(RocksS3),
     GCS(RocksGCP),
 }
@@ -145,7 +150,7 @@ impl StorageService {
         let mut name = self.provider().unwrap().to_string();
         if let Some(rocks) = &self.rocksdb {
             name = match rocks {
-                RocksDB::Local => name,
+                RocksDB::LOCAL(_) => name,
                 RocksDB::S3(_) => "rocks_s3".to_owned(),
                 RocksDB::GCS(_) => "rocks_gcs".to_owned(),
             }
