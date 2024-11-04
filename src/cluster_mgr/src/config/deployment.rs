@@ -978,7 +978,11 @@ impl Deployment {
         } else {
             if let Some(hw) = opt_hw {
                 assert!(hw.cpu > 0);
-                core_tx = core_tx.max((hw.cpu * 4) / 5);
+                core_tx = match hw.cpu {
+                    1 | 2 => 1, // Set core_tx to 1 if hw.cpu is 1 or 2
+                    3 | 4 => 2, // Set core_tx to 2 if hw.cpu is 3 or 4
+                    _ => core_tx.max((hw.cpu * 4) / 5),
+                };
             }
             ini.set(SECTION_LOCAL, key, Some(core_tx.to_string()));
         }
@@ -1037,7 +1041,11 @@ impl Deployment {
         } else {
             if let Some(hw) = opt_hw {
                 assert!(hw.cpu > 0);
-                core_tx = core_tx.max((hw.cpu * 4) / 5);
+                core_tx = match hw.cpu {
+                    1 | 2 => 1, // Set core_tx to 1 if hw.cpu is 1 or 2
+                    3 | 4 => 2, // Set core_tx to 2 if hw.cpu is 3 or 4
+                    _ => core_tx.max((hw.cpu * 4) / 5),
+                };
             }
             ini.set(SECTION_LOCAL, key, Some(core_tx.to_string()));
         }
@@ -1096,7 +1104,11 @@ impl Deployment {
         } else {
             if let Some(hw) = opt_hw {
                 assert!(hw.cpu > 0);
-                core_tx = core_tx.max((hw.cpu * 4) / 5);
+                core_tx = match hw.cpu {
+                    1 | 2 => 1, // Set core_tx to 1 if hw.cpu is 1 or 2
+                    3 | 4 => 2, // Set core_tx to 2 if hw.cpu is 3 or 4
+                    _ => core_tx.max((hw.cpu * 4) / 5),
+                };
             }
             ini.set(SECTION_LOCAL, key, Some(core_tx.to_string()));
         }
