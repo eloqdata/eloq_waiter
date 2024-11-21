@@ -735,12 +735,6 @@ impl Deployment {
             Some(format!("{}/data", self.tx_srv_home())),
         );
 
-        ini.set(
-            SECTION_LOCAL,
-            "enable_data_store",
-            Some(self.log_service.is_some().to_string()),
-        );
-
         if requirepass.is_some() {
             ini.set(SECTION_LOCAL, "requirepass", requirepass);
         }
@@ -937,23 +931,44 @@ impl Deployment {
             );
         }
 
-        if self.to_be_override(&ini, "metrics", "enable_metrics") {
-            let enable_metric = self
-                .monitor
-                .as_ref()
-                .and_then(|monitor| monitor.monograph_metrics.as_ref())
-                .is_some();
+        if self.is_empty(&ini, SECTION_METRIC, "enable_metrics") {
             ini.set(
                 SECTION_METRIC,
                 "enable_metrics",
-                Some(enable_metric.to_string()),
+                Some(
+                    self.monitor
+                        .as_ref()
+                        .and_then(|monitor| monitor.monograph_metrics.as_ref())
+                        .is_some()
+                        .to_string(),
+                ),
             );
+        }
+
+        if self.is_empty(&ini, SECTION_LOCAL, "enable_data_store") {
+            ini.set(
+                SECTION_LOCAL,
+                "enable_data_store",
+                Some(self.storage_service.provider().is_some().to_string()),
+            );
+        } else {
+            println!("**WARNING:** Manually modifying `enable_data_store` in template `EloqKv.ini` is not recommended.");
+        }
+
+        if self.is_empty(&ini, SECTION_LOCAL, "enable_wal") {
+            ini.set(
+                SECTION_LOCAL,
+                "enable_wal",
+                Some(self.log_service.is_some().to_string()),
+            );
+        } else {
+            println!("**WARNING:** Manually modifying `enable_wal` in template `EloqKv.ini` is not recommended.");
         }
 
         Ok(ini.clone())
     }
 
-    fn to_be_override(&self, ini: &Ini, section: &str, key: &str) -> bool {
+    fn is_empty(&self, ini: &Ini, section: &str, key: &str) -> bool {
         ini.get(section, key)
             .map_or(false, |value| value == "${OVERRIDE}")
     }
