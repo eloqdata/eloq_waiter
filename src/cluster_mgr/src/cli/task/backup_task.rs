@@ -6,7 +6,6 @@ use crate::state::state_base::StateOperation;
 use crate::state::state_mgr::{SNAPSHOT_STATUS_STATE, STATE_MGR};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::future::join_all;
 use local_ip_address::local_ip;
 use redis::cluster::ClusterClient;
 use redis::{ErrorKind, FromRedisValue, RedisError, RedisResult, Value};
@@ -322,12 +321,12 @@ impl TaskExecutor for BackupTask {
                             )
                             .await
                             .map_err(|e| {
-                                error!("Failed to trigger snapshot on {}: {}", url, e);
+                                error!("Failed to trigger backup on {}: {}", url, e);
                                 anyhow::anyhow!(e)
                             })?;
 
                         info!(
-                            "Triggered snapshot on {}: backup_name={}, result={}",
+                            "Triggered backup on {}: backup_name={}, result={}",
                             url, backup_name, response.result
                         );
                         Ok::<(String, String, String), anyhow::Error>((
@@ -344,11 +343,7 @@ impl TaskExecutor for BackupTask {
                             break; // Break the loop on the first successful response
                         }
                         Err(e) => {
-                            error!(
-                                "Error triggering snapshot on node {}: {}",
-                                node.ip.clone(),
-                                e
-                            );
+                            error!("Error triggering backup on node {}: {}", node.ip.clone(), e);
                             continue; // Move to the next node on error
                         }
                     }
@@ -361,9 +356,10 @@ impl TaskExecutor for BackupTask {
 
                 // Assert that tasks is empty if all nodes failed
                 if tasks.is_empty() {
-                    error!("All nodes failed to trigger snapshot.");
+                    error!("All nodes failed to trigger backup.");
                     trigger_backup_succeed = false;
                 } else {
+                    assert!(tasks.len() == 1);
                     // Process the successful result(s)
                     for (url, backup_name, response_result) in tasks {
                         // Your processing logic here
@@ -397,7 +393,7 @@ impl TaskExecutor for BackupTask {
                     );
                     task_result.insert(
                         CMD_OUTPUT.to_string(),
-                        TaskArgValue::Str("Failed to trigger snapshot on some masters".to_string()),
+                        TaskArgValue::Str("Failed to trigger backup on some masters".to_string()),
                     );
                 } else {
                     let task = async move {
