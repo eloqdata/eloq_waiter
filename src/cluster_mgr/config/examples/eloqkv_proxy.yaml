@@ -10,8 +10,7 @@ connection:
 
 proxy_service:
   proxy_name: "proxy-1"
-  proxy_hosts: [127.0.0.1]
-  proxy_ports: [6000]
+  proxy_addrs: [127.0.0.1:6000]
   web_service_ports: [8080]
   install_dir: "/home/${USER}"
   eloqkv_cluster_addr: [127.0.0.1:6379]

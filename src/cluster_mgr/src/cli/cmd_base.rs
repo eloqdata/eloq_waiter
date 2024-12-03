@@ -201,7 +201,14 @@ impl CmdExecutor {
         if !proxy_entity.is_empty() && !upsert {
             bail!("Proxy {proxy_name} already exists");
         }
-        let all_hosts = config.proxy_service.proxy_hosts.join(";");
+        // Extract and concatenate hosts
+        let all_hosts = config
+            .proxy_service
+            .proxy_addrs
+            .iter()
+            .map(|addr| addr.split(':').next().unwrap())
+            .collect::<Vec<&str>>()
+            .join(";");
         let config_string = config.to_yaml();
         info!("ProxyConfig saved: proxy_name={proxy_name} @ {all_hosts}");
         let default_timestamp = chrono::DateTime::default();

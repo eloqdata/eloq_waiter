@@ -125,6 +125,8 @@ pub struct MonographService {
     pub standby_host_ports: Option<Vec<String>>,
     pub voter_host_ports: Option<Vec<String>>,
     pub requirepass: Option<String>,
+    // TODO(ZX)
+    pub enable_cache_replacement: Option<String>,
     pub client_port: Option<u16>, // only used in mysql
 }
 
