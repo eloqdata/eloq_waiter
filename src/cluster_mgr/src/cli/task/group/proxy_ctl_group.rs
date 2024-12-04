@@ -153,7 +153,7 @@ impl TaskGroup for ProxyTaskGroup {
                         cluster_name,
                         proxy_name,
                     } => {
-                        unimplemented!()
+                        todo!()
 
                         // // kill proxy process
                         // let host = proxy_config.proxy_service.proxy_hosts.clone();
@@ -182,7 +182,7 @@ impl TaskGroup for ProxyTaskGroup {
                         // executable.extend(proxy_upload_task);
                     }
                     ProxyCommand::Remove { cluster_name, .. } => {
-                        unimplemented!()
+                        todo!()
                     }
                 }
             }
