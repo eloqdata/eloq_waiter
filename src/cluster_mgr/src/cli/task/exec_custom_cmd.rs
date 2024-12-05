@@ -18,6 +18,42 @@ pub struct ExecCustomCommand {
 }
 
 impl ExecCustomCommand {
+    pub fn build_local_task(
+        cmd_string: String,
+        config: &Config,
+        task_name: &str,
+    ) -> IndexMap<TaskId, TaskInstance> {
+        let mut task_map = IndexMap::new();
+
+        // TODO(ZX) have to use TaskHost::Remote?
+        let conn_user = config.conn_user();
+        let ssh_port = config.ssh_port();
+        let task_host = TaskHost::Remote {
+            user: conn_user.to_string(),
+            port: ssh_port as usize,
+            host: "localhost".to_string(),
+        };
+        let task_id = TaskId {
+            cmd: "exec_local_cmd".to_string(),
+            task: format!("{task_name}@localhost"),
+            host: "localhost".to_string(),
+        };
+
+        let task_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(ExecCustomCommand::new(
+                cmd_string.clone(),
+                task_id.clone(),
+                config.clone(),
+            )),
+            task_host,
+        };
+
+        task_map.insert(task_id, task_instance);
+
+        task_map
+    }
+
     pub fn build_task_by_host(
         cmd_string: String,
         config: &Config,

@@ -11,10 +11,11 @@ use crate::config::config_base::{
 };
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::CassKind;
-use crate::config::{config_template, ELOQKV_TEMPLATE_INI};
+use crate::config::{config_template, ELOQKV_TEMPLATE_INI, SSH_PYTHON_SCRIPT};
 use crate::config::{DeploymentPackage, DownloadUrl};
 use indexmap::IndexMap;
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::fs;
 
 pub struct MonographUploadBuilder;
@@ -83,11 +84,7 @@ impl MonographUploadBuilder {
     }
 
     fn build_monograph_misc_upload_file(&self, config: &DeployConfig) -> Vec<UploadFile> {
-        let mut all_files_path = vec![
-            // config.gen_tx_start_script().unwrap(),
-            config.gen_bootstrap_db_script().unwrap(),
-        ];
-        // all_files_path.extend(config.gen_all_monograph_configs().unwrap());
+        let mut all_files_path = vec![config.gen_bootstrap_db_script().unwrap()];
         let log_start_path_opt = config.gen_log_start_script().unwrap();
         if let Some(log_start_path) = log_start_path_opt {
             all_files_path.extend(log_start_path);
@@ -125,7 +122,7 @@ impl MonographUploadBuilder {
                 UploadFile {
                     source: source_files,
                     dest: dest_file.clone(),
-                    extension: "bash,cnf".to_string(),
+                    extension: "ini".to_string(),
                     host,
                     copy_dir: false,
                 }
@@ -145,13 +142,14 @@ impl UploadTaskBuilder for MonographUploadBuilder {
         };
 
         // copy EloqKv.ini from ~/.eloqctl/config to ~/.eloqctl/upload/{cluster_name}
-        let config_template_file_path =
+        let config_template_source =
             config_template(ELOQKV_TEMPLATE_INI).expect("get config template error");
-        let env_sh = upload_dir()
+        let config_template_dest = upload_dir()
             .join(cluster_config.deployment.cluster_name.clone())
             .join(ELOQKV_TEMPLATE_INI);
         create_upload_cluster_dir(&cluster_config.deployment.cluster_name);
-        fs::copy(&config_template_file_path, &env_sh).expect("copy config template error");
+        fs::copy(&config_template_source, &config_template_dest)
+            .expect("copy config template error");
 
         let mut upload_files = self.build_monograph_misc_upload_file(cluster_config);
         let upload_tar_files = self.monograph_tar_upload_file(cluster_config);
@@ -181,24 +179,39 @@ pub struct EloqUpload;
 
 impl EloqUpload {
     fn upload_group_by_dest(upload_files: Vec<UploadFile>) -> Vec<UploadFile> {
-        upload_files
+        // Group the upload files by (host, dest)
+        let grouped: HashMap<(String, String), Vec<UploadFile>> = upload_files
             .into_iter()
-            .into_group_map_by(|upload_file| (upload_file.host.clone(), upload_file.dest.clone()))
+            .into_group_map_by(|upload| (upload.host.clone(), upload.dest.clone()));
+
+        // Transform each group into a single UploadFile with aggregated fields
+        grouped
             .into_iter()
-            .map(|((host, dest), upload_files)| {
-                let source = upload_files
-                    .into_iter()
-                    .map(|upload| upload.source.clone())
-                    .join(" ");
+            .map(|((host, dest), group)| {
+                // Initialize vectors to collect sources and extensions
+                let mut sources = Vec::with_capacity(group.len());
+                let mut extensions = Vec::with_capacity(group.len());
+
+                // Iterate once through the group to collect sources and extensions
+                for upload in group {
+                    sources.push(upload.source);
+                    extensions.push(upload.extension);
+                }
+
+                // Join the collected sources and extensions
+                let aggregated_source = sources.join(" ");
+                let aggregated_extension = extensions.join(",");
+
+                // Create a new UploadFile with aggregated data
                 UploadFile {
-                    source,
+                    source: aggregated_source,
                     dest,
-                    extension: "bash,cnf,gz".to_string(),
+                    extension: aggregated_extension,
                     host,
                     copy_dir: false,
                 }
             })
-            .collect_vec()
+            .collect()
     }
 
     pub fn eloq_image_upload(config: &Deployment) -> Vec<UploadFile> {

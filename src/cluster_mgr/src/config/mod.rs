@@ -26,6 +26,7 @@ pub const ELOQSQL_TEMPLATE_INI: &str = "EloqSql.ini";
 pub const ELOQSQL_DYNAMO_TEMPLATE_INI: &str = "EloqSqlDynamo.ini";
 pub const ELOQSQL_CLIENT_PORT: u16 = 3316;
 pub const ELOQKV_TEMPLATE_INI: &str = "EloqKv.ini";
+pub const SSH_PYTHON_SCRIPT: &str = "ssh.py";
 pub const PROXY_CONF_TEMPLATE: &str = "eloqproxy.ini";
 pub const PROXY_BIN: &str = "eloqkv-proxy";
 pub const ELOQKV_INI: &str = "EloqKv-tx";
