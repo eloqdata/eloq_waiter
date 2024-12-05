@@ -28,6 +28,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
             SubCommand::UpdateConf { restart, .. } => restart,
             _ => unreachable!(),
         };
+
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
         executable.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));

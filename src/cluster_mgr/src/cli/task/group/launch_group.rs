@@ -1,10 +1,15 @@
+use indexmap::IndexMap;
+
+use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{
-    CheckTaskGroup, Config, CtrlDBTaskGroup, DeploymentTaskGroup, InstallDBTaskGroup,
-    InstallDepPkgTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
+    CheckTaskGroup, Config, CtrlDBTaskGroup, CustomCmdTaskGroup, DeploymentTaskGroup,
+    InstallDBTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
 use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
+use crate::cli::task::upload::upload_task_builder::upload_tasks;
 use crate::cli::SubCommand;
-use crate::config::CONFIG_PATH_DIR;
+use crate::config::SSH_PYTHON_SCRIPT;
+use crate::config::{config_template, CONFIG_PATH_DIR};
 use std::env;
 
 #[async_trait::async_trait]
@@ -23,32 +28,33 @@ impl TaskGroup for LaunchTaskGroup {
             }
         };
 
-        let (skip_deps, topo_file) = match cmd_arg.clone() {
-            SubCommand::Launch {
-                topology_file,
-                skip_deps,
-            } => (skip_deps, topology_file),
-            SubCommand::Demo {
-                product, skip_deps, ..
-            } => {
-                let topo = format!("{}/demo-{product}.yaml", env::var(CONFIG_PATH_DIR)?);
-                (skip_deps, topo)
+        let mut executable = IndexMap::new();
+        let mut barrier = vec![];
+
+        let topo_file = match cmd_arg.clone() {
+            SubCommand::Launch { topology_file } => topology_file,
+            SubCommand::Demo { product, .. } => {
+                format!("{}/demo-{product}.yaml", env::var(CONFIG_PATH_DIR)?)
             }
             _ => {
                 unreachable!()
             }
         };
-        let dep_tasks = if skip_deps {
-            TaskExecutionContext::dummy()
-        } else {
-            let cmd = SubCommand::RunDeps {
-                topology_file: topo_file.clone(),
-            };
-            InstallDepPkgTaskGroup.tasks(cmd, config).await?
-        };
+
+        let ssh_python_bin = config_template(SSH_PYTHON_SCRIPT)?
+            .to_string_lossy()
+            .into_owned();
+        let host_values = config.get_unique_host_list().join(" ");
+        // This should execute locally.
+        let ssh_python_task = ExecCustomCommand::build_local_task(
+            format!("python3 {} {}", ssh_python_bin, host_values),
+            config,
+            "ssh check",
+        );
+        barrier.push(ssh_python_task.len());
+        executable.extend(ssh_python_task);
 
         let exe_ctx = vec![
-            dep_tasks,
             CheckTaskGroup
                 .tasks(
                     SubCommand::Check {
@@ -92,7 +98,7 @@ impl TaskGroup for LaunchTaskGroup {
                 )
                 .await?,
         ];
-        let (barrier, executable) = merge_execution(exe_ctx);
+        merge_execution(&mut barrier, &mut executable, exe_ctx);
 
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),
