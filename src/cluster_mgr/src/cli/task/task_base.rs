@@ -132,10 +132,10 @@ macro_rules! task_return_value {
 }
 
 pub fn merge_execution(
+    barrier: &mut Vec<usize>,
+    executable: &mut IndexMap<TaskId, TaskInstance>,
     exe: Vec<TaskExecutionContext>,
-) -> (Vec<usize>, IndexMap<TaskId, TaskInstance>) {
-    let mut barrier = vec![];
-    let mut executable = IndexMap::new();
+) {
     exe.into_iter().for_each(|tasks| {
         info!(
             "Merge step {} has barrier {:?} and tasks {}, total_tasks {}",
@@ -157,7 +157,6 @@ pub fn merge_execution(
             executable.extend(tasks.executable);
         }
     });
-    (barrier, executable)
 }
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]

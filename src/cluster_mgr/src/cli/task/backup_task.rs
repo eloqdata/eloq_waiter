@@ -210,6 +210,8 @@ impl TaskExecutor for BackupTask {
         task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
+        info!("execute {}", self.task_id.format_string());
+
         // it is a local task that trigger a rpc call
         match task_host {
             TaskHost::Local => {}

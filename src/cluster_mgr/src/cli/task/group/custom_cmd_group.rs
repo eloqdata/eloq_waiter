@@ -29,6 +29,7 @@ impl TaskGroup for CustomCmdTaskGroup {
                 unreachable!()
             }
         };
+        println!("user_command: {user_command}");
         let exec_cmd_task_execution =
             ExecCustomCommand::from_config(&cmd_arg, "exec", user_command, &config);
 
