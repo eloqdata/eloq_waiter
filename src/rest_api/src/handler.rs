@@ -101,6 +101,7 @@ fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> SubCommand 
         },
         "launch" => SubCommand::Launch {
             topology_file: "_NONE".to_owned(),
+            skip_deps: false,
         },
         _ => unreachable!(),
     }

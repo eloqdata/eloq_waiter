@@ -40,6 +40,8 @@ pub enum SubCommand {
         #[arg(short, long, default_value = "latest")]
         version: String,
         #[arg(long, default_value_t = false)]
+        skip_deps: bool,
+        #[arg(long, default_value_t = false)]
         unlimited: bool,
         #[arg(long, default_value_t = false)]
         no_monitor: bool,
@@ -64,8 +66,11 @@ pub enum SubCommand {
     },
     #[command(long_about = "Launch a cluster quickly")]
     #[strum(serialize = "launch")]
-    Launch { topology_file: String },
-
+    Launch {
+        topology_file: String,
+        #[arg(short, long, default_value_t = false)]
+        skip_deps: bool,
+    },
     #[strum(serialize = "start")]
     #[command(long_about = "Start cluster(TxService/LogService/Storage)")]
     Start {

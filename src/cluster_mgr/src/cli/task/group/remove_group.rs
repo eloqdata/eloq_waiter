@@ -4,11 +4,13 @@ use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, CtrlDBTaskGroup, RemoveTaskGroup, TaskGroup};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
-use crate::cli::SubCommand;
+use crate::cli::{BackupCommand, SubCommand};
 use crate::config::StorageProvider;
 use anyhow::bail;
 use indexmap::IndexMap;
 use itertools::Itertools;
+
+use super::BackupTaskGroup;
 
 #[async_trait::async_trait]
 impl TaskGroup for RemoveTaskGroup {
@@ -27,7 +29,7 @@ impl TaskGroup for RemoveTaskGroup {
         };
 
         let cluster = match cmd_arg.clone() {
-            SubCommand::Remove { cluster } => cluster,
+            SubCommand::Remove { cluster } => cluster.clone(),
             _ => {
                 unreachable!()
             }
@@ -36,7 +38,12 @@ impl TaskGroup for RemoveTaskGroup {
         let mut executable;
         // terminate all process
         let remove_stop = CtrlDBTaskGroup
-            .tasks(SubCommand::Remove { cluster }, config)
+            .tasks(
+                SubCommand::Remove {
+                    cluster: cluster.clone(),
+                },
+                config,
+            )
             .await?;
         if let Some(ba) = remove_stop.barrier {
             barrier.extend(ba);
@@ -126,6 +133,22 @@ impl TaskGroup for RemoveTaskGroup {
             }
             StorageProvider::Rocksdb => {}
         }
+
+        let remove_backup_task = BackupTaskGroup
+            .tasks(
+                SubCommand::Backup {
+                    cluster: cluster.clone(),
+                    command: BackupCommand::Remove {
+                        until: None,
+                        before: None,
+                    },
+                },
+                config,
+            )
+            .await?
+            .executable;
+        barrier.push(remove_backup_task.len());
+        executable.extend(remove_backup_task);
 
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),
