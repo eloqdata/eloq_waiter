@@ -226,7 +226,11 @@ impl CmdExecutor {
 
     async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<Config> {
         match cmd {
-            SubCommand::Deploy { topology_file } | SubCommand::Launch { topology_file } => {
+            SubCommand::Deploy { topology_file }
+            | SubCommand::Launch {
+                topology_file,
+                skip_deps: _,
+            } => {
                 let mut config = DeployConfig::load(Some(topology_file))?;
                 self.resolve_version(&mut config.deployment).await?;
                 self.save_deployment_config(&config, false).await?;
@@ -784,6 +788,7 @@ impl CmdExecutor {
                 product,
                 store,
                 version,
+                skip_deps: _,
                 unlimited,
                 no_monitor,
                 joint_wal,

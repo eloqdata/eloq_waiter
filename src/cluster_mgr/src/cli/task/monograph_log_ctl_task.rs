@@ -87,7 +87,10 @@ impl LogCtlCmd {
                         cluster: _,
                         nodes: _,
                     }
-                    | SubCommand::Launch { topology_file: _ } => LogCtlCmd::Start(log_start_cmd),
+                    | SubCommand::Launch {
+                        topology_file: _,
+                        skip_deps: _,
+                    } => LogCtlCmd::Start(log_start_cmd),
                     SubCommand::Status {
                         cluster: _,
                         user: _,

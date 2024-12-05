@@ -11,8 +11,7 @@ use crate::config::config_base::{
 };
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::CassKind;
-use crate::config::{config_template, ELOQKV_TEMPLATE_INI, SSH_PYTHON_SCRIPT};
-use crate::config::{DeploymentPackage, DownloadUrl};
+use crate::config::{config_template, DeploymentPackage, DownloadUrl, ELOQKV_TEMPLATE_INI};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
