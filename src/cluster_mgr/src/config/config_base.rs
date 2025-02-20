@@ -1,5 +1,5 @@
 use crate::all_hosts_merge;
-use crate::cli::{create_upload_cluster_dir, ssh, upload_dir, HOME_DIR};
+use crate::cli::{create_upload_cluster_dir, upload_dir, HOME_DIR};
 use crate::config::connection::Connection;
 use crate::config::deployment::{Codis, Deployment, NodeType, Product, Version};
 use crate::config::log_service::LogProcessKey;
