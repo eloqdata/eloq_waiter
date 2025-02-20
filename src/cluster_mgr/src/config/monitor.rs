@@ -258,6 +258,7 @@ impl Monitor {
         let node_exporter_port = self.node_exporter.as_ref().unwrap().port;
         let monograph_metrics_opt = self.monograph_metrics.as_ref();
 
+        // let metrics_path = &self.monograph_metrics.unwrap().path;
         let mut scrape_configs: Vec<Value> = vec![];
         job_hosts.iter().for_each(|(job_name, hosts)| {
             let mut target_hosts: Vec<String> = vec![];
@@ -267,7 +268,7 @@ impl Monitor {
                     if let Some(monograph_metrics) = monograph_metrics_opt {
                         let port = &monograph_metrics.port;
                         target_hosts.push(format!("{host}:{port}"));
-                        url = Some("/mono_metrics".to_string())
+                        url = Some(monograph_metrics.path.clone());
                     }
                 }
                 NODE_EXPORTER_JOB_NAME => {
