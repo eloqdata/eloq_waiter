@@ -1,11 +1,4 @@
-use crate::cli::upload_dir;
-use crate::config::{config_template, PROXY_CONF_TEMPLATE};
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::Write;
-use std::path::PathBuf;
-use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct ProxyService {

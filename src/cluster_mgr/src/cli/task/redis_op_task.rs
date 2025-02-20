@@ -1,5 +1,5 @@
 use crate::cli::task::grpc::cc_request::{
-    CheckCkptStatusResponse, CkptStatus, NotifyShutdownCkptResponse, ShutdownStatus,
+    CheckCkptStatusResponse, CkptStatus, NotifyShutdownCkptResponse,
 };
 use crate::cli::task::grpc::GrpcClient;
 use crate::cli::task::task_base::{
