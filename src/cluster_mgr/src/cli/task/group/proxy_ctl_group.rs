@@ -2,7 +2,7 @@ use crate::cli::task::download_task::DownloadTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ProxyTaskGroup, TaskGroup};
 use crate::cli::task::proxy_ctl_task::ProxyCtlTask;
-use crate::cli::task::task_base::{TaskExecutionContext };
+use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::ProxyCommand;
 use crate::cli::SubCommand;
