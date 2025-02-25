@@ -129,9 +129,41 @@ impl TaskGroup for UpdateClusterTaskGroup {
             barrier.push(probe.len());
             executable.extend(probe);
         }
-        let start_tx = MonographTxCtlTask::from_config(start_cmd, &cluster_config, ServerType::Tx);
+        let start_tx =
+            MonographTxCtlTask::from_config(start_cmd.clone(), &cluster_config, ServerType::Tx);
         barrier.push(start_tx.len());
         executable.extend(start_tx);
+
+        if cluster_config
+            .deployment
+            .tx_service
+            .standby_host_ports
+            .is_some()
+        {
+            let start_standby = MonographTxCtlTask::from_config(
+                start_cmd.clone(),
+                &cluster_config,
+                ServerType::Standby,
+            );
+            barrier.push(start_standby.len());
+            executable.extend(start_standby);
+        }
+
+        if cluster_config
+            .deployment
+            .tx_service
+            .voter_host_ports
+            .is_some()
+        {
+            let start_voter = MonographTxCtlTask::from_config(
+                start_cmd.clone(),
+                &cluster_config,
+                ServerType::Voter,
+            );
+            barrier.push(start_voter.len());
+            executable.extend(start_voter);
+        }
+
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),
             barrier: Some(barrier),
