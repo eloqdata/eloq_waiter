@@ -27,7 +27,7 @@ deployment:
         password: casspwd
   monitor:
     data_dir: ""
-    monograph_metrics:
+    eloq_metrics:
       path: "/eloq_metrics"
       port: 18081
     prometheus:

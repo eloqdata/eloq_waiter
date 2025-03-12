@@ -608,7 +608,7 @@ impl Deployment {
         }
 
         let enable_metric = if let Some(monitor) = &self.monitor {
-            monitor.monograph_metrics.is_some()
+            monitor.monograph_metrics.is_some() || monitor.eloq_metrics.is_some()
         } else {
             false
         };
@@ -946,7 +946,14 @@ impl Deployment {
                 Some(
                     self.monitor
                         .as_ref()
-                        .and_then(|monitor| monitor.monograph_metrics.as_ref())
+                        .and_then(|monitor| {
+                            if monitor.monograph_metrics.is_some() || monitor.eloq_metrics.is_some()
+                            {
+                                Some(true)
+                            } else {
+                                None
+                            }
+                        })
                         .is_some()
                         .to_string(),
                 ),
