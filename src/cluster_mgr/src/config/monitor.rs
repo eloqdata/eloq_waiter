@@ -76,8 +76,14 @@ impl CassandraCollector {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct MonographMetrics {
-    pub path: String,
-    pub port: u16,
+    pub path: Option<String>,
+    pub port: Option<u16>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct EloqMetrics {
+    pub path: Option<String>,
+    pub port: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -96,6 +102,7 @@ pub struct Monitor {
     pub mysql_exporter: Option<Exporter>,
     pub cassandra_collector: Option<CassandraCollector>,
     pub monograph_metrics: Option<MonographMetrics>,
+    pub eloq_metrics: Option<EloqMetrics>,
 }
 
 impl Monitor {
@@ -258,18 +265,27 @@ impl Monitor {
     ) -> anyhow::Result<PathBuf> {
         let node_exporter_port = self.node_exporter.as_ref().unwrap().port;
         let monograph_metrics_opt = self.monograph_metrics.as_ref();
+        let eloq_metrics_opt = self.eloq_metrics.as_ref();
 
-        // let metrics_path = &self.monograph_metrics.unwrap().path;
         let mut scrape_configs: Vec<Value> = vec![];
         job_hosts.iter().for_each(|(job_name, hosts)| {
             let mut target_hosts: Vec<String> = vec![];
             let mut url = None;
             hosts.iter().for_each(|host| match job_name.as_str() {
                 MONITOR_JOB_NAME => {
+                    // Try monograph_metrics first
                     if let Some(monograph_metrics) = monograph_metrics_opt {
-                        let port = &monograph_metrics.port;
-                        target_hosts.push(format!("{host}:{port}"));
-                        url = Some(monograph_metrics.path.clone());
+                        if let Some(port) = monograph_metrics.port {
+                            target_hosts.push(format!("{host}:{port}"));
+                            url = monograph_metrics.path.clone();
+                        }
+                    }
+                    // If monograph_metrics not available, try eloq_metrics
+                    else if let Some(eloq_metrics) = eloq_metrics_opt {
+                        if let Some(port) = eloq_metrics.port {
+                            target_hosts.push(format!("{host}:{port}"));
+                            url = eloq_metrics.path.clone();
+                        }
                     }
                 }
                 NODE_EXPORTER_JOB_NAME => {
