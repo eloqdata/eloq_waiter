@@ -232,6 +232,21 @@ impl CmdExecutor {
                 skip_deps: _,
             } => {
                 let mut config = DeployConfig::load(Some(topology_file))?;
+
+                // Validate metrics configuration
+                if let Some(monitor) = &config.deployment.monitor {
+                    let has_monograph = monitor.monograph_metrics.is_some();
+                    let has_eloq = monitor.eloq_metrics.is_some();
+
+                    if !has_monograph && !has_eloq {
+                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
+                    }
+
+                    if has_monograph && has_eloq {
+                        bail!("Cannot specify both monograph_metrics and eloq_metrics simultaneously; choose one");
+                    }
+                }
+
                 self.resolve_version(&mut config.deployment).await?;
                 self.save_deployment_config(&config, false).await?;
                 info!("CmdExecutor Save DeploymentConfig successfully.");
@@ -274,6 +289,21 @@ impl CmdExecutor {
                     .load_deployment_from_state(&cluster)
                     .await?
                     .ok_or(anyhow!("cluster {} not found", cluster))?;
+
+                // Validate metrics configuration
+                if let Some(monitor) = &config.deployment.monitor {
+                    let has_monograph = monitor.monograph_metrics.is_some();
+                    let has_eloq = monitor.eloq_metrics.is_some();
+
+                    if !has_monograph && !has_eloq {
+                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
+                    }
+
+                    if has_monograph && has_eloq {
+                        bail!("Cannot specify both monograph_metrics and eloq_metrics simultaneously; choose one");
+                    }
+                }
+
                 Ok(Config::Cluster(config))
             }
             SubCommand::RunDeps { topology_file }
@@ -281,7 +311,25 @@ impl CmdExecutor {
             | SubCommand::Exec {
                 command: _,
                 topology_file,
-            } => Ok(Config::Cluster(DeployConfig::load(Some(topology_file))?)),
+            } => {
+                let config = DeployConfig::load(Some(topology_file))?;
+
+                // Validate metrics configuration
+                if let Some(monitor) = &config.deployment.monitor {
+                    let has_monograph = monitor.monograph_metrics.is_some();
+                    let has_eloq = monitor.eloq_metrics.is_some();
+
+                    if !has_monograph && !has_eloq {
+                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
+                    }
+
+                    if has_monograph && has_eloq {
+                        bail!("Cannot specify both monograph_metrics and eloq_metrics simultaneously; choose one");
+                    }
+                }
+
+                Ok(Config::Cluster(config))
+            }
             SubCommand::Update {
                 cluster: Some(cluster),
                 version,
@@ -324,6 +372,21 @@ impl CmdExecutor {
                         bail!("can not update cassandra");
                     }
                 }
+
+                // Validate metrics configuration
+                if let Some(monitor) = &config.deployment.monitor {
+                    let has_monograph = monitor.monograph_metrics.is_some();
+                    let has_eloq = monitor.eloq_metrics.is_some();
+
+                    if !has_monograph && !has_eloq {
+                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
+                    }
+
+                    if has_monograph && has_eloq {
+                        bail!("Cannot specify both monograph_metrics and eloq_metrics simultaneously; choose one");
+                    }
+                }
+
                 Ok(Config::Cluster(config))
             }
             SubCommand::Proxy { command } => {
@@ -569,6 +632,25 @@ impl CmdExecutor {
                                 moni.grafana.as_ref().unwrap().host,
                                 moni.grafana.as_ref().unwrap().port
                             );
+                        }
+                    }
+
+                    // Display metrics information
+                    if let Some(monitor) = &cfg.deployment.monitor {
+                        if let Some(monograph_metrics) = &monitor.monograph_metrics {
+                            if let (Some(path), Some(port)) =
+                                (&monograph_metrics.path, monograph_metrics.port)
+                            {
+                                println!("Monograph Metrics: http://<host>:{}{}", port, path);
+                            }
+                        }
+
+                        if let Some(eloq_metrics) = &monitor.eloq_metrics {
+                            if let (Some(path), Some(port)) =
+                                (&eloq_metrics.path, eloq_metrics.port)
+                            {
+                                println!("Eloq Metrics: http://<host>:{}{}", port, path);
+                            }
                         }
                     }
                 }
@@ -865,6 +947,27 @@ impl CmdExecutor {
                 if let Some(monitor) = &mut deploy.monitor {
                     if store != StorageProvider::Cassandra {
                         monitor.cassandra_collector = None
+                    }
+
+                    // Check metrics configuration
+                    let has_monograph = monitor.monograph_metrics.is_some();
+                    let has_eloq = monitor.eloq_metrics.is_some();
+
+                    // If neither is present, report an error
+                    if !has_monograph && !has_eloq {
+                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
+                    }
+
+                    // If both are present, remove one based on product type to maintain consistency
+                    if has_monograph && has_eloq {
+                        match deploy.product {
+                            Product::EloqSQL => {
+                                monitor.eloq_metrics = None;
+                            }
+                            Product::EloqKV => {
+                                monitor.monograph_metrics = None;
+                            }
+                        }
                     }
                 }
                 // set version
