@@ -985,8 +985,8 @@ impl CmdExecutor {
     async fn update(&self) -> Result<()> {
         let os = self.os_vers();
         let arch = cpu_arch();
-        let filename = format!("eloqctl-{os}-{arch}.tar.gz");
-        let url = format!("{CDN}/eloqctl/{filename}");
+        let filename = format!("eloqctl-main-{os}-{arch}.tar.gz");
+        let url = format!("{CDN}/eloqctl/{arch}/main/{filename}");
         info!("Fetching latest package {url}");
         let resp = HTTP_CLIENT.get(&url).send().await?;
         if !resp.status().is_success() {
