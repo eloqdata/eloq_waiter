@@ -4,12 +4,11 @@ connection:
   auth:
     keypair: "/home/${USER}/.ssh/id_rsa"
 deployment:
-  cluster_name: "eloqkv_with_multiple_ng"
+  cluster_name: "eloqkv_cluster_in_memory_multi_ng"
   product: "EloqKV"
   version: "latest"
   install_dir: "/home/${USER}"
   tx_service:
-    tx_host_ports: [10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379]
-  storage_service:
-    rocksdb: !LOCAL
-      # path: /tmp
+    tx_host_ports: [10.0.0.1:6379, 10.0.0.2:6379, 10.0.0.3:6379]
+
+

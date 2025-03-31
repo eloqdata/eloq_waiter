@@ -3,17 +3,20 @@ use crate::cli::ssh::SSHSession;
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
+use crate::cli::upload_dir;
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::{config_base::DeployConfig, DeploymentPackage};
 use crate::state::state_base::StateOperation;
 use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
 use anyhow::anyhow;
+use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -269,7 +272,9 @@ pub fn stop_with_hot_standby(
         barrier.push(stop_tx.len());
         executable.extend(stop_tx);
     } else {
-        // Check topology
+        // Check if any node configuration has enable_data_store set to false. if so, skip the checkpoint tasks
+        let skip_checkpoint = check_whether_to_skip_checkpoint(&config.deployment.cluster_name);
+
         let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::MonographTx);
         let standby_host_ports = config.get_host_port_list(DeploymentPackage::MonographStandby);
         redis_host_ports.extend(standby_host_ports);
@@ -289,12 +294,14 @@ pub fn stop_with_hot_standby(
         });
         let rx_tx = tx_channel.subscribe();
 
-        let topology_task = RedisOpTask::new(
+        // Add flag to specify if checkpoint tasks should be skipped
+        let topology_task = RedisOpTask::new_with_skip_checkpoint(
             task_id.clone(),
             redis_host_ports,
             redis_cmd,
             tx_channel,
             redis_op_password,
+            skip_checkpoint,
         );
 
         let task_instance = TaskInstance {
@@ -338,4 +345,66 @@ pub fn stop_with_hot_standby(
         barrier.push(stop_tx.len());
         executable.extend(stop_tx);
     }
+}
+
+fn check_whether_to_skip_checkpoint(cluster_name: &str) -> bool {
+    let upload_path = upload_dir().join(cluster_name);
+    if !upload_path.exists() {
+        return true;
+    }
+
+    let mut skip_ckpt = false;
+
+    // First check the root EloqKv.ini file
+    let root_ini_path = upload_path.join("EloqKv.ini");
+    if root_ini_path.exists() {
+        let mut ini = Ini::new();
+        if let Ok(_) = ini.load(root_ini_path.to_str().unwrap()) {
+            if let Some(value) = ini.get("LOCAL", "enable_data_store") {
+                if value.to_lowercase() == "false" {
+                    info!(
+                        "Found enable_data_store=false in root {}",
+                        root_ini_path.display()
+                    );
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Walk through all directories and check .ini files
+    if let Ok(entries) = fs::read_dir(upload_path) {
+        for entry in entries.flatten() {
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let dir_path = entry.path();
+                // Check for .ini files in this directory
+                if let Ok(dir_entries) = fs::read_dir(&dir_path) {
+                    for file_entry in dir_entries.flatten() {
+                        let file_path = file_entry.path();
+                        if file_path.extension().and_then(|e| e.to_str()) == Some("ini") {
+                            // Found an INI file, check its content
+                            let mut ini = Ini::new();
+                            if let Ok(_) = ini.load(file_path.to_str().unwrap()) {
+                                if let Some(value) = ini.get("LOCAL", "enable_data_store") {
+                                    if value.to_lowercase() == "false" {
+                                        info!(
+                                            "Found enable_data_store=false in {}",
+                                            file_path.display()
+                                        );
+                                        skip_ckpt = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if skip_ckpt {
+                    break;
+                }
+            }
+        }
+    }
+
+    skip_ckpt
 }

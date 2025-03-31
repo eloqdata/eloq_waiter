@@ -186,10 +186,14 @@ impl CtrlDBTaskGroup {
             barrier.push(stop_log.len());
             executable.extend(stop_log);
         }
-        if store && deployment.storage_service.inner_cass().is_some() {
-            let tasks = CassandraCtlTask::from_config(cmd, config);
-            barrier.push(tasks.len());
-            executable.extend(tasks);
+        if store {
+            if let Some(storage) = &deployment.storage_service {
+                if storage.inner_cass().is_some() {
+                    let tasks = CassandraCtlTask::from_config(cmd, config);
+                    barrier.push(tasks.len());
+                    executable.extend(tasks);
+                }
+            }
         }
         (barrier, executable)
     }
@@ -216,10 +220,12 @@ impl CtrlDBTaskGroup {
                 }
             } else {
                 // Start order: cassandra -> log-server -> tx-server
-                if deployment.storage_service.inner_cass().is_some() {
-                    let tasks = CassandraCtlTask::from_config(start_cmd.clone(), config);
-                    barrier.extend(CassandraCtlTask::start_barrier(tasks.len()));
-                    executable.extend(tasks);
+                if let Some(storage) = &deployment.storage_service {
+                    if storage.inner_cass().is_some() {
+                        let tasks = CassandraCtlTask::from_config(start_cmd.clone(), config);
+                        barrier.extend(CassandraCtlTask::start_barrier(tasks.len()));
+                        executable.extend(tasks);
+                    }
                 }
 
                 if deployment.log_service.is_some() {

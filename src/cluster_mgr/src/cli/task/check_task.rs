@@ -75,7 +75,8 @@ impl CheckTask {
         host: TaskHost,
         input: HashMap<String, TaskArgValue>,
     ) -> Result<Option<ExecutionValue>> {
-        assert!(self.config.deployment.storage_service.cassandra.is_some());
+        let storage_service = self.config.deployment.storage_service.as_ref();
+        assert!(storage_service.is_some() && storage_service.unwrap().cassandra.is_some());
         let ssh_k = self.config.connection.ssh_auth_key().unwrap();
         let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
         for p in sess.used_tcp_ports().await? {

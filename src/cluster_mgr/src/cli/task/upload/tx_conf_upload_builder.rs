@@ -1,9 +1,9 @@
+use crate::cli::create_upload_cluster_dir;
 use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
-use crate::cli::{create_upload_cluster_dir, upload_dir};
 use crate::config::config_base::UploadFile;
 use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
@@ -25,7 +25,7 @@ impl UploadTaskBuilder for TxConfUpload {
               cluster_config.deployment.cluster_name);
 
         let remote_dest = cluster_config.deployment.tx_srv_home();
-        // TODO(ZX) support log-server, kv-store and monitor-server config update
+        // TODO(ZX) later, support log-server, kv-store and monitor-server config update
         let mut all_hosts = cluster_config.get_host_list(DeploymentPackage::MonographTx);
         all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographStandby));
         all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographVoter));
