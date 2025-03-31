@@ -85,14 +85,19 @@ impl TaskGroup for LaunchTaskGroup {
                     config,
                 )
                 .await?,
-            InstallDBTaskGroup
-                .tasks(
-                    SubCommand::Install {
-                        cluster: cluster_config.deployment.cluster_name.clone(),
-                    },
-                    config,
-                )
-                .await?,
+            // Q? should we do the bootstrap even if there is no storage service in case the user want to add kv later?
+            if cluster_config.deployment.storage_service.is_some() {
+                InstallDBTaskGroup
+                    .tasks(
+                        SubCommand::Install {
+                            cluster: cluster_config.deployment.cluster_name.clone(),
+                        },
+                        config,
+                    )
+                    .await?
+            } else {
+                TaskExecutionContext::dummy()
+            },
             CtrlDBTaskGroup
                 .tasks(
                     SubCommand::Start {

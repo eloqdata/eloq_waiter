@@ -33,31 +33,35 @@ impl TaskGroup for InstallDBTaskGroup {
         let install_cmd = SubCommand::Install {
             cluster: cluster_config.clone().deployment.cluster_name,
         };
-        if let Some(cass) = &cluster_config.deployment.storage_service.cassandra {
-            if cass.internal().is_some() {
-                let upload_cass_config_task =
-                    upload_tasks(UploadTaskBuilderType::CassConf, &config);
-                barrier.push(upload_cass_config_task.len());
-                executable.extend(upload_cass_config_task);
-                if let Some(monitor) = cluster_config.deployment.monitor.as_ref() {
-                    if let Some(mcac_collector) = &monitor.cassandra_collector {
-                        let install_dir = cluster_config.install_dir();
-                        let update_http_port_cmd = mcac_collector.update_http_port_cmd(install_dir);
-                        let cassandra_hosts =
-                            cluster_config.get_host_list(DeploymentPackage::Storage);
-                        let update_http_port_task = ExecCustomCommand::build_task_by_host(
-                            update_http_port_cmd,
-                            &config,
-                            cassandra_hosts,
-                            None,
-                        );
-                        barrier.push(update_http_port_task.len());
-                        executable.extend(update_http_port_task);
+        if let Some(storage_service) = &cluster_config.deployment.storage_service {
+            if let Some(cass) = &storage_service.cassandra {
+                if cass.internal().is_some() {
+                    let upload_cass_config_task =
+                        upload_tasks(UploadTaskBuilderType::CassConf, &config);
+                    barrier.push(upload_cass_config_task.len());
+                    executable.extend(upload_cass_config_task);
+                    if let Some(monitor) = cluster_config.deployment.monitor.as_ref() {
+                        if let Some(mcac_collector) = &monitor.cassandra_collector {
+                            let install_dir = cluster_config.install_dir();
+                            let update_http_port_cmd =
+                                mcac_collector.update_http_port_cmd(install_dir);
+                            let cassandra_hosts =
+                                cluster_config.get_host_list(DeploymentPackage::Storage);
+                            let update_http_port_task = ExecCustomCommand::build_task_by_host(
+                                update_http_port_cmd,
+                                &config,
+                                cassandra_hosts,
+                                None,
+                            );
+                            barrier.push(update_http_port_task.len());
+                            executable.extend(update_http_port_task);
+                        }
                     }
+                    let cassandra_start =
+                        CassandraCtlTask::from_config(install_cmd, &cluster_config);
+                    barrier.extend(CassandraCtlTask::start_barrier(cassandra_start.len()));
+                    executable.extend(cassandra_start);
                 }
-                let cassandra_start = CassandraCtlTask::from_config(install_cmd, &cluster_config);
-                barrier.extend(CassandraCtlTask::start_barrier(cassandra_start.len()));
-                executable.extend(cassandra_start);
             }
         }
 
@@ -73,12 +77,12 @@ impl TaskGroup for InstallDBTaskGroup {
             host_ports
         );
 
-        let process_only_first_host_port = cluster_config
-            .deployment
-            .storage_service
-            .cassandra
-            .is_some()
-            || cluster_config.deployment.storage_service.dynamodb.is_some();
+        let process_only_first_host_port =
+            if let Some(storage_service) = &cluster_config.deployment.storage_service {
+                storage_service.cassandra.is_some() || storage_service.dynamodb.is_some()
+            } else {
+                false
+            };
 
         let num_hosts_to_process = if process_only_first_host_port {
             1

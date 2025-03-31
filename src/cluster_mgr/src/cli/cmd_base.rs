@@ -7,7 +7,7 @@ use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::storage_service_config::{
-    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB, RocksLocal,
+    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB, RocksLocal, StorageService,
 };
 use crate::config::{StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
@@ -354,7 +354,15 @@ impl CmdExecutor {
                     self.resolve_version(&mut config.deployment).await?;
                 }
                 if cassandra.is_some() || cass_mirror.is_some() {
-                    let cass = &mut config.deployment.storage_service.cassandra;
+                    let cass = &mut config
+                        .deployment
+                        .storage_service
+                        .as_mut()
+                        .expect("storage_service is required")
+                        .cassandra;
+                    if cass.is_none() {
+                        bail!("do not have cassandra");
+                    }
                     if cass.is_none() {
                         bail!("do not have cassandra");
                     }
@@ -443,9 +451,11 @@ impl CmdExecutor {
                 return self.list_versions(product.clone(), store.clone()).await
             }
             SubCommand::Update { cluster: None, .. } => return self.update().await,
-            SubCommand::Launch { .. } | SubCommand::Demo { .. } | SubCommand::Deploy { .. } => {
-                std::fs::remove_dir_all(upload_dir())?;
-                std::fs::create_dir(upload_dir())?;
+            SubCommand::Remove { cluster } => {
+                let upload_path = upload_dir().join(cluster);
+                if upload_path.exists() {
+                    std::fs::remove_dir_all(upload_path)?;
+                }
             }
             _ => {}
         }
@@ -802,18 +812,34 @@ impl CmdExecutor {
         let product = cnf.product().name().to_owned();
         let arch = cpu_arch();
         let os = self.os_vers();
-        let store = cnf.storage_service.pretty_name();
+
+        // Get store name once and reuse it, if not set, use rocksdb as default
+        let store = cnf
+            .storage_service
+            .as_ref()
+            .map_or("rocksdb".to_string(), |s| s.pretty_name());
+
         if cnf.version.is_some() && cnf.version_str().to_ascii_lowercase() == "latest" {
-            // request latest release version ID
             let client = self.pg_client().await?;
-            let row = client
-                .query_one(
+
+            // Use the correct query based on storage_service existence
+            let row = if cnf.storage_service.is_some() {
+                client.query_one(
                     "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3 AND store=$4
-                         ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
-                    &[&product, &arch, &os, &store],
-                )
-                .await
-                .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
+                     ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
+                    &[&product, &arch, &os, &store]
+                ).await
+            } else {
+                client
+                    .query_one(
+                        "SELECT * FROM tx_release WHERE product=$1 AND arch=$2 AND os=$3
+                     ORDER BY version_major DESC,version_minor DESC,version_build DESC LIMIT 1",
+                        &[&product, &arch, &os],
+                    )
+                    .await
+            }
+            .map_err(|e| anyhow!("fetch latest version failed: {e}"))?;
+
             if row.is_empty() {
                 bail!("no available release found")
             }
@@ -824,7 +850,6 @@ impl CmdExecutor {
             info!("latest release version = {latest}");
             cnf.version = Some(latest);
         }
-        // cnf.version.as_mut().unwrap().make_ascii_lowercase();
 
         let mut prefix = PathBuf::from(CDN);
         prefix.push(&product);
@@ -912,13 +937,33 @@ impl CmdExecutor {
                                 cluster_name: None,
                             });
                         };
-                        deploy.storage_service.cassandra = Some(Cassandra { host, kind });
+                        if deploy.storage_service.is_none() {
+                            deploy.storage_service = Some(StorageService {
+                                cassandra: Some(Cassandra { host, kind }),
+                                dynamodb: None,
+                                rocksdb: None,
+                            });
+                        } else {
+                            deploy.storage_service.as_mut().unwrap().cassandra =
+                                Some(Cassandra { host, kind });
+                        }
                     }
                     StorageProvider::Dynamodb => unimplemented!(),
                     StorageProvider::Rocksdb => {
-                        deploy.storage_service.rocksdb = Some(RocksDB::LOCAL(RocksLocal {
-                            path: Some("/tmp".to_string()),
-                        }));
+                        if deploy.storage_service.is_none() {
+                            deploy.storage_service = Some(StorageService {
+                                cassandra: None,
+                                dynamodb: None,
+                                rocksdb: Some(RocksDB::LOCAL(RocksLocal {
+                                    path: Some("/tmp".to_string()),
+                                })),
+                            });
+                        } else {
+                            deploy.storage_service.as_mut().unwrap().rocksdb =
+                                Some(RocksDB::LOCAL(RocksLocal {
+                                    path: Some("/tmp".to_string()),
+                                }));
+                        }
                     }
                 }
                 // deploy log-service jointly

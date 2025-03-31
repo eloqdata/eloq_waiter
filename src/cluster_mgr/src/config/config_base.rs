@@ -71,7 +71,11 @@ pub struct UnPackFileLocation {
 impl DeployConfig {
     fn unpack_links_map(&self) -> HashMap<DeploymentPackage, Vec<DownloadUrl>> {
         let all_hosts = self.get_host_as_map();
-        let cassandra_opt = self.deployment.storage_service.cassandra.as_ref();
+        let cassandra_opt = self
+            .deployment
+            .storage_service
+            .as_ref()
+            .and_then(|s| s.cassandra.as_ref());
         let monitor_opt = self.deployment.monitor.as_ref();
         let tx_image = self.deployment.tx_image();
         let log_image = self.deployment.log_image();
@@ -543,13 +547,19 @@ impl DeployConfig {
         }
     }
 
+    // Q? should we do the bootstrap even if there is no storage service in case the user want to add kv later?
     pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
-        let storage = &self.deployment.storage_service;
-        if let Some(sp) = storage.provider() {
-            Ok(sp)
+        if let Some(storage) = &self.deployment.storage_service {
+            if let Some(sp) = storage.provider() {
+                Ok(sp)
+            } else {
+                Err(anyhow!(ConfigErr::StorageConfigErr(
+                    "storage provider is missing".to_owned()
+                )))
+            }
         } else {
             Err(anyhow!(ConfigErr::StorageConfigErr(
-                "storage provider is missing".to_owned()
+                "storage service is missing".to_owned()
             )))
         }
     }
@@ -609,8 +619,10 @@ impl DeployConfig {
                 paths.push(base.join("eloqkv"));
             }
         }
-        if self.deployment.storage_service.inner_cass().is_some() {
-            paths.push(base.join("cassandra"));
+        if let Some(storage) = &self.deployment.storage_service {
+            if storage.inner_cass().is_some() {
+                paths.push(base.join("cassandra"));
+            }
         }
         paths
             .into_iter()
@@ -625,10 +637,17 @@ impl DeployConfig {
     }
 
     pub fn abstract_info(&self) -> DeployAbstract {
+        let store = if let Some(storage) = &self.deployment.storage_service {
+            storage.pretty_name()
+        } else {
+            // if not set, use rocksdb as default
+            "rocksdb".to_string()
+        };
+
         DeployAbstract {
             name: self.deployment.cluster_name.clone(),
             product: self.deployment.product(),
-            store: self.deployment.storage_service.pretty_name(),
+            store,
             version: self.deployment.version.clone().unwrap_or_default(),
             user: self.connection.username.clone(),
         }

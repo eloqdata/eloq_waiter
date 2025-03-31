@@ -4,7 +4,7 @@ connection:
   auth:
     keypair: "/home/${USER}/.ssh/id_rsa"
 deployment:
-  cluster_name: "eloqkv_with_hot_standby_and_voter"
+  cluster_name: "eloqkv_cluster_in_memory_with_standby"
   product: "EloqKV"
   version: "latest"
   install_dir: "/home/${USER}"
@@ -12,13 +12,3 @@ deployment:
     tx_host_ports: [10.0.0.1:6379]
     standby_host_ports: [10.0.0.2:6379]
     voter_host_ports: [10.0.0.3:6379]
-  log_service:
-    nodes:
-      - host: 10.0.0.4
-        port: 9000
-        data_dir:
-          - "/home/${USER}/eloqkv_with_hot_standby_and_voter/wal_eloqkv"
-    replica: 1
-  storage_service:
-    rocksdb: !LOCAL
-      # path: /tmp

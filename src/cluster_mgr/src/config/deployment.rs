@@ -226,19 +226,20 @@ impl Codis {
         format!("{install_dir}/codis")
     }
     pub fn dashboard_cfg(config: &Deployment) -> anyhow::Result<String> {
-        let coord = config
-            .storage_service
-            .cassandra
-            .as_ref()
-            .expect("codis only support cassandra coordinator");
-        let port = coord.client_port()?;
-        let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
-        let keyspace = config.get_redis_keyspace()?;
-        let cmds = format!(
-            "sed -i 's/coordinator_addr.*/coordinator_addr = \"{addr}\"/g ; s/coordinator_keyspace.*/coordinator_keyspace = \"{}\"/g' {}/dashboard.toml",
-            keyspace, Self::dir(&config.install_dir())
-        );
-        Ok(cmds)
+        // Check if storage_service exists
+        if let Some(storage) = config.storage_service.as_ref() {
+            if let Some(coord) = storage.cassandra.as_ref() {
+                let port = coord.client_port()?;
+                let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
+                let keyspace = config.get_redis_keyspace()?;
+                let cmds = format!(
+                    "sed -i 's/coordinator_addr.*/coordinator_addr = \"{addr}\"/g ; s/coordinator_keyspace.*/coordinator_keyspace = \"{}\"/g' {}/dashboard.toml",
+                    keyspace, Self::dir(&config.install_dir())
+                );
+                return Ok(cmds);
+            }
+        }
+        Err(anyhow!("Codis requires storage_service with cassandra"))
     }
 }
 
@@ -264,7 +265,7 @@ pub struct Deployment {
     pub install_dir: String,
     pub tx_service: MonographService,
     pub log_service: Option<LogService>,
-    pub storage_service: StorageService,
+    pub storage_service: Option<StorageService>,
     pub monitor: Option<Monitor>,
     pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
@@ -516,7 +517,8 @@ impl Deployment {
 
     pub fn build_eloqsql_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut my_ini = Ini::new();
-        if let Some(cass) = self.storage_service.cassandra.as_ref() {
+        let storage = self.storage_service.as_ref();
+        if let Some(cass) = storage.and_then(|s| s.cassandra.as_ref()) {
             my_ini
                 .load(config_template(ELOQSQL_TEMPLATE_INI)?.as_path())
                 .unwrap();
@@ -537,7 +539,11 @@ impl Deployment {
                 .load(config_template(ELOQSQL_DYNAMO_TEMPLATE_INI)?.as_path())
                 .unwrap();
 
-            let dynamodb = self.storage_service.dynamodb.as_ref().unwrap();
+            let dynamodb = storage
+                .expect("storage_service is required")
+                .dynamodb
+                .as_ref()
+                .unwrap();
             my_ini.set(
                 SECTION_MARIADB,
                 "eloq_aws_access_key_id",
@@ -747,103 +753,116 @@ impl Deployment {
             );
         }
 
-        match self.storage_service.provider().unwrap() {
-            StorageProvider::Cassandra => {
-                let cass = self.storage_service.cassandra.as_ref().unwrap();
-                let cassandra_hosts = cass.host.join(",");
-                ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
-                let port = cass.client_port()?;
-                ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
-                if let Some(conn) = cass.external() {
-                    if let Some(user) = conn.user.clone() {
-                        ini.set(SECTION_STORE, "cass_user", Some(user));
+        // Only configure storage if storage_service is provided
+        if let Some(storage) = self.storage_service.as_ref() {
+            match storage.provider().unwrap() {
+                StorageProvider::Cassandra => {
+                    let cass = storage.cassandra.as_ref().unwrap();
+                    let cassandra_hosts = cass.host.join(",");
+                    ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
+                    let port = cass.client_port()?;
+                    ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
+                    if let Some(conn) = cass.external() {
+                        if let Some(user) = conn.user.clone() {
+                            ini.set(SECTION_STORE, "cass_user", Some(user));
+                        }
+                        if let Some(pwd) = conn.password.clone() {
+                            ini.set(SECTION_STORE, "cass_password", Some(pwd));
+                        }
                     }
-                    if let Some(pwd) = conn.password.clone() {
-                        ini.set(SECTION_STORE, "cass_password", Some(pwd));
-                    }
+                    let factor = cass.host.len().min(3).to_string();
+                    ini.set(SECTION_STORE, "cass_keyspace_replication", Some(factor));
                 }
-                let factor = cass.host.len().min(3).to_string();
-                ini.set(SECTION_STORE, "cass_keyspace_replication", Some(factor));
-            }
-            StorageProvider::Dynamodb => panic!("not supported"),
-            StorageProvider::Rocksdb => match self.storage_service.rocksdb.clone().unwrap() {
-                RocksDB::LOCAL(local) => {
-                    let rocks_path = match &local.path {
-                        Some(path) => {
-                            if port.is_empty() {
-                                format!("{}/{}/rocksdb", path, self.cluster_name)
-                            } else {
-                                format!("{}/{}/rocksdb-{}", path, self.cluster_name, port)
+                StorageProvider::Dynamodb => panic!("not supported"),
+                StorageProvider::Rocksdb => match storage.rocksdb.clone().unwrap() {
+                    RocksDB::LOCAL(local) => {
+                        let rocks_path = match &local.path {
+                            Some(path) => {
+                                if port.is_empty() {
+                                    format!("{}/{}/rocksdb", path, self.cluster_name)
+                                } else {
+                                    format!("{}/{}/rocksdb-{}", path, self.cluster_name, port)
+                                }
                             }
-                        }
-                        None => {
-                            if port.is_empty() {
-                                format!("{}/rocksdb", self.tx_srv_home())
-                            } else {
-                                format!("{}/rocksdb-{}", self.tx_srv_home(), port)
+                            None => {
+                                if port.is_empty() {
+                                    format!("{}/rocksdb", self.tx_srv_home())
+                                } else {
+                                    format!("{}/rocksdb-{}", self.tx_srv_home(), port)
+                                }
                             }
-                        }
-                    };
+                        };
 
-                    ini.set(SECTION_STORE, "rocksdb_storage_path", Some(rocks_path));
+                        ini.set(SECTION_STORE, "rocksdb_storage_path", Some(rocks_path));
+                    }
+                    RocksDB::S3(s3) => {
+                        ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
+                        ini.set(SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_region",
+                            Some(s3.region),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_bucket_name",
+                            Some(s3.bucket_name),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_bucket_prefix",
+                            Some(s3.bucket_prefix),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_target_file_size_base",
+                            Some(s3.target_file_size_base),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_sst_file_cache_size",
+                            Some(s3.sst_file_cache_size),
+                        );
+                    }
+                    RocksDB::GCS(gcs) => {
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_region",
+                            Some(gcs.region),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_bucket_name",
+                            Some(gcs.bucket_name),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_bucket_prefix",
+                            Some(gcs.bucket_prefix),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_target_file_size_base",
+                            Some(gcs.target_file_size_base),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "kv_store_rocksdb_cloud_sst_file_cache_size",
+                            Some(gcs.sst_file_cache_size),
+                        );
+                    }
+                },
+            }
+        } else {
+            let rocks_path = {
+                if port.is_empty() {
+                    format!("{}/rocksdb", self.tx_srv_home())
+                } else {
+                    format!("{}/rocksdb-{}", self.tx_srv_home(), port)
                 }
-                RocksDB::S3(s3) => {
-                    ini.set(SECTION_STORE, "aws_access_key_id", Some(s3.aws_id));
-                    ini.set(SECTION_STORE, "aws_secret_key", Some(s3.aws_secret));
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_region",
-                        Some(s3.region),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_bucket_name",
-                        Some(s3.bucket_name),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_bucket_prefix",
-                        Some(s3.bucket_prefix),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_target_file_size_base",
-                        Some(s3.target_file_size_base),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_sst_file_cache_size",
-                        Some(s3.sst_file_cache_size),
-                    );
-                }
-                RocksDB::GCS(gcs) => {
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_region",
-                        Some(gcs.region),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_bucket_name",
-                        Some(gcs.bucket_name),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_bucket_prefix",
-                        Some(gcs.bucket_prefix),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_target_file_size_base",
-                        Some(gcs.target_file_size_base),
-                    );
-                    ini.set(
-                        SECTION_STORE,
-                        "kv_store_rocksdb_cloud_sst_file_cache_size",
-                        Some(gcs.sst_file_cache_size),
-                    );
-                }
-            },
+            };
+
+            ini.set(SECTION_STORE, "rocksdb_storage_path", Some(rocks_path));
         }
 
         let tx_host_ports = &self.tx_service.tx_host_ports;
@@ -964,7 +983,7 @@ impl Deployment {
             ini.set(
                 SECTION_LOCAL,
                 "enable_data_store",
-                Some(self.storage_service.provider().is_some().to_string()),
+                Some(self.storage_service.is_some().to_string()),
             );
         } else {
             println!("**WARNING:** Manually modifying `enable_data_store` in template `EloqKv.ini` is not recommended.");
@@ -1117,23 +1136,25 @@ impl Deployment {
             "product_name".to_owned(),
             toml::Value::String(self.cluster_name.clone()),
         );
-        let coord = self
-            .storage_service
-            .cassandra
-            .as_ref()
-            .expect("codis only support cassandra coordinator");
-        let port = coord.client_port()?;
-        let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
-        let keyspace = self.get_redis_keyspace()?;
-        cnf.insert("coordinator_addr".to_owned(), toml::Value::String(addr));
-        cnf.insert(
-            "coordinator_keyspace".to_owned(),
-            toml::Value::String(keyspace),
-        );
-        // write toml
-        let path_dashb = upload_dir().join(CODIS_DASHBOARD_CNF);
-        fs::File::create(path_dashb.as_path())?.write_all(cnf.to_string().as_bytes())?;
-        Ok(path_dashb)
+
+        // Check if storage_service exists
+        if let Some(storage) = self.storage_service.as_ref() {
+            if let Some(coord) = storage.cassandra.as_ref() {
+                let port = coord.client_port()?;
+                let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
+                let keyspace = self.get_redis_keyspace()?;
+                cnf.insert("coordinator_addr".to_owned(), toml::Value::String(addr));
+                cnf.insert(
+                    "coordinator_keyspace".to_owned(),
+                    toml::Value::String(keyspace),
+                );
+                // write toml
+                let path_dashb = upload_dir().join(CODIS_DASHBOARD_CNF);
+                fs::File::create(path_dashb.as_path())?.write_all(cnf.to_string().as_bytes())?;
+                return Ok(path_dashb);
+            }
+        }
+        Err(anyhow!("Codis requires storage_service with cassandra"))
     }
 
     pub fn monograph_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
@@ -1142,11 +1163,13 @@ impl Deployment {
         if let Some(img) = self.log_image() {
             download_urls!(links,{MONOGRAPH_LOG_FILE_KEY, img});
         }
-        if let Some(cass) = self.storage_service.cassandra.as_ref() {
-            if let Some(cassdp) = cass.internal() {
-                download_urls!(links,
-                    {CASSANDRA_FILE_KEY, &cassdp.image_url()}
-                );
+        if let Some(storage) = self.storage_service.as_ref() {
+            if let Some(cass) = storage.cassandra.as_ref() {
+                if let Some(cassdp) = cass.internal() {
+                    download_urls!(links,
+                        {CASSANDRA_FILE_KEY, &cassdp.image_url()}
+                    );
+                }
             }
         }
         Ok(links)
@@ -1181,9 +1204,11 @@ impl Deployment {
     pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
         match service {
             DeploymentPackage::Storage => {
-                if let Some(cassandra) = &self.storage_service.cassandra {
-                    if cassandra.internal().is_some() {
-                        return cassandra.host.to_vec();
+                if let Some(storage) = &self.storage_service {
+                    if let Some(cassandra) = &storage.cassandra {
+                        if cassandra.internal().is_some() {
+                            return cassandra.host.to_vec();
+                        }
                     }
                 }
                 vec![]
@@ -1290,19 +1315,25 @@ impl Deployment {
         install_dir: String,
         cluster_name: String,
     ) -> anyhow::Result<HashMap<String, Vec<PathBuf>>> {
-        if self.storage_service.cassandra.is_none() {
+        let storage = self.storage_service.as_ref();
+        if storage.and_then(|s| s.cassandra.as_ref()).is_none() {
             return Err(anyhow!(GenCassandraConfigErr("NotCassandra".to_string())));
         }
         let mut configs = vec![];
         if let Some(monitor) = &self.monitor {
             if monitor.cassandra_collector.is_some() {
-                let p = self.storage_service.gen_cassandra_env(install_dir)?;
+                let storage = storage.expect("storage_service exists since we checked above");
+                let p = storage.gen_cassandra_env(install_dir)?;
                 configs.push(p);
             }
         }
         let jvm_temp = fs::read_to_string(config_template(CASSANDRA_JVM_TEMPLATE)?)?;
         let tune_jvm = jvm_temp.contains(JVM_SETTING_HOLDER);
-        let cass = self.storage_service.cassandra.as_ref().unwrap();
+        let cass = storage
+            .expect("storage_service exists since we checked above")
+            .cassandra
+            .as_ref()
+            .unwrap();
         // cassandra.yaml config object
         let mut cass_conf_map = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
         let storage_cluster = if let Some(cassdp) = cass.internal() {

@@ -25,7 +25,6 @@ impl ExecCustomCommand {
     ) -> IndexMap<TaskId, TaskInstance> {
         let mut task_map = IndexMap::new();
 
-        // TODO(ZX) have to use TaskHost::Remote?
         let conn_user = config.conn_user();
         let ssh_port = config.ssh_port();
         let task_host = TaskHost::Remote {
