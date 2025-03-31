@@ -70,21 +70,23 @@ impl TaskGroup for CheckTaskGroup {
             input,
             executable
         );
-        if let Some(cass) = &cluster_config.deployment.storage_service.cassandra {
-            if cass.internal().is_some() {
-                let input = cassandra_used_ports()
-                    .into_iter()
-                    .map(|(name, port)| {
-                        info!("cassandra used port {} for {}", port, name);
-                        (port.to_string(), TaskArgValue::Str(name))
-                    })
-                    .collect::<HashMap<String, TaskArgValue>>();
-                make_check_tasks!(
-                    DeploymentPackage::Storage,
-                    cluster_config,
-                    input,
-                    executable
-                );
+        if let Some(storage_service) = &cluster_config.deployment.storage_service {
+            if let Some(cass) = &storage_service.cassandra {
+                if cass.internal().is_some() {
+                    let input = cassandra_used_ports()
+                        .into_iter()
+                        .map(|(name, port)| {
+                            info!("cassandra used port {} for {}", port, name);
+                            (port.to_string(), TaskArgValue::Str(name))
+                        })
+                        .collect::<HashMap<String, TaskArgValue>>();
+                    make_check_tasks!(
+                        DeploymentPackage::Storage,
+                        cluster_config,
+                        input,
+                        executable
+                    );
+                }
             }
         }
         if cluster_config.deployment.monitor.is_some() {

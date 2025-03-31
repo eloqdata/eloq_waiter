@@ -291,21 +291,23 @@ impl EloqUpload {
 
     pub fn cassandra_image_upload(config: &Deployment) -> Vec<UploadFile> {
         let install_dir = config.install_dir();
-        if let Some(cass) = &config.storage_service.cassandra {
-            if let CassKind::Internal(cdp) = &cass.kind {
-                let url = DownloadUrl::from_url_str(&cdp.image_url()).unwrap();
-                let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
-                return cass
-                    .host
-                    .iter()
-                    .map(|host| UploadFile {
-                        source: img_src.clone(),
-                        dest: install_dir.clone(),
-                        extension: "gz".to_string(),
-                        host: host.to_string(),
-                        copy_dir: false,
-                    })
-                    .collect_vec();
+        if let Some(storage) = &config.storage_service {
+            if let Some(cass) = &storage.cassandra {
+                if let CassKind::Internal(cdp) = &cass.kind {
+                    let url = DownloadUrl::from_url_str(&cdp.image_url()).unwrap();
+                    let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
+                    return cass
+                        .host
+                        .iter()
+                        .map(|host| UploadFile {
+                            source: img_src.clone(),
+                            dest: install_dir.clone(),
+                            extension: "gz".to_string(),
+                            host: host.to_string(),
+                            copy_dir: false,
+                        })
+                        .collect_vec();
+                }
             }
         }
         vec![]

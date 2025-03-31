@@ -28,6 +28,7 @@ pub struct RedisOpTask {
     redis_cmd: String,
     sender: watch::Sender<ClusterNodes>,
     password: Option<String>,
+    skip_checkpoint: bool,
 }
 
 impl RedisOpTask {
@@ -44,6 +45,25 @@ impl RedisOpTask {
             redis_cmd,
             sender,
             password,
+            skip_checkpoint: false,
+        }
+    }
+
+    pub fn new_with_skip_checkpoint(
+        task_id: TaskId,
+        redis_host_ports: Vec<String>,
+        redis_cmd: String,
+        sender: watch::Sender<ClusterNodes>,
+        password: Option<String>,
+        skip_checkpoint: bool,
+    ) -> Self {
+        Self {
+            task_id,
+            redis_host_ports,
+            redis_cmd,
+            sender,
+            password,
+            skip_checkpoint,
         }
     }
 }
@@ -305,93 +325,101 @@ impl TaskExecutor for RedisOpTask {
                     }
                 }
 
-                let mut trigger_ckpt_tasks = Vec::new();
-                for master in &unique_masters {
-                    let ip = &master.ip;
-                    let port = master.port + 10000 + 1;
+                // Continue with checkpoint tasks only if skip_checkpoint is false
+                if !self.skip_checkpoint {
+                    let mut trigger_ckpt_tasks = Vec::new();
+                    for master in &unique_masters {
+                        let ip = &master.ip;
+                        let port = master.port + 10000 + 1;
 
-                    let task = async move {
-                        let url = format!("http://{}:{}", ip, port);
-                        let mut grpc_client = GrpcClient::new(&url).await.map_err(|e| {
-                            error!("Failed to create GrpcClient for {}: {}", url, e);
-                            e
-                        })?;
-                        let response = grpc_client.trigger_ckpt().await.map_err(|e| {
-                            error!("Failed to trigger ckpt for {}: {}", url, e);
-                            e
-                        })?;
-                        info!("Successfully trigger ckpt for {}: {:#?}", url, response);
-                        Ok(response)
-                    };
-                    trigger_ckpt_tasks.push(task);
-                }
-                // Execute all tasks concurrently
-                let trigger_responses: Vec<std::result::Result<NotifyShutdownCkptResponse, Error>> =
-                    join_all(trigger_ckpt_tasks).await;
+                        let task = async move {
+                            let url = format!("http://{}:{}", ip, port);
+                            let mut grpc_client = GrpcClient::new(&url).await.map_err(|e| {
+                                error!("Failed to create GrpcClient for {}: {}", url, e);
+                                e
+                            })?;
+                            let response = grpc_client.trigger_ckpt().await.map_err(|e| {
+                                error!("Failed to trigger ckpt for {}: {}", url, e);
+                                e
+                            })?;
+                            info!("Successfully trigger ckpt for {}: {:#?}", url, response);
+                            Ok(response)
+                        };
+                        trigger_ckpt_tasks.push(task);
+                    }
+                    // Execute all tasks concurrently
+                    let trigger_responses: Vec<
+                        std::result::Result<NotifyShutdownCkptResponse, Error>,
+                    > = join_all(trigger_ckpt_tasks).await;
 
-                let mut has_error = false;
-                let mut error_message = String::new();
-                let mut trigger_ckpt_ts_list = Vec::new();
+                    let mut has_error = false;
+                    let mut error_message = String::new();
+                    let mut trigger_ckpt_ts_list = Vec::new();
 
-                for result in trigger_responses {
-                    match result {
-                        Ok(response) => {
-                            let ts = response.trigger_ckpt_ts;
-                            trigger_ckpt_ts_list.push(ts);
-                        }
-                        Err(e) => {
-                            has_error = true;
-                            error_message = e.to_string();
-                            break;
+                    for result in trigger_responses {
+                        match result {
+                            Ok(response) => {
+                                let ts = response.trigger_ckpt_ts;
+                                trigger_ckpt_ts_list.push(ts);
+                            }
+                            Err(e) => {
+                                has_error = true;
+                                error_message = e.to_string();
+                                break;
+                            }
                         }
                     }
-                }
 
-                if has_error {
-                    task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                    task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(error_message));
-                    return Ok(Some(task_result));
-                }
+                    if has_error {
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(error_message));
+                        return Ok(Some(task_result));
+                    }
 
-                // Now, implement the retry logic for query_ckpt_status
-                let mut query_ckpt_tasks = Vec::new();
-                for (i, master) in unique_masters.iter().enumerate() {
-                    let master = master.clone();
-                    let trigger_ckpt_ts = trigger_ckpt_ts_list[i];
+                    // Now, implement the retry logic for query_ckpt_status
+                    let mut query_ckpt_tasks = Vec::new();
+                    for (i, master) in unique_masters.iter().enumerate() {
+                        let master = master.clone();
+                        let trigger_ckpt_ts = trigger_ckpt_ts_list[i];
 
-                    let task = query_ckpt_status_with_retry(
-                        master,
-                        trigger_ckpt_ts,
-                        MAX_RETRIES,
-                        RETRY_DELAY,
-                    );
-                    query_ckpt_tasks.push(task);
-                }
+                        let task = query_ckpt_status_with_retry(
+                            master,
+                            trigger_ckpt_ts,
+                            MAX_RETRIES,
+                            RETRY_DELAY,
+                        );
+                        query_ckpt_tasks.push(task);
+                    }
 
-                // Execute all tasks concurrently
-                let query_responses: Vec<Result<CheckCkptStatusResponse>> =
-                    join_all(query_ckpt_tasks).await;
+                    // Execute all tasks concurrently
+                    let query_responses: Vec<Result<CheckCkptStatusResponse>> =
+                        join_all(query_ckpt_tasks).await;
 
-                let mut has_error = false;
-                let mut error_message = String::new();
+                    let mut has_error = false;
+                    let mut error_message = String::new();
 
-                for result in query_responses {
-                    match result {
-                        Ok(_response) => {
-                            // Checkpoint finished successfully
-                        }
-                        Err(e) => {
-                            has_error = true;
-                            error_message = e.to_string();
-                            break;
+                    for result in query_responses {
+                        match result {
+                            Ok(_response) => {
+                                // Checkpoint finished successfully
+                            }
+                            Err(e) => {
+                                has_error = true;
+                                error_message = e.to_string();
+                                break;
+                            }
                         }
                     }
-                }
 
-                if has_error {
-                    task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                    task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(error_message));
-                    return Ok(Some(task_result));
+                    if has_error {
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(error_message));
+                        return Ok(Some(task_result));
+                    }
+                } else {
+                    info!("Skipping checkpoint tasks because enable_data_store is false in at least one node configuration");
                 }
 
                 // Convert HashSets to Vectors

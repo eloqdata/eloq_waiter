@@ -154,24 +154,28 @@ impl UnpackFileTask {
 
     pub fn unpack_cassandra(config: &DeployConfig, ex_cnf: bool) -> IndexMap<TaskId, TaskInstance> {
         let deploy_ref = &config.deployment;
-        if let Some(cass) = &deploy_ref.storage_service.cassandra {
-            if let CassKind::Internal(cdp) = &cass.kind {
-                let image = cdp.image_file();
-                let home = extract_unpacked_name(&image);
-                let exclude = if ex_cnf {
-                    vec![
-                        "conf/cassandra.yaml".to_owned(),
-                        "conf/jvm11-server.options".to_owned(),
-                        "conf/cassandra-env.sh".to_owned(),
-                    ]
-                } else {
-                    vec![]
-                };
-                return cass
-                    .host
-                    .iter()
-                    .map(|host| Self::make_task_pair(config, host, &image, &home, exclude.clone()))
-                    .collect();
+        if let Some(storage) = &deploy_ref.storage_service {
+            if let Some(cass) = &storage.cassandra {
+                if let CassKind::Internal(cdp) = &cass.kind {
+                    let image = cdp.image_file();
+                    let home = extract_unpacked_name(&image);
+                    let exclude = if ex_cnf {
+                        vec![
+                            "conf/cassandra.yaml".to_owned(),
+                            "conf/jvm11-server.options".to_owned(),
+                            "conf/cassandra-env.sh".to_owned(),
+                        ]
+                    } else {
+                        vec![]
+                    };
+                    return cass
+                        .host
+                        .iter()
+                        .map(|host| {
+                            Self::make_task_pair(config, host, &image, &home, exclude.clone())
+                        })
+                        .collect();
+                }
             }
         }
         IndexMap::new()

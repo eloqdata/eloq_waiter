@@ -56,6 +56,8 @@ impl MonographInstall {
             .config
             .deployment
             .storage_service
+            .as_ref()
+            .expect("storage_service is required")
             .cassandra
             .as_ref()
             .unwrap();

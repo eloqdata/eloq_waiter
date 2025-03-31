@@ -57,9 +57,14 @@ impl TaskGroup for UpdateClusterTaskGroup {
             unpack_tasks.extend(UnpackFileTask::unpack_eloqservers(&cluster_config));
         }
         if update_cass {
-            downloads.push(deployment.storage_service.inner_cass().unwrap().image_url());
-            upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
-            unpack_tasks.extend(UnpackFileTask::unpack_cassandra(&cluster_config, true));
+            if let Some(storage_service) = &deployment.storage_service {
+                let inner_cass = storage_service.inner_cass();
+                if let Some(inner_cass) = inner_cass {
+                    downloads.push(inner_cass.image_url());
+                    upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
+                    unpack_tasks.extend(UnpackFileTask::unpack_cassandra(&cluster_config, true));
+                }
+            }
         }
         let download_task = DownloadTask::instances(DownloadTask::from_urls(downloads));
         let mut barrier = vec![download_task.len(), upload_img.len()];
@@ -119,11 +124,14 @@ impl TaskGroup for UpdateClusterTaskGroup {
             cluster,
             nodes: Vec::new(),
         };
-        if deployment.storage_service.inner_cass().is_some() {
-            let tasks = CassandraCtlTask::from_config(start_cmd.clone(), &cluster_config);
-            let ba = CassandraCtlTask::start_barrier(tasks.len());
-            barrier.extend(ba);
-            executable.extend(tasks);
+        if let Some(storage_service) = &deployment.storage_service {
+            let inner_cass = storage_service.inner_cass();
+            if inner_cass.is_some() {
+                let tasks = CassandraCtlTask::from_config(start_cmd.clone(), &cluster_config);
+                let ba = CassandraCtlTask::start_barrier(tasks.len());
+                barrier.extend(ba);
+                executable.extend(tasks);
+            }
         }
         if deployment.log_service.is_some() {
             let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), &cluster_config);
