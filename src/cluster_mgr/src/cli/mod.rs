@@ -96,6 +96,8 @@ pub enum SubCommand {
         all: bool,
         #[arg(long, value_name = "cluster password")]
         password: Option<String>,
+        #[arg(long)]
+        nodes: Vec<String>,
     },
 
     #[command(long_about = "Restart the specified cluster")]
