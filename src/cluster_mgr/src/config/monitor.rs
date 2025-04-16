@@ -1,4 +1,4 @@
-use crate::cli::{create_upload_cluster_dir, upload_dir};
+use crate::cli::upload_dir;
 use crate::config::config_base::{
     CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
     NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
@@ -366,7 +366,6 @@ impl Monitor {
             Value::Sequence(scrape_configs),
         );
 
-        // TODO(ZX) also upload alert.rules
         let prometheus_config_file = upload_dir()
             .join(cluster_name)
             .join(MONITOR_DIR)

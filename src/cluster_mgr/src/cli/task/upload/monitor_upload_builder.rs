@@ -3,15 +3,17 @@ use crate::cli::task::task_base::{TaskId, TaskInstance};
 use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, UploadTaskBuilder,
 };
+use crate::cli::upload_dir;
 use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::monitor::{
     Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DASHBOARD_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR,
     MONITOR_JOB_NAME, MYSQL_EXPORTER_JOB_NAME, NODE_EXPORTER_JOB_NAME, PROMETHEUS_CONFIG_DIR,
 };
-use crate::config::DeploymentPackage;
+use crate::config::{config_template, DeploymentPackage, ALERT_RULES_TEMPLATE, MONITOR_DIR};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 
 pub struct MonitorInfraConfUploadBuilder;
@@ -154,7 +156,26 @@ impl MonitorInfraConfUploadBuilder {
                 vec![prometheus_conf]
             };
 
-            // TODO(ZX) also upload alert.rules
+            // Upload alert.rules to prometheus config directory
+            let alert_rules_source = upload_dir()
+                .join(&config.deployment.cluster_name)
+                .join(MONITOR_DIR)
+                .join(ALERT_RULES_TEMPLATE);
+
+            // Prepare the alert.rules UploadFile
+            let alert_rules_upload_file = UploadFile {
+                source: alert_rules_source.to_string_lossy().to_string(),
+                dest: format!("{install_dir}/{PROMETHEUS_CONFIG_DIR}"),
+                extension: "rules".to_string(),
+                host: MonitorInfraConfUploadBuilder::monitor_host(
+                    &all_host,
+                    DeploymentPackage::Prometheus,
+                ),
+                copy_dir: false,
+            };
+
+            // Add the alert.rules file to the upload list
+            upload_files.push(alert_rules_upload_file);
 
             let prometheus_conf_source_files = prometheus_conf_files
                 .iter()
@@ -230,6 +251,21 @@ impl UploadTaskBuilder for MonitorInfraConfUploadBuilder {
         let monitor_opt = cluster_config.deployment.monitor.as_ref();
         let source_host = get_source_host(None);
         if let Some(monitor) = monitor_opt {
+            // Copy alert.rules from config directory to upload directory
+            if monitor.prometheus.is_some() {
+                let alert_rules_source =
+                    config_template(ALERT_RULES_TEMPLATE).expect("get alert rules template error");
+                let monitor_dir = upload_dir()
+                    .join(cluster_config.deployment.cluster_name.clone())
+                    .join(MONITOR_DIR);
+                if !monitor_dir.exists() {
+                    fs::create_dir_all(&monitor_dir).expect("failed to create monitor directory");
+                }
+                let alert_rules_dest = monitor_dir.join(ALERT_RULES_TEMPLATE);
+                fs::copy(&alert_rules_source, &alert_rules_dest)
+                    .expect("copy alert rules template error");
+            }
+
             let mut all_upload_files = self.monitor_config_upload_files(monitor, cluster_config);
             if monitor.grafana.is_some() {
                 if let Some(upload_dashboard_file) = self.dashboard_upload_files(cluster_config) {

@@ -3,7 +3,6 @@ global:
   evaluation_interval: 5s
 
 # Load and evaluate rules in this file every 'evaluation_interval' seconds.
-# TODO(ZX) ../alert.rules ?
 rule_files:
  - "alert.rules" # Path relative to Prometheus CWD or absolute path
 

@@ -149,7 +149,6 @@ pub(crate) fn list_files_by_host(host: &str, config: &Deployment) -> Vec<String>
         .map(|entry| entry.into_path())
         .collect_vec();
     if config.product() == Product::EloqSQL {
-        // Q? what does my_local do?
         paths.push(upload_dir().join(&config.cluster_name).join("my_local.cnf"));
         paths.push(
             upload_dir()
