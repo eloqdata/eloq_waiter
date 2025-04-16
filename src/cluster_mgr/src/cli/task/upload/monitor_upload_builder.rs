@@ -24,7 +24,10 @@ impl MonitorInfraConfUploadBuilder {
         let monitor_opt = config.deployment.monitor.as_ref();
         assert!(monitor_opt.is_some());
         let monitor = monitor_opt.unwrap();
-        let dashboard_path = monitor.gen_grafana_dashboard_config(dashboard_conf_path_string);
+        let dashboard_path = monitor.gen_grafana_dashboard_config(
+            &config.deployment.cluster_name,
+            dashboard_conf_path_string,
+        );
         assert!(dashboard_path.is_ok());
         let path_binding = dashboard_path.unwrap();
         let local_config_path_string = path_binding.to_str().unwrap().to_string();
@@ -89,8 +92,10 @@ impl MonitorInfraConfUploadBuilder {
         let merged_tx_standby_hosts =
             config.merge_and_deduplicate(monograph_tx_hosts, monograph_standby_hosts);
 
-        // Generate the create_user_script
-        let create_user_script = monitor.gen_monitor_user_sql_file().unwrap();
+        // Generate the create_user_script with cluster_name
+        let create_user_script = monitor
+            .gen_monitor_user_sql_file(&config.deployment.cluster_name)
+            .unwrap();
 
         // Prepare upload files for the create_user_script
         let upload_create_user_files = merged_tx_standby_hosts
@@ -113,7 +118,7 @@ impl MonitorInfraConfUploadBuilder {
             let cass_config_hosts = cass_config_host_ref.clone();
 
             let mcac_config = monitor
-                .gen_mcac_file_sd_config(cass_config_hosts.clone())
+                .gen_mcac_file_sd_config(&config.deployment.cluster_name, cass_config_hosts.clone())
                 .unwrap(); // Prometheus MCAC config
 
             let log_hosts = all_host.get(&DeploymentPackage::MonographLog).unwrap();
@@ -140,12 +145,16 @@ impl MonitorInfraConfUploadBuilder {
                 );
             }
 
-            let prometheus_conf = monitor.gen_prometheus_config(jobs).unwrap(); // Prometheus config
+            let prometheus_conf = monitor
+                .gen_prometheus_config(&config.deployment.cluster_name, jobs)
+                .unwrap(); // Prometheus config
             let prometheus_conf_files = if let Some(mcac) = mcac_config {
                 vec![prometheus_conf, mcac]
             } else {
                 vec![prometheus_conf]
             };
+
+            // TODO(ZX) also upload alert.rules
 
             let prometheus_conf_source_files = prometheus_conf_files
                 .iter()
@@ -170,8 +179,12 @@ impl MonitorInfraConfUploadBuilder {
 
         // Handle Grafana configuration separately
         if monitor.grafana.is_some() {
-            let grafana_ds_conf_path = monitor.gen_grafana_datasource_config().unwrap(); // Grafana datasource
-            let grafana_conf_path = monitor.gen_grafana_config().unwrap(); // Grafana config
+            let grafana_ds_conf_path = monitor
+                .gen_grafana_datasource_config(&config.deployment.cluster_name)
+                .unwrap(); // Grafana datasource
+            let grafana_conf_path = monitor
+                .gen_grafana_config(&config.deployment.cluster_name)
+                .unwrap(); // Grafana config
 
             // Prepare the Grafana configuration UploadFile
             let grafana_conf_upload_file = UploadFile {

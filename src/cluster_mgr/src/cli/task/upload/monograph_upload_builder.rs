@@ -10,8 +10,12 @@ use crate::config::config_base::{
     NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::deployment::{Deployment, Product};
+use crate::config::monitor::PROMETHEUS_CONFIG_DIR;
 use crate::config::storage_service_config::CassKind;
-use crate::config::{config_template, DeploymentPackage, DownloadUrl, ELOQKV_TEMPLATE_INI};
+use crate::config::{
+    config_template, DeploymentPackage, DownloadUrl, ALERT_RULES_TEMPLATE, ELOQKV_TEMPLATE_INI,
+    MONITOR_DIR,
+};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -129,6 +133,31 @@ impl MonographUploadBuilder {
             .unique_by(|upload_file| upload_file.source.clone())
             .collect_vec()
     }
+
+    fn build_alert_rules_upload_file(&self, config: &DeployConfig) -> Vec<UploadFile> {
+        let prometheus_hosts = config.get_host_list(DeploymentPackage::Prometheus);
+        if prometheus_hosts.is_empty() {
+            return vec![];
+        }
+
+        let alert_rules_source = upload_dir()
+            .join(&config.deployment.cluster_name)
+            .join(MONITOR_DIR)
+            .join(ALERT_RULES_TEMPLATE);
+
+        let install_dir = config.install_dir();
+
+        prometheus_hosts
+            .into_iter()
+            .map(|host| UploadFile {
+                source: alert_rules_source.to_string_lossy().to_string(),
+                dest: format!("{}/{}", install_dir, ALERT_RULES_TEMPLATE),
+                extension: "rules".to_string(),
+                host,
+                copy_dir: false,
+            })
+            .collect_vec()
+    }
 }
 
 impl UploadTaskBuilder for MonographUploadBuilder {
@@ -150,10 +179,24 @@ impl UploadTaskBuilder for MonographUploadBuilder {
         fs::copy(&config_template_source, &config_template_dest)
             .expect("copy config template error");
 
+        // copy alert.rules from src/cluster_mgr/config/ to ~/.eloqctl/upload/{cluster_name}/monitor/
+        let alert_rules_source =
+            config_template(ALERT_RULES_TEMPLATE).expect("get alert rules template error");
+        let monitor_dir = upload_dir()
+            .join(cluster_config.deployment.cluster_name.clone())
+            .join(MONITOR_DIR);
+        if !monitor_dir.exists() {
+            fs::create_dir_all(&monitor_dir).expect("failed to create monitor directory");
+        }
+        let alert_rules_dest = monitor_dir.join(ALERT_RULES_TEMPLATE);
+        fs::copy(&alert_rules_source, &alert_rules_dest).expect("copy alert rules template error");
+
         let mut upload_files = self.build_monograph_misc_upload_file(cluster_config);
         let upload_tar_files = self.monograph_tar_upload_file(cluster_config);
+        let alert_rules_files = self.build_alert_rules_upload_file(cluster_config);
 
         upload_files.extend(upload_tar_files);
+        upload_files.extend(alert_rules_files);
 
         let final_files = EloqUpload::upload_group_by_dest(upload_files);
         let source_host = get_source_host(None);
