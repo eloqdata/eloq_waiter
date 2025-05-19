@@ -1,7 +1,9 @@
 pub mod deployment_operation;
 pub mod proxy_operation;
+pub mod scale_operation;
 pub mod service_status_operation;
 pub mod snapshot_info_operation;
 pub mod state_base;
 pub mod state_mgr;
 pub mod task_status_operation;
+pub mod topology_operation;

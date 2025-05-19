@@ -8,6 +8,10 @@ service CcRpcService {
     rpc FetchClusterBackup(FetchClusterBackupRequest) returns (ClusterBackupResponse);
     rpc NotifyShutdownCkpt(NotifyShutdownCkptRequest) returns (NotifyShutdownCkptResponse);
     rpc CheckCkptStatus(CheckCkptStatusRequest) returns (CheckCkptStatusResponse);
+    rpc ClusterAddNodeGroup(ClusterAddNodeGroupRequest) returns (ClusterScaleResponse);
+    rpc ClusterRemoveNode(ClusterRemoveNodeRequest) returns (ClusterScaleResponse);
+    rpc NodeGroupAddPeers(NodeGroupAddPeersRequest) returns (ClusterScaleResponse);
+    rpc CheckClusterScaleStatus(ClusterScaleStatusRequest) returns (ClusterScaleStatusResponse);
 }
 
 enum BackupTaskStatus{
@@ -68,3 +72,60 @@ message CheckCkptStatusRequest {
 message CheckCkptStatusResponse {
     CkptStatus status = 1;
 }
+
+message ClusterAddNodeGroupRequest {
+    repeated string host_list = 1;
+    repeated int32 port_list = 2;
+    string id = 3;
+}
+
+message ClusterRemoveNodeRequest
+{
+    string id = 1;
+    // case removing nodes from tail, please set "remove_node_count".
+    int32 remove_node_count = 2;
+    // case removing any nodes, please set "host_list" and "port_list".
+    repeated string host_list = 3;
+    repeated int32 port_list = 4;
+}
+
+message NodeGroupAddPeersRequest
+{
+    uint32 ng_id = 1;
+    repeated string host_list = 2;
+    repeated int32 port_list = 3;
+    repeated bool is_candidate = 4;
+    string id = 5;
+}
+
+enum ClusterScaleWriteLogResult
+{
+    SUCCESS = 0;
+    FAIL = 1;
+    UNKOWN = 2;
+}
+
+message ClusterScaleResponse{
+    ClusterScaleWriteLogResult result = 1;
+    string cluster_config = 2;
+}
+
+message ClusterScaleStatusRequest
+{
+    string id = 1;
+}
+
+enum ClusterScaleStatus
+{
+    UNKNOWN = 0;  // need retry: rpc fail, send to wrong log leader
+    NOT_STARTED = 1; // scale event_id not found
+    IN_PROGRESS = 2;
+    FINISHED = 3;
+}
+
+message ClusterScaleStatusResponse
+{
+    ClusterScaleStatus status = 1;
+}
+
+

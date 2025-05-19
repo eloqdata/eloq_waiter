@@ -20,7 +20,19 @@ use std::fs;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{debug, error, info};
+use tracing::{error, info};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScaleOperationType {
+    AddNodes = 0,
+    RemoveNodes = 1,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClusterNodesWithConfig {
+    pub nodes: ClusterNodes,
+    pub cluster_config: Option<String>,
+}
 
 #[macro_export]
 macro_rules! wait_command_complete {
@@ -189,7 +201,7 @@ where
         let rs = ssh_conn
             .command(check_status_cmd.as_str(), CollectOutput)
             .await;
-        debug!("check_status_cmd = {rs:#?}");
+        info!("check_status_cmd = {rs:#?}");
         if rs.as_ref().is_err() {
             let err_msg = rs.err().unwrap().to_string();
             error!(
@@ -295,7 +307,7 @@ pub fn stop_with_hot_standby(
         let rx_tx = tx_channel.subscribe();
 
         // Add flag to specify if checkpoint tasks should be skipped
-        let topology_task = RedisOpTask::new_and_skip_checkpoint(
+        let topology_task = RedisOpTask::new(
             task_id.clone(),
             redis_host_ports,
             redis_cmd,
@@ -384,7 +396,7 @@ pub fn stop_with_failover(
     let stop_nodes_rx = failover_rx.clone();
 
     // Create the topology task to get cluster information
-    let topology_task = RedisOpTask::new_and_skip_checkpoint(
+    let topology_task = RedisOpTask::new(
         topology_task_id.clone(),
         nodes_to_stop.clone(),
         redis_cmd,

@@ -292,7 +292,8 @@ impl CtrlDBTaskGroup {
                 cluster: cluster.clone(),
                 user: None,
                 password: None,
-                wait: Some(30),
+                wait: Some(60),
+                detail: false,
             };
             let status_tasks = self.status_tasks(status_cmd, config);
             barrier.push(status_tasks.len());
@@ -323,11 +324,21 @@ impl CtrlDBTaskGroup {
                 MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
             executable.extend(status_voter);
         }
-        let status_tx = MonographTxCtlTask::from_config(cmd, config, ServerType::Tx);
+        let status_tx = MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
         executable.extend(status_tx);
         if deployment.codis.is_some() {
             //TODO
         }
+
+        // If detail flag is set, add the topology display task
+        if let SubCommand::Status { detail, .. } = cmd {
+            if detail {
+                use crate::cli::task::topology_display_task::TopologyDisplayTask;
+                let topology_tasks = TopologyDisplayTask::from_command(cmd);
+                executable.extend(topology_tasks);
+            }
+        }
+
         executable
     }
 }

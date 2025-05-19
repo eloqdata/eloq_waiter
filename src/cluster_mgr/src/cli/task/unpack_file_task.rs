@@ -152,6 +152,24 @@ impl UnpackFileTask {
         tasks
     }
 
+    pub fn unpack_log_servers(config: &DeployConfig) -> IndexMap<TaskId, TaskInstance> {
+        let deploy_ref = &config.deployment;
+        let mut tasks = IndexMap::new();
+
+        if let Some(srv) = &deploy_ref.log_service {
+            if let Some(image_url) = &srv.image {
+                let image = image_url.split('/').last().unwrap();
+                let ret = srv
+                    .log_host_unique()
+                    .iter()
+                    .map(|host| Self::make_task_pair(config, host, image, LOG_SERVICE_HOME, vec![]))
+                    .collect::<IndexMap<TaskId, TaskInstance>>();
+                tasks.extend(ret);
+            }
+        }
+        tasks
+    }
+
     pub fn unpack_cassandra(config: &DeployConfig, ex_cnf: bool) -> IndexMap<TaskId, TaskInstance> {
         let deploy_ref = &config.deployment;
         if let Some(storage) = &deploy_ref.storage_service {

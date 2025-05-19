@@ -114,12 +114,6 @@ impl Hash for NodeInfo {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct ClusterNodes {
-    pub masters: Vec<NodeInfo>,
-    pub replicas: Vec<NodeInfo>,
-}
-
 #[async_trait]
 impl TaskExecutor for BackupTask {
     fn identifier(&self) -> TaskId {

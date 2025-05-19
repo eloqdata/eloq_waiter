@@ -67,7 +67,7 @@ macro_rules! monograph_cmd_with_port {
     ($ctl_cmd:ty, $tx_srv_bin:expr, $user:expr, $port:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
         let pid_cmd = format!(
-            "ps uxwe -u {} | grep {} | grep {} | grep -v grep | ",
+            "ps uxwe -u {} | grep {} | grep {}.ini | grep -v grep | ",
             $user, $tx_srv_bin, $port
         );
         let output_pid = r#"awk '{print $2}'"#;
@@ -92,7 +92,7 @@ macro_rules! monograph_cmd_with_port {
 macro_rules! tx_ctl {
     ($self:ident, $mono_process_status:expr, {$op:tt, $pid_check_expr:expr}, $ctl_func:expr) => {{
         if let Ok(ref process_info) = $mono_process_status {
-            debug!("tx_ctl process_info={process_info:#?}");
+            info!("tx_ctl process_info={process_info:#?}");
             let pid = TaskArgValue::into_inner_value::<String>(
                 process_info.get(PROCESS_PID).unwrap().clone(),
             );
@@ -124,7 +124,7 @@ macro_rules! maybe_continue_probe {
         if $wait_secs > 0 {
             info!("TxService probe failed, retrying. {}", $wait_secs);
             $wait_secs -= 1;
-            let sleep_duration = Duration::from_secs(1);
+            let sleep_duration = Duration::from_secs(5);
             tokio::time::sleep(sleep_duration).await;
             continue;
         }
@@ -265,7 +265,7 @@ impl RedisProbe {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct MonographTxCtlTask {
     config: DeployConfig,
     task_id: TaskId,
@@ -289,7 +289,7 @@ struct TaskGenerationContext<'a> {
 
 fn generate_tasks_for_host_ports(
     context: &TaskGenerationContext,
-    host_ports: &[String],
+    host_ports: &Vec<String>,
     server_type: ServerType,
 ) -> IndexMap<TaskId, TaskInstance> {
     let cmd_str_ref = context.cmd_arg.as_ref();
@@ -311,12 +311,19 @@ fn generate_tasks_for_host_ports(
 
             let cmd_task_input_tuple = match cmd_str_ref {
                 "start" => (
-                    TxCtlCmd::Start(
+                    TxCtlCmd::Start(if matches!(server_type, ServerType::Node) {
+                        // For nodes, we need to use both host and port
+                        context.config.deployment.srv_start_cmd_with_host(
+                            port,
+                            server_type.clone(),
+                            host,
+                        )
+                    } else {
                         context
                             .config
                             .deployment
-                            .srv_start_cmd(port, server_type.clone()),
-                    ),
+                            .srv_start_cmd(port, server_type.clone())
+                    }),
                     HashMap::default(),
                 ),
                 "status" => (
@@ -596,7 +603,7 @@ impl TaskExecutor for MonographTxCtlTask {
                 if receiver.has_changed().unwrap_or(false) {
                     // The receiver has changed; get the data
                     let cluster_nodes = receiver.borrow();
-                    debug!(
+                    info!(
                         "Received cluster nodes: {:?}, Current thread ID: {:?}",
                         cluster_nodes,
                         thread::current().id()
@@ -641,7 +648,7 @@ impl TaskExecutor for MonographTxCtlTask {
             }
         }
 
-        debug!(
+        info!(
             "task host: {:?}, Current thread ID: {:?}, master_host_ports: {:?}, standby_host_ports: {:?}",
             task_host,
             thread::current().id(),
@@ -746,11 +753,11 @@ impl TaskExecutor for MonographTxCtlTask {
                     let re = Regex::new(r"grep \d+").unwrap();
                     let modified_stop_cmd =
                         re.replace(&stop_cmd, &format!("grep -E '{}'", port_pattern));
-                    debug!("Modified stop_cmd: {}", modified_stop_cmd.to_string());
+                    info!("Modified stop_cmd: {}", modified_stop_cmd.to_string());
 
                     let modified_check_status_cmd =
                         re.replace(&check_status_cmd, &format!("grep -E '{}'", port_pattern));
-                    debug!(
+                    info!(
                         "Modified check_status_cmd: {}",
                         modified_check_status_cmd.to_string()
                     );
@@ -763,7 +770,7 @@ impl TaskExecutor for MonographTxCtlTask {
                         is_none
                     )
                 } else {
-                    debug!("No matching ports found for the given host.");
+                    info!("No matching ports found for the given host.");
                     tx_ctl!(self, check_process_status, {!=, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
                         wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
                     })
@@ -771,6 +778,8 @@ impl TaskExecutor for MonographTxCtlTask {
             }
             "start" => {
                 let start_cmd = self.ctl_cmd.cmd_value();
+                info!("start_cmd: {}", start_cmd);
+                info!("check_status_cmd: {}", check_status_cmd);
                 let rs = tx_ctl!(self, check_process_status, {==, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
                 });

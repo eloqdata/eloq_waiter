@@ -64,7 +64,7 @@ pub struct LogServiceNode {
 pub struct LogService {
     pub image: Option<String>,
     pub nodes: Vec<LogServiceNode>,
-    pub replica: Option<u32>,
+    pub replica: u32,
     pub readiness: Option<LogReadiness>,
 }
 
@@ -145,11 +145,7 @@ impl LogService {
     }
 
     pub fn log_replica(&self) -> usize {
-        if let Some(replica_num) = self.replica {
-            replica_num as usize
-        } else {
-            LOG_SRV_REPLICA_NUM
-        }
+        self.replica as usize
     }
 
     fn try_set_leader(
@@ -230,7 +226,9 @@ impl LogService {
                         port_usage.insert(node.host.clone(), node.port);
                         node.port
                     } else {
-                        *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16
+                        // Q? check the logic change of logservice
+                        // *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16
+                        node.port
                     };
                     let node_host = &node.host;
                     LogGroupMember {
@@ -238,7 +236,8 @@ impl LogService {
                         group_id,
                         member_host: node_host.to_string(),
                         port,
-                        storage_path: format!("{disk}/g{group_id}n{node_id}"),
+                        // for the same log service, after scale-log op finished, the node_id may change, so we do not append g{group_id}n{node_id} to storage_path.
+                        storage_path: disk.to_string(),
                         check_health_url: format!("http://{node_host}:{port}/healthz"),
                     }
                 })
@@ -425,10 +424,12 @@ mod tests {
         LogService {
             image: None,
             nodes,
-            replica: Some(replica as u32),
+            replica: replica as u32,
             readiness: Some(LogReadiness::default()),
         }
     }
+
+    // TODO(ZX) check the logic of parsing log service node
 
     #[test]
     pub fn test_gen_nodes() {
@@ -445,7 +446,10 @@ mod tests {
         let group = one_host_log_srv.group();
         println!("host=1,group_size={group}");
         assert_eq!(1, group);
+    }
 
+    #[test]
+    pub fn test_log_service_groups_2() {
         let multi_host_log_srv = &mock_log_service(4, 3, HashMap::from([(0, 3), (1, 3), (2, 3)]));
         let group = multi_host_log_srv.group();
         println!("host=4,group_size={group}");

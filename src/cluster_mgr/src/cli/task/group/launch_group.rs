@@ -67,6 +67,12 @@ impl TaskGroup for LaunchTaskGroup {
             InstallDepPkgTaskGroup.tasks(cmd, config).await?
         };
 
+        // // TODO(ZX) #4 placed after start cluster
+        // // Add the topology update task
+        // let topology_update_tasks = TopologyUpdateTask::from_config(cluster_config);
+        // barrier.push(topology_update_tasks.len());
+        // executable.extend(topology_update_tasks);
+
         let exe_ctx = vec![
             dep_tasks,
             CheckTaskGroup
@@ -85,7 +91,6 @@ impl TaskGroup for LaunchTaskGroup {
                     config,
                 )
                 .await?,
-            // Q? should we do the bootstrap even if there is no storage service in case the user want to add kv later?
             if cluster_config.deployment.storage_service.is_some() {
                 InstallDBTaskGroup
                     .tasks(

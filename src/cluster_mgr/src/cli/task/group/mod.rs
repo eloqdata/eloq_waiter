@@ -11,6 +11,8 @@ mod log_srv_ctl_group;
 mod monitor_ctl_group;
 mod proxy_ctl_group;
 mod remove_group;
+mod scale_group;
+mod scale_log_group;
 mod update_cluster_group;
 mod update_config_group;
 
@@ -111,7 +113,9 @@ task_group_boxed! {
     {RemoveTaskGroup},
     {CheckTaskGroup},
     {BackupTaskGroup},
-    {FailoverTaskGroup}
+    {FailoverTaskGroup},
+    {ScaleTaskGroup},
+    {ScaleLogTaskGroup}
 }
 
 pub static TASK_GROUP: OnceCell<HashMap<String, Box<dyn TaskGroup>>> = OnceCell::new();
@@ -138,6 +142,8 @@ pub fn init_task_group() -> &'static HashMap<String, Box<dyn TaskGroup>> {
             ("check".to_string(), CheckTaskGroup::boxed()),
             ("backup".to_string(), BackupTaskGroup::boxed()),
             ("failover".to_string(), FailoverTaskGroup::boxed()),
+            ("scale".to_string(), ScaleTaskGroup::boxed()),
+            ("scalelog".to_string(), ScaleLogTaskGroup::boxed()),
         ])
     })
 }

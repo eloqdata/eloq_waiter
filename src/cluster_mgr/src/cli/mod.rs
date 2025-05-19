@@ -17,7 +17,7 @@ pub const CMD_OUTPUT: &str = "_cmd_output_";
 pub const CMD: &str = "_cmd_";
 
 #[derive(Parser, Default, Debug)]
-#[command(author, version = "0.6.15", about = "EloqData cluster management tool")]
+#[command(author, version = "0.7.0", about = "EloqData cluster management tool")]
 #[command(next_line_help = true)]
 pub struct Command {
     #[arg(long, value_name = "home-dir")]
@@ -114,6 +114,8 @@ pub enum SubCommand {
         password: Option<String>,
         #[arg(short, long, value_name = "Wait cluster ready")]
         wait: Option<u16>,
+        #[arg(long, default_value_t = false, help = "Show detailed cluster topology")]
+        detail: bool,
     },
 
     #[command(long_about = "Update cluster version. This will stop/update/start the cluster")]
@@ -146,6 +148,7 @@ pub enum SubCommand {
         restart: bool,
     },
 
+    // TODO(ZX) !!! remove cluster should also remove entries in t_topology and t_scale_operation
     #[command(long_about = "Remove cluster")]
     #[strum(serialize = "remove")]
     Remove { cluster: String },
@@ -175,6 +178,10 @@ pub enum SubCommand {
         store: Option<StorageProvider>,
     },
 
+    #[strum(serialize = "upgrade")]
+    #[command(long_about = "Run the SQLite schema script to create any missing tables")]
+    Upgrade,
+
     #[command(long_about = "monitor control component")]
     #[strum(serialize = "monitor")]
     Monitor { command: String, cluster: String },
@@ -203,13 +210,44 @@ pub enum SubCommand {
     Install { cluster: String },
 
     #[strum(serialize = "scale")]
+    #[command(long_about = "Scale a cluster by adding or removing nodes")]
     Scale {
-        #[arg(short, long)]
+        /// The name of the cluster to scale
         cluster: String,
+        /// Nodes to add in host format (comma-separated list)
+        #[arg(long, value_delimiter = ',', value_name = "nodes")]
+        add_nodes: Vec<String>,
+        /// Nodes to remove in host format (comma-separated list)
+        #[arg(long, value_delimiter = ',', value_name = "nodes")]
+        remove_nodes: Vec<String>,
+        /// Node group ID for adding nodes (required when add_nodes is specified)
         #[arg(long)]
-        add_tx_node: Vec<String>,
+        ng_id: Option<u32>,
+        /// Candidate status for added nodes: true for candidate, false for non-candidate
+        #[arg(long, value_delimiter = ',')]
+        is_candidate: Option<Vec<bool>>,
+        /// Resume a previously interrupted scale operation with the given event_id
         #[arg(long)]
-        del_tx_node: Vec<String>,
+        resume: Option<String>,
+        /// Optional password for Redis operations
+        #[arg(long, value_name = "cluster password")]
+        password: Option<String>,
+    },
+
+    #[strum(serialize = "scalelog")]
+    #[command(long_about = "Scale the log-service by adding or removing log nodes")]
+    ScaleLog {
+        /// The name of the cluster to scalelog
+        cluster: String,
+        /// Log nodes to add in host:port format
+        #[arg(long, value_delimiter = ',', value_name = "nodes")]
+        add_nodes: Vec<String>,
+        /// Log nodes to remove in host:port format
+        #[arg(long, value_delimiter = ',', value_name = "nodes")]
+        remove_nodes: Vec<String>,
+        /// Log group ID for adding log nodes (required when adding nodes, must not be provided when removing nodes)
+        #[arg(long)]
+        log_ng_id: Option<u32>,
     },
 
     #[strum(serialize = "backup")]
@@ -230,6 +268,8 @@ pub enum SubCommand {
         new_leader_host: String,
         #[arg(long)]
         new_leader_port: u16,
+        #[arg(long, value_name = "cluster password")]
+        password: Option<String>,
     },
 }
 
