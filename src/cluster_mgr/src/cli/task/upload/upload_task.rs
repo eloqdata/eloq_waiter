@@ -1,11 +1,13 @@
-use crate::cli::ssh::SSHCommandOption::CollectOutput;
-use crate::cli::ssh::SSHSession;
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::CmdErr;
-use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
-use crate::cli::task::upload::upload_task_builder::{SCP_COMMAND, SOURCE_IP};
+use crate::cli::task::task_base::{
+    CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
+};
+use crate::cli::task::upload::upload_task_builder::SCP_COMMAND;
+use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::task_return_value;
+use anyhow::anyhow;
 use std::collections::HashMap;
+use std::process::Command;
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -45,21 +47,23 @@ impl TaskExecutor for UploadTask {
 
         let scp = scp_command_value.clone().into_inner_value::<String>();
 
-        let source_ip_opt = task_arg.get(SOURCE_IP).unwrap();
-        let source_host = source_ip_opt.clone().into_inner_value::<String>();
-
-        let source_task_host = TaskHost::Remote {
-            user: user.to_string(),
-            port,
-            host: source_host,
-        };
-        let ssh_session =
-            SSHSession::from_task_host(source_task_host, auth_key.to_string()).await?;
-        let upload_task_result = ssh_session.command(scp.as_str(), CollectOutput).await?;
-        ssh_session.close().await?;
+        // TODO(ZX) later, sometimes hangs here, more robust
+        info!("Running local scp: {}", scp);
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&scp)
+            .status()
+            .map_err(|e| anyhow!(CmdErr::UploadErr(scp.clone(), e.to_string())))?;
+        let code = status.code().unwrap_or(-1);
+        let mut result = std::collections::HashMap::new();
+        result.insert(CMD.to_string(), TaskArgValue::Str(scp.clone()));
+        result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(code));
+        result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(String::new()));
         task_return_value!(
-            upload_task_result,
-            |status_code: i32| -> CmdErr { CmdErr::UploadErr(scp, status_code.to_string()) },
+            result,
+            |status_code: i32| -> CmdErr {
+                CmdErr::UploadErr(scp.clone(), status_code.to_string())
+            },
             "UploadTask"
         )
     }

@@ -1,5 +1,6 @@
 use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{TaskArgValue, TaskHost, TaskId, TaskInstance};
+use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::cli::task::upload::cass_conf_upload_builder::CassConfUploadBuilder;
 use crate::cli::task::upload::codis_upload::CodisUpload;
 use crate::cli::task::upload::data_dir_upload_builder::DataDirUploadBuilder;
@@ -20,6 +21,7 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tokio::sync::watch;
 use walkdir::WalkDir;
 
 pub trait UploadTaskBuilder {
@@ -40,7 +42,10 @@ pub(crate) const SOURCE_IP: &str = "_source_ip_";
 // {scp_auth_key} -P {port} {source_path_str}
 // {remote_user}@{remote_host}:{remote_install_dir}/{dest_file_name}"#,
 pub(crate) const SCP_COMMAND_TEMPLATE: &str = "scp -o UserKnownHostsFile=/dev/null \
--o StrictHostKeyChecking=no _COPY_DIR -i _SCP_AUTH_KEY -P_SCP_PORT \
+-o StrictHostKeyChecking=no \
+-o PasswordAuthentication=no \
+-o PreferredAuthentications=publickey \
+_COPY_DIR -i _SCP_AUTH_KEY -P_SCP_PORT \
 _SOURCE  _REMOTE_USER@_REMOTE_HOST:_DEST";
 
 pub(crate) fn scp(upload_file: &UploadFile, conn: Connection) -> String {
@@ -68,6 +73,7 @@ pub enum UploadTaskBuilderType {
     EloqImage,
     CassImage,
     Proxy,
+    ScaleTxConf,
 }
 
 #[macro_export]
@@ -87,6 +93,7 @@ pub fn upload_tasks(
         UploadTaskBuilderType::MonographAll => MonographUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonitorConf => MonitorInfraConfUploadBuilder {}.build(conf),
         UploadTaskBuilderType::TxConf => TxConfUpload {}.build(conf),
+        UploadTaskBuilderType::ScaleTxConf => unreachable!(),
         UploadTaskBuilderType::Codis => CodisUpload {}.build(conf),
         UploadTaskBuilderType::EloqImage => {
             let cluster_config = match conf {
@@ -113,6 +120,40 @@ pub fn upload_tasks(
             )
         }
         UploadTaskBuilderType::Proxy => ProxyUploadBuilder {}.build(conf),
+    }
+}
+
+/// Upload tasks with node list that is being added or removed
+pub fn upload_tasks_with_nodes(
+    builder_type: UploadTaskBuilderType,
+    conf: &Config,
+    operation_type: &ScaleOperationType,
+    nodes: &Vec<String>,
+    is_candidate: &Option<Vec<bool>>,
+    scale_op_rx: watch::Receiver<ClusterNodesWithConfig>,
+) -> IndexMap<TaskId, TaskInstance> {
+    match builder_type {
+        UploadTaskBuilderType::ScaleTxConf => {
+            let mut result = IndexMap::new();
+
+            let upload_tasks =
+                TxConfUpload {}.build_with_nodes(conf, operation_type, nodes, is_candidate);
+            result.extend(upload_tasks);
+
+            // Add tasks to upload the cluster configuration to new nodes
+            let cluster_config_upload_tasks = TxConfUpload::build_cluster_config_upload_tasks(
+                conf,
+                operation_type,
+                nodes,
+                &scale_op_rx,
+            );
+
+            // Merge the cluster config upload tasks with the configuration file upload tasks
+            result.extend(cluster_config_upload_tasks);
+
+            result
+        }
+        _ => unreachable!(),
     }
 }
 

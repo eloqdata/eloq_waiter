@@ -1,0 +1,36 @@
+connection:
+  username: "${USER}"
+  auth_type: "keypair"
+  auth:
+    keypair: "/home/${USER}/.ssh/id_rsa"
+deployment:
+  cluster_name: "eloqkv_with_hot_standby_and_voter"
+  product: "EloqKV"
+  version: "nightly"
+  install_dir: "/home/${USER}"
+  tx_service:
+    tx_host_ports: [192.168.2.111:6349,192.168.2.111:6359,192.168.2.111:6369]
+    standby_host_ports: [192.168.2.111:7349,192.168.2.111:7359,192.168.2.111:7369]
+    # voter_host_ports: [192.168.122.26:6369,192.168.122.26:7369]
+  log_service:
+    nodes:
+      - host: 192.168.2.111
+        port: 9400
+        data_dir:
+          - "/home/${USER}/eloqkv_with_hot_standby_and_voter/wal_eloqkv/9400"
+      - host: 192.168.2.111
+        port: 9500
+        data_dir:
+          - "/home/${USER}/eloqkv_with_hot_standby_and_voter/wal_eloqkv/9500"
+      - host: 192.168.2.111
+        port: 9600
+        data_dir:
+          - "/home/${USER}/eloqkv_with_hot_standby_and_voter/wal_eloqkv/9600"
+    replica: 3
+  storage_service:
+    rocksdb: !LOCAL
+      # path: /tmp
+
+
+# scale add    192.168.122.28:6389
+# scale remove 192.168.122.28:6389,192.168.122.24:6349j

@@ -3,11 +3,13 @@ use crate::config::config_base::DeployConfig;
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::CONFIG_PATH_DIR;
 use crate::state::deployment_operation::DeploymentOperation;
-use crate::state::proxy_operation::ProxyOperation;
+use crate::state::proxy_operation::{ProxyEntity, ProxyOperation};
+use crate::state::scale_operation::ScaleOperation;
 use crate::state::service_status_operation::{ServiceInstanceEntity, ServiceInstanceOperation};
 use crate::state::snapshot_info_operation::{SnapshotEntity, SnapshotOperation};
 use crate::state::state_base::{QueryCondition, StateOperation, StateOperationAny};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
+use crate::state::topology_operation::{TopologyEntity, TopologyOperation};
 use crate::StateValue;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -23,13 +25,13 @@ use std::sync::{Arc, LazyLock};
 use std::{env, fs};
 use tracing::{error, info};
 
-use super::proxy_operation::ProxyEntity;
-
 pub const DEPLOYMENT_STATE: &str = "Deployment";
 pub const PROXY_STATE: &str = "Proxy";
+pub const SCALE_STATE: &str = "Scale";
 pub const TASK_STATUS_STATE: &str = "TaskStatus";
 pub const SERVICE_STATUS_STATE: &str = "ServiceStatus";
 pub const SNAPSHOT_STATUS_STATE: &str = "SnapshotStatus";
+pub const TOPOLOGY_STATE: &str = "Topology";
 
 pub(crate) static CLUSTER_MGR_CLI_DB: &str = "cluster_mgr_state.db";
 pub(crate) static MONO_CLUSTER_MGR_SCHEMA_PATH: &str = "MONO_CLUSTER_MGR_SCHEMA_PATH";
@@ -291,7 +293,7 @@ impl StateMgr {
             .collect::<Vec<String>>()
     }
 
-    fn get_or_init_db_location() -> Result<PathBuf> {
+    pub fn get_or_init_db_location() -> Result<PathBuf> {
         let db_location = PathBuf::from(env::var(HOME_DIR).unwrap()).join("db");
         info!(
             "StateMgr get_or_init_db_location db_location = {:?}",
@@ -406,6 +408,12 @@ impl StateMgr {
             let proxy_opt_ref =
                 Box::leak(ProxyOperation::boxed(db_conn_pool.clone())) as &dyn StateOperationAny;
 
+            let scale_opt_ref =
+                Box::leak(ScaleOperation::boxed(db_conn_pool.clone())) as &dyn StateOperationAny;
+
+            let topology_opt_ref =
+                Box::leak(TopologyOperation::boxed(db_conn_pool.clone())) as &dyn StateOperationAny;
+
             let state_map: HashMap<String, Arc<&'static dyn StateOperationAny>> = HashMap::from([
                 (DEPLOYMENT_STATE.to_string(), Arc::new(deployment_opt_ref)),
                 (TASK_STATUS_STATE.to_string(), Arc::new(task_status_opt_ref)),
@@ -418,6 +426,8 @@ impl StateMgr {
                     Arc::new(snapshot_status_opt_ref),
                 ),
                 (PROXY_STATE.to_string(), Arc::new(proxy_opt_ref)),
+                (SCALE_STATE.to_string(), Arc::new(scale_opt_ref)),
+                (TOPOLOGY_STATE.to_string(), Arc::new(topology_opt_ref)),
             ]);
             info!("Create StateMgr instance success.");
             Ok(Self {
@@ -429,6 +439,38 @@ impl StateMgr {
             error!("StateMgr init failure. cause by {}", init_err);
             Err(anyhow::format_err!(init_err))
         }
+    }
+
+    /// Re-run the SQLite schema script to create any missing tables.
+    pub async fn upgrade_schema(&self) -> Result<()> {
+        // Load schema path from environment and read script
+        let schema_path = env::var(MONO_CLUSTER_MGR_SCHEMA_PATH)?;
+        let db_schema = StateMgr::load_schema_script(Path::new(&schema_path))?;
+        // Execute all statements in the script
+        let exec_rs = sqlx::query(db_schema.as_str())
+            .execute(&self.db_pool)
+            .await?;
+        info!("StateMgr upgrade_schema execute_rs = {:?}", exec_rs);
+        Ok(())
+    }
+
+    pub async fn load_topology_from_state(
+        &self,
+        cluster_name: String,
+    ) -> Result<Vec<TopologyEntity>> {
+        let topology_state_operation =
+            self.get_state_operation::<TopologyOperation>(TOPOLOGY_STATE);
+
+        let topology_entities = topology_state_operation
+            .load(|| -> Option<QueryCondition> {
+                Some(QueryCondition {
+                    cond_text: "cluster_name = $1".to_string(),
+                    bind_values: vec![StateValue::Varchar(cluster_name.clone())],
+                })
+            })
+            .await?;
+
+        Ok(topology_entities)
     }
 }
 

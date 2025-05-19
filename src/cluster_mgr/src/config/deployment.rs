@@ -1,4 +1,3 @@
-use crate::cli::ssh::SSHSession;
 use crate::cli::task::monograph_tx_ctl_task::ServerType;
 use crate::cli::{create_upload_cluster_dir, upload_dir};
 use crate::config::config_base::{
@@ -11,10 +10,10 @@ use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
     cluster_config_template, config_template, load_yaml_config_template, DeploymentPackage,
     DownloadUrl, StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION,
-    CASSANDRA_JVM_TEMPLATE, CDN, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_INI,
-    ELOQKV_STANDBY_INI, ELOQKV_TEMPLATE_INI, ELOQKV_VOTER_INI, ELOQSQL_CLIENT_PORT,
-    ELOQSQL_DYNAMO_TEMPLATE_INI, ELOQSQL_TEMPLATE_INI, JVM_SETTING_HOLDER, SECTION_CLUSTER,
-    SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC, SECTION_STORE,
+    CASSANDRA_JVM_TEMPLATE, CDN, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_NODE_INI,
+    ELOQKV_TEMPLATE_INI, ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI, ELOQSQL_TEMPLATE_INI,
+    JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC,
+    SECTION_STORE,
 };
 use anyhow::{anyhow, Result};
 use chrono::Local;
@@ -26,7 +25,6 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::error::Error;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -250,9 +248,8 @@ pub enum Version {
 }
 
 pub enum NodeType {
-    Tx,
-    Standby,
     Voter,
+    Candidate,
 }
 
 #[serde_with::skip_serializing_none]
@@ -268,6 +265,7 @@ pub struct Deployment {
     pub monitor: Option<Monitor>,
     pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
+    pub enable_wal: Option<bool>,
 }
 
 impl Deployment {
@@ -327,82 +325,11 @@ impl Deployment {
         format!("{}/cassandra", &self.install_dir())
     }
 
-    pub async fn find_tx_ini_in_this_host(
-        &self,
-        ssh_session: &SSHSession,
-        port: String,
-    ) -> Result<String, Box<dyn Error>> {
-        let home = self.tx_srv_home();
-        match self.product() {
-            Product::EloqSQL => panic!("not supported yet"),
-            Product::EloqKV => {
-                // Define the list of valid prefixes
-                let prefixes = [ELOQKV_INI];
-
-                // Execute 'ls' command to list directory contents via SSH
-                let command = format!("ls -1 {}", home);
-                let (_, output) = ssh_session.execute(&command).await?;
-
-                // Split the output into lines (filenames)
-                let filenames: Vec<&str> = output.lines().collect();
-
-                // Find the matching .ini file that includes the port
-                let ini_filename = filenames
-                    .iter()
-                    .find(|&&filename| {
-                        prefixes.iter().any(|prefix| {
-                            filename.starts_with(prefix)
-                                && filename.ends_with(".ini")
-                                && filename.contains(&port)
-                        })
-                    })
-                    .ok_or_else(|| {
-                        format!(
-                            "No matching EloqKV .ini file with port '{}' found in home directory: {}",
-                            port, home
-                        )
-                    })?;
-
-                // Return the full path
-                let ini_path = format!("{}/{}", home, ini_filename);
-                Ok(ini_path)
-            }
-        }
-    }
-
     pub fn tx_srv_ini(&self, port: &str) -> String {
         let home = self.tx_srv_home();
         match self.product() {
             Product::EloqSQL => format!("{home}/{ELOQSQL_TEMPLATE_INI}"),
-            Product::EloqKV => format!("{}/{}-{}.ini", home, ELOQKV_INI, port),
-        }
-    }
-
-    pub fn standby_srv_ini(&self, port: &str) -> String {
-        let home = self.tx_srv_home();
-        match self.product() {
-            Product::EloqSQL => panic!("not supported yet"),
-            Product::EloqKV => format!("{}/{}-{}.ini", home, ELOQKV_STANDBY_INI, port),
-        }
-    }
-
-    pub fn voter_srv_ini(&self, port: &str) -> String {
-        let home = self.tx_srv_home();
-        match self.product() {
-            Product::EloqSQL => panic!("not supported yet"),
-            Product::EloqKV => format!("{}/{}-{}.ini", home, ELOQKV_VOTER_INI, port),
-        }
-    }
-
-    pub fn find_srv_ini(&self, port: &str) -> String {
-        let home = self.tx_srv_home();
-        // println!("home: {home}, port: {port}");
-
-        match self.product() {
-            Product::EloqSQL => panic!("not supported yet"),
-            Product::EloqKV => {
-                format!(r"$(find /{home}/ -maxdepth 1 -regex '.*/.*-{port}\.ini' -print -quit)")
-            }
+            Product::EloqKV => format!("{}/{}-{}.ini", &self.tx_srv_home(), ELOQKV_NODE_INI, port),
         }
     }
 
@@ -410,23 +337,8 @@ impl Deployment {
         format!("{}/logs", &self.tx_srv_home())
     }
 
-    pub fn tx_srv_logs(&self, port: &str) -> String {
-        format!("{}/logs/tx-{}", &self.tx_srv_home(), port)
-    }
-
-    pub fn standby_srv_logs(&self, port: &str) -> String {
-        format!("{}/logs/standby-{}", &self.tx_srv_home(), port)
-    }
-
-    pub fn voter_srv_logs(&self, port: &str) -> String {
-        format!("{}/logs/voter-{}", &self.tx_srv_home(), port)
-    }
-
-    pub fn find_srv_logs(&self, port: &str) -> String {
-        let tx_home = self.tx_srv_home();
-        // println!("home: {tx_home}, port: {port}");
-
-        format!(r"$(find {tx_home}/logs/ -maxdepth 1 -regex '.*/.*-{port}' -print -quit)")
+    pub fn node_srv_logs(&self, port: &str) -> String {
+        format!("{}/logs/node-{}", &self.tx_srv_home(), port)
     }
 
     pub fn tx_srv_bin(&self) -> String {
@@ -463,7 +375,7 @@ impl Deployment {
             .join(&self.cluster_name)
             .join("redis_local.ini");
         if !my_local.exists() {
-            self.gen_eloqkv_node_config(NodeType::Tx, None, None)?;
+            self.gen_eloqkv_node_config(None, None)?;
         }
         let mut my_ini_local = Ini::new();
         let _config_map_rs = my_ini_local.load(my_local).unwrap();
@@ -729,7 +641,7 @@ impl Deployment {
         ini.set(
             SECTION_LOCAL,
             "eloq_data_path",
-            Some(format!("{}/data", self.tx_srv_home())),
+            Some(format!("{}/data/port-{}", self.tx_srv_home(), port)),
         );
 
         if self.tx_service.requirepass.is_some() {
@@ -868,8 +780,6 @@ impl Deployment {
 
         let tx_host_ports = &self.tx_service.tx_host_ports;
         if set_ip_list {
-            // TODO(ZX) later, check if there are 3 processes to form a group, if not, panic here. Also refactor to use list(-) in yaml
-
             // Set the ip_port_list
             let tx_ip_port_list = tx_host_ports
                 .iter()
@@ -994,7 +904,7 @@ impl Deployment {
             ini.set(
                 SECTION_LOCAL,
                 "enable_wal",
-                Some(self.log_service.is_some().to_string()),
+                Some(self.enable_wal.unwrap_or(false).to_string()),
             );
         } else {
             println!("**WARNING:** Manually modifying `enable_wal` in template `EloqKv.ini` is not recommended.");
@@ -1010,15 +920,10 @@ impl Deployment {
 
     pub fn gen_eloqkv_node_config(
         &self,
-        node_type: NodeType,
         host: Option<String>,
         port: Option<String>,
     ) -> Result<PathBuf> {
-        let ini_name = match node_type {
-            NodeType::Tx => ELOQKV_INI,
-            NodeType::Standby => ELOQKV_STANDBY_INI,
-            NodeType::Voter => ELOQKV_VOTER_INI,
-        };
+        let ini_name = ELOQKV_NODE_INI;
 
         let cnf_path;
         let mut ini;
@@ -1273,9 +1178,11 @@ impl Deployment {
         match service {
             DeploymentPackage::Storage => vec![],
             DeploymentPackage::MonographLog => vec![],
-            DeploymentPackage::MonographTx => self.tx_service.tx_host_ports.clone(),
+            DeploymentPackage::MonographTx => {
+                self.get_host_port_list_internal(&Some(self.tx_service.tx_host_ports.clone()))
+            }
             DeploymentPackage::MonographStandby => {
-                self.get_host_port_list_internal(&self.tx_service.standby_host_ports)
+                self.get_host_port_list_internal(&self.tx_service.standby_host_ports.clone())
             }
             DeploymentPackage::MonographVoter => {
                 self.get_host_port_list_internal(&self.tx_service.voter_host_ports)
@@ -1422,20 +1329,38 @@ impl Deployment {
     }
 
     pub fn srv_start_cmd(&self, port: &str, server_type: ServerType) -> String {
-        let ini_file = match server_type {
-            ServerType::Tx => self.tx_srv_ini(port),
-            ServerType::Standby => self.standby_srv_ini(port),
-            ServerType::Voter => self.voter_srv_ini(port),
-            ServerType::Node => self.find_srv_ini(port),
-        };
+        if server_type == ServerType::Node {
+            unreachable!()
+        }
+        let ini_file = self.tx_srv_ini(port);
         let tx_dir = self.tx_srv_home();
         let tx_bin = self.tx_srv_bin();
-        let logs_dir = match server_type {
-            ServerType::Tx => self.tx_srv_logs(port),
-            ServerType::Standby => self.standby_srv_logs(port),
-            ServerType::Voter => self.voter_srv_logs(port),
-            ServerType::Node => self.find_srv_logs(port),
-        };
+        let logs_dir = self.node_srv_logs(port);
+
+        let mut txlog_flag = String::new();
+        if self.log_service.is_some() {
+            let txlog_service_list = self
+                .log_service
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .map(|node| {
+                    format!(
+                        "{host_str}:{port_str}",
+                        host_str = node.host,
+                        port_str = node.port
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let txlog_group_replica_num = self.log_service.as_ref().unwrap().replica;
+
+            txlog_flag = format!(
+                "--txlog_service_list={} --txlog_group_replica_num={}",
+                txlog_service_list, txlog_group_replica_num
+            );
+        }
 
         let glog = format!(
             "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
@@ -1468,7 +1393,87 @@ impl Deployment {
             }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} {txlog_flag} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                )
+            }
+        }
+    }
+
+    // only used in `start --nodes`
+    pub fn srv_start_cmd_with_host(
+        &self,
+        port: &str,
+        server_type: ServerType,
+        host: &str,
+    ) -> String {
+        let ini_file = match server_type {
+            ServerType::Node => self.tx_srv_ini(port),
+            _ => unreachable!(),
+        };
+        let tx_dir = self.tx_srv_home();
+        let tx_bin = self.tx_srv_bin();
+        let logs_dir = match server_type {
+            ServerType::Node => self.node_srv_logs(port),
+            _ => unreachable!(),
+        };
+
+        let mut txlog_flag = String::new();
+        if self.log_service.is_some() {
+            let txlog_service_list = self
+                .log_service
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .map(|node| {
+                    format!(
+                        "{host_str}:{port_str}",
+                        host_str = node.host,
+                        port_str = node.port
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let txlog_group_replica_num = self.log_service.as_ref().unwrap().replica;
+
+            txlog_flag = format!(
+                "--txlog_service_list={} --txlog_group_replica_num={}",
+                txlog_service_list, txlog_group_replica_num
+            );
+        }
+
+        let glog = format!(
+            "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
+        );
+        let mut ld_lib = if let Some(Version::Debug) = self.version() {
+            export_asan(&format!("{logs_dir}/asan"))
+        } else {
+            format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
+        };
+        ld_lib.push_str(&format!(
+            "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
+        ));
+
+        // Get the current datetime
+        let now = Local::now();
+        // Format the datetime as "YYYYMMDD-HHMMSS.microseconds"
+        let datetime = now.format("%Y%m%d-%H%M%S.%6f").to_string();
+
+        match self.product() {
+            Product::EloqSQL => {
+                let mut logout = "/dev/null".to_owned();
+                if let Some(Version::Tag(nums)) = self.version() {
+                    if nums <= version_digits("0.4.2").unwrap() {
+                        logout = format!("{tx_dir}/logs/eloqsql.log")
+                    }
+                }
+                format!(
+                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={ini_file} > {logout} 2>&1 &"
+                )
+            }
+            Product::EloqKV => {
+                format!(
+                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} {txlog_flag} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
                 )
             }
         }

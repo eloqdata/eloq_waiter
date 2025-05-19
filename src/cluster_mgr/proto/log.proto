@@ -1,0 +1,27 @@
+syntax = "proto3";
+package txlog;
+
+option cc_generic_services = true;
+
+
+message AddPeerRequest {
+  repeated string ip = 1;
+  repeated uint32 port = 2;
+  uint32 log_group_id = 3;
+}
+
+message RemovePeerRequest {
+  repeated string ip = 1;
+  repeated uint32 port = 2;
+  uint32 log_group_id = 3;
+}
+
+message ChangePeersResponse {
+  bool success = 1;
+}
+
+service LogService {
+  rpc AddPeer(AddPeerRequest) returns (ChangePeersResponse);
+  rpc RemovePeer(RemovePeerRequest) returns (ChangePeersResponse);
+}
+

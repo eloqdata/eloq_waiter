@@ -15,13 +15,13 @@ pub(crate) const SERVICE_STATUS_DELETE: &str = r#"delete from t_service_instance
 
 #[derive(Eq, PartialEq, Clone, Debug, FromRow)]
 pub struct ServiceInstanceEntity {
-    cluster_name: String,
-    service_name: String,
-    service_status: u16,
-    current_config: u16,
-    host: String,
-    create_timestamp: chrono::DateTime<Utc>,
-    update_timestamp: chrono::DateTime<Utc>,
+    pub cluster_name: String,
+    pub service_name: String,
+    pub service_status: u16,
+    pub current_config: u16,
+    pub host: String,
+    pub create_timestamp: chrono::DateTime<Utc>,
+    pub update_timestamp: chrono::DateTime<Utc>,
 }
 
 impl Stateful for ServiceInstanceEntity {
