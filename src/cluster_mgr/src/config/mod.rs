@@ -29,9 +29,7 @@ pub const ELOQKV_TEMPLATE_INI: &str = "EloqKv.ini";
 pub const SSH_PYTHON_SCRIPT: &str = "ssh.py";
 pub const PROXY_CONF_TEMPLATE: &str = "eloqproxy.ini";
 pub const PROXY_BIN: &str = "eloqkv-proxy";
-pub const ELOQKV_INI: &str = "EloqKv-tx";
-pub const ELOQKV_STANDBY_INI: &str = "EloqKv-standby";
-pub const ELOQKV_VOTER_INI: &str = "EloqKv-voter";
+pub const ELOQKV_NODE_INI: &str = "EloqKv-node";
 pub const CODIS_PROXY_CNF: &str = "codis_proxy.toml";
 pub const CODIS_DASHBOARD_CNF: &str = "codis_dashboard.toml";
 

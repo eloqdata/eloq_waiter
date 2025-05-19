@@ -1,13 +1,16 @@
 pub(crate) mod cc_request {
     tonic::include_proto!("txservice.remote"); // The package name from your .proto file
 }
+
 use crate::cli::task::grpc::cc_request::{
     CheckCkptStatusRequest, CheckCkptStatusResponse, ClusterBackupResponse,
-    CreateClusterBackupRequest, FetchClusterBackupRequest, NotifyShutdownCkptRequest,
+    ClusterRemoveNodeRequest, ClusterScaleResponse, CreateClusterBackupRequest,
+    FetchClusterBackupRequest, NodeGroupAddPeersRequest, NotifyShutdownCkptRequest,
     NotifyShutdownCkptResponse,
 };
 use cc_request::{cc_rpc_service_client::CcRpcServiceClient, CkptStatus, ShutdownStatus};
 use tonic::transport::Channel;
+use tracing::{debug, error, info};
 
 pub struct GrpcClient {
     client: CcRpcServiceClient<Channel>,
@@ -102,6 +105,86 @@ impl GrpcClient {
                 "An error occurred during shutdown checkpoint",
             )),
             _ => Ok(response_inner),
+        }
+    }
+
+    /// Check if cluster scale has finished by event id
+    pub async fn check_cluster_scale_status(
+        &mut self,
+        id: String,
+    ) -> Result<cc_request::ClusterScaleStatusResponse, tonic::Status> {
+        let request = tonic::Request::new(cc_request::ClusterScaleStatusRequest { id });
+        let response = self.client.check_cluster_scale_status(request).await?;
+        Ok(response.into_inner())
+    }
+
+    pub async fn add_peers(
+        &mut self,
+        request: NodeGroupAddPeersRequest,
+    ) -> Result<ClusterScaleResponse, tonic::Status> {
+        info!(
+            "Preparing gRPC add_peers request with ng_id={}, id={}",
+            request.ng_id, request.id
+        );
+        debug!("Full add_peers request details: {:?}", request);
+
+        let req = tonic::Request::new(request);
+        info!("Sending add_peers gRPC request...");
+
+        match self.client.node_group_add_peers(req).await {
+            Ok(response) => {
+                let response_inner = response.into_inner();
+                info!(
+                    "Received add_peers response with result code: {}",
+                    response_inner.result
+                );
+                debug!("Full add_peers response: {:?}", response_inner);
+                Ok(response_inner)
+            }
+            Err(status) => {
+                error!("add_peers request failed with gRPC status: {:?}", status);
+                error!(
+                    "Status code: {}, message: {}",
+                    status.code(),
+                    status.message()
+                );
+                Err(status)
+            }
+        }
+    }
+
+    pub async fn remove_node(
+        &mut self,
+        request: ClusterRemoveNodeRequest,
+    ) -> Result<ClusterScaleResponse, tonic::Status> {
+        info!(
+            "Preparing gRPC remove_node request with id={}, node count={}",
+            request.id, request.remove_node_count
+        );
+        debug!("Full remove_node request details: {:?}", request);
+
+        let req = tonic::Request::new(request);
+        info!("Sending remove_node gRPC request...");
+
+        match self.client.cluster_remove_node(req).await {
+            Ok(response) => {
+                let response_inner = response.into_inner();
+                info!(
+                    "Received remove_node response with result code: {}",
+                    response_inner.result
+                );
+                debug!("Full remove_node response: {:?}", response_inner);
+                Ok(response_inner)
+            }
+            Err(status) => {
+                error!("remove_node request failed with gRPC status: {:?}", status);
+                error!(
+                    "Status code: {}, message: {}",
+                    status.code(),
+                    status.message()
+                );
+                Err(status)
+            }
         }
     }
 }

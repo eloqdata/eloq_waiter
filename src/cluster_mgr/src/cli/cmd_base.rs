@@ -19,7 +19,6 @@ use anyhow::{anyhow, bail, Result};
 use futures::StreamExt;
 use itertools::Itertools;
 use owo_colors::OwoColorize;
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, OnceLock};
@@ -270,6 +269,7 @@ impl CmdExecutor {
                 user: _,
                 password: _,
                 wait: _,
+                detail: _,
             }
             | SubCommand::Monitor {
                 command: _,
@@ -280,11 +280,8 @@ impl CmdExecutor {
             | SubCommand::Connect { cluster }
             | SubCommand::Backup { cluster, .. }
             | SubCommand::Failover { cluster, .. }
-            | SubCommand::Scale {
-                cluster,
-                add_tx_node: _,
-                del_tx_node: _,
-            } => {
+            | SubCommand::Scale { cluster, .. }
+            | SubCommand::ScaleLog { cluster, .. } => {
                 let config = self
                     .state_mgr
                     .load_deployment_from_state(&cluster)
@@ -451,6 +448,11 @@ impl CmdExecutor {
                     std::fs::remove_dir_all(upload_path)?;
                 }
             }
+            SubCommand::Upgrade => {
+                self.state_mgr.upgrade_schema().await?;
+                println!("Schema upgrade complete");
+                return Ok(());
+            }
             _ => {}
         }
 
@@ -483,60 +485,6 @@ impl CmdExecutor {
                         },
                         None => println!("{:#?}", deploy_config),
                     },
-                    SubCommand::Scale {
-                        cluster: _,
-                        add_tx_node,
-                        del_tx_node,
-                    } => {
-                        // Handle scaling logic
-                        // Same as before
-                        let add: HashSet<String> = add_tx_node.iter().cloned().collect();
-                        let del: HashSet<String> = del_tx_node.iter().cloned().collect();
-
-                        if !add.is_disjoint(&del) {
-                            bail!("add_tx_node is overlapped with del_tx_node");
-                        }
-
-                        let host_ports: HashSet<String> = deploy_config
-                            .deployment
-                            .tx_service
-                            .tx_host_ports
-                            .clone()
-                            .into_iter()
-                            .collect();
-
-                        let host_set: HashSet<String> = host_ports
-                            .iter()
-                            .filter_map(|hp| hp.split(':').next().map(String::from))
-                            .collect();
-
-                        if !add.is_disjoint(&host_set) {
-                            bail!("can't add node already in cluster");
-                        }
-
-                        if !del.is_subset(&host_set) {
-                            bail!("deleted node not found");
-                        }
-
-                        if add.is_empty() && del.is_empty() {
-                            warn!("scale do nothing");
-                            return Ok(());
-                        }
-
-                        // Modify cluster configuration
-                        let tx_host_ports = &mut deploy_config.deployment.tx_service.tx_host_ports;
-                        let mut tx_hosts: Vec<String> = tx_host_ports
-                            .iter()
-                            .filter_map(|hp| hp.split(':').next().map(String::from))
-                            .collect();
-
-                        tx_hosts.retain(|h| !del_tx_node.contains(h));
-                        tx_hosts.extend(add_tx_node.clone());
-
-                        // Save updated configuration
-                        self.save_deployment_config(&deploy_config, true).await?;
-                        println!("Cluster scaled successfully!");
-                    }
                     _ => {
                         let task_mgr = self.task_mgr.clone();
                         let outfile = if quiet {

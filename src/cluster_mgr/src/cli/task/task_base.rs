@@ -189,6 +189,10 @@ pub enum CmdErr {
     MonitorCtlCmdErr(String, String),
     #[error("Error interacting with redis. possible reason: {0}, status_code={1}")]
     RedisOpErr(String, String),
+    #[error("Error executing scale operation. possible reason: {0}, status_code={1}")]
+    ScaleOpErr(String, String),
+    #[error("Error executing scale validation operation. possible reason: {0}, status_code={1}")]
+    ValidationErr(String, String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]

@@ -14,6 +14,7 @@ use redis::cluster::ClusterClient;
 use redis::{ErrorKind, RedisError, RedisResult, Value};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -33,23 +34,6 @@ pub struct RedisOpTask {
 
 impl RedisOpTask {
     pub fn new(
-        task_id: TaskId,
-        redis_host_ports: Vec<String>,
-        redis_cmd: String,
-        sender: watch::Sender<ClusterNodes>,
-        password: Option<String>,
-    ) -> Self {
-        Self {
-            task_id,
-            redis_host_ports,
-            redis_cmd,
-            sender,
-            password,
-            skip_checkpoint: false,
-        }
-    }
-
-    pub fn new_and_skip_checkpoint(
         task_id: TaskId,
         redis_host_ports: Vec<String>,
         redis_cmd: String,
@@ -92,6 +76,13 @@ impl Hash for NodeInfo {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.ip.hash(state);
         self.port.hash(state);
+    }
+}
+
+// Implement Display for NodeInfo so we can easily convert it to string
+impl fmt::Display for NodeInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.ip, self.port)
     }
 }
 
@@ -250,32 +241,77 @@ impl TaskExecutor for RedisOpTask {
 
     async fn execute(
         &self,
-        _task_host: TaskHost,
+        task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         let mut task_result =
             HashMap::from([(CMD.to_string(), TaskArgValue::Str(self.redis_cmd.clone()))]);
 
-        let nodes: Vec<String> = self
-            .redis_host_ports
+        // Fix: Split any comma-separated host:port entries
+        let mut expanded_nodes = Vec::new();
+        for host_port in &self.redis_host_ports {
+            // Split by comma if present
+            if host_port.contains(',') {
+                let split_nodes: Vec<String> = host_port
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                expanded_nodes.extend(split_nodes);
+            } else {
+                expanded_nodes.push(host_port.clone());
+            }
+        }
+
+        let nodes: Vec<String> = expanded_nodes
             .iter()
             .map(|host_port| {
-                if let Some(password) = &self.password {
+                let redis_url = if let Some(password) = &self.password {
                     format!("redis://:{}@{}", password, host_port)
                 } else {
                     format!("redis://{}", host_port)
-                }
+                };
+                redis_url
             })
             .collect();
 
         let nodes_info = nodes.join(", ");
-        let client = ClusterClient::new(nodes)?;
-        // Use synchronous connection
-        let mut con = match client.get_connection() {
-            Ok(connection) => connection,
+        info!(
+            "RedisOpTask: Attempting to connect to Redis cluster with nodes: [{}]",
+            nodes_info
+        );
+
+        let client = match ClusterClient::new(nodes) {
+            Ok(client) => client,
             Err(err) => {
                 error!(
-                    "Can not connect to the cluster. Attempted nodes: [{}]. Error: {}",
+                    "RedisOpTask: Failed to create Redis cluster client. Attempted nodes: [{}]. Error: {}",
+                    nodes_info, err
+                );
+                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
+                task_return_value!(
+                    task_result,
+                    |status_code: i32| -> CmdErr {
+                        CmdErr::RedisOpErr(
+                            "Failed to create Redis cluster client".to_string(),
+                            status_code.to_string(),
+                        )
+                    },
+                    "RedisOpTask"
+                )
+            }
+        };
+
+        // Use synchronous connection
+        let mut con = match client.get_connection() {
+            Ok(connection) => {
+                info!("RedisOpTask: Successfully connected to Redis cluster");
+                connection
+            }
+            Err(err) => {
+                error!(
+                    "RedisOpTask: Can not connect to the cluster. Attempted nodes: [{}]. Error: {}",
                     nodes_info, err
                 );
                 task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));

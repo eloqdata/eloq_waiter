@@ -96,6 +96,7 @@ impl LogCtlCmd {
                         user: _,
                         password: _,
                         wait: _,
+                        detail: _,
                     } => LogCtlCmd::Status(ps_cmd_part),
                     SubCommand::Stop { force, .. } => {
                         let ps_log_info = ps_cmd_part;
@@ -290,6 +291,7 @@ impl MonographLogCtlTask {
             user: None,
             password: None,
             wait: None,
+            detail: false,
         };
         // key is host:port,value is ps log command.
         let check_status_cmd_by_key = self
@@ -340,6 +342,7 @@ impl TaskExecutor for MonographLogCtlTask {
         let mut pid_cmd_value = self.log_service_pid(&ssh_session).await?;
         let cmd_execution_result = if cmd_string.eq("status") {
             self.log_cmd.iter().for_each(|(key, _ctrl_cmd)| {
+                // Q? called `Option::unwrap()` on a `None` value
                 let execution_value = pid_cmd_value.get_mut(key).unwrap();
                 let pid = TaskArgValue::into_inner_value::<String>(
                     execution_value.get(PROCESS_PID).unwrap().clone(),

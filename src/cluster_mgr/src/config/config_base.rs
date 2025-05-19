@@ -1,7 +1,7 @@
 use crate::all_hosts_merge;
 use crate::cli::{create_upload_cluster_dir, upload_dir, HOME_DIR};
 use crate::config::connection::Connection;
-use crate::config::deployment::{Codis, Deployment, NodeType, Product, Version};
+use crate::config::deployment::{Codis, Deployment, Product, Version};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider,
@@ -30,6 +30,7 @@ pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
 pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
 pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
 pub const DEPLOYMENT_CHECK_SUCCESS_TASK: &str = "deploy_check_success_task";
+pub const SCALED_CLUSTER_CONFIG: &str = "cluster_config";
 
 pub const ASAN_OPTIONS: &str = "abort_on_error=0:disable_coredump=0:halt_on_error=0:malloc_context_size=20:fast_unwind_on_malloc=0:leak_check_at_exit=0";
 
@@ -182,9 +183,7 @@ impl DeployConfig {
         let mut path_vec = match self.product() {
             Product::EloqSQL => vec![self.deployment.gen_eloqsql_config(None, None)?],
             Product::EloqKV => {
-                vec![self
-                    .deployment
-                    .gen_eloqkv_node_config(NodeType::Tx, None, None)?]
+                vec![self.deployment.gen_eloqkv_node_config(None, None)?]
             }
         };
         let tx_host_ports = &self.deployment.tx_service.tx_host_ports;
@@ -252,7 +251,7 @@ impl DeployConfig {
 
                         // Generate config using non-empty host and port
                         self.deployment
-                            .gen_eloqkv_node_config(NodeType::Tx, Some(host), Some(port))
+                            .gen_eloqkv_node_config(Some(host), Some(port))
                             .unwrap()
                     })
                 })
@@ -277,7 +276,7 @@ impl DeployConfig {
                             let host = parts.first().unwrap_or(&"").to_string();
                             let port = parts.get(1).unwrap_or(&"").to_string();
                             self.deployment
-                                .gen_eloqkv_node_config(NodeType::Standby, Some(host), Some(port))
+                                .gen_eloqkv_node_config(Some(host), Some(port))
                                 .unwrap()
                         })
                     })
@@ -303,7 +302,7 @@ impl DeployConfig {
                             let host = parts.first().unwrap_or(&"").to_string();
                             let port = parts.get(1).unwrap_or(&"").to_string();
                             self.deployment
-                                .gen_eloqkv_node_config(NodeType::Voter, Some(host), Some(port))
+                                .gen_eloqkv_node_config(Some(host), Some(port))
                                 .unwrap()
                         })
                     })
@@ -450,7 +449,8 @@ impl DeployConfig {
                                 .replace("${NODE_ID}", curr_member.node_id.to_string().as_str())
                                 .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
                                 .replace("${ASAN_OPTS}", ASAN_OPTIONS)
-                                .replace("${VERSION}", version);
+                                .replace("${VERSION}", version)
+                                .replace("${LOG_GROUP_REPLICA_NUM}", &log_srv.replica.to_string());
                             (
                                 LogProcessKey {
                                     host: host.clone(),
@@ -533,7 +533,9 @@ impl DeployConfig {
     }
 
     pub fn get_host_port_list(&self, service: DeploymentPackage) -> Vec<String> {
-        self.deployment.get_host_port_list(service)
+        let result = self.deployment.get_host_port_list(service.clone());
+        info!("get_host_port_list for service {:?}: {:?}", service, result);
+        result
     }
 
     pub fn merge_and_deduplicate(&self, mut vec1: Vec<String>, vec2: Vec<String>) -> Vec<String> {
@@ -558,7 +560,6 @@ impl DeployConfig {
         }
     }
 
-    // Q? should we do the bootstrap even if there is no storage service in case the user want to add kv later?
     pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
         if let Some(storage) = &self.deployment.storage_service {
             if let Some(sp) = storage.provider() {
