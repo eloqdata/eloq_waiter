@@ -65,32 +65,32 @@ create table if not exists t_scale_operations (
     create_timestamp timestamp not null DEFAULT CURRENT_TIMESTAMP,
     update_timestamp timestamp not null DEFAULT CURRENT_TIMESTAMP
 );
--- create table if not exists t_topology_tx
--- (
---     cluster_name        varchar(200) not null,
---     node_group_count    integer      not null,
---     node_group_id       integer      not null,
---     node_id             varchar(100) not null,
---     role                integer      not null,
---     host                varchar(100) not null,
---     port                integer      not null,
---     create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
---     update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
---     primary key (cluster_name, host, port)
--- );
--- create table if not exists t_topology_log
--- (
---     cluster_name        varchar(200) not null,
---     node_group_count    integer      not null,
---     node_group_id       integer      not null,
---     node_id             varchar(100) not null,
---     host                varchar(100) not null,
---     port                integer      not null,
---     data_dirs           text,
---     create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
---     update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
---     primary key (cluster_name, host, port)
--- );
+create table if not exists t_topology_tx
+(
+    cluster_name        varchar(200) not null,
+    node_group_count    integer      not null,
+    node_group_id       integer      not null,
+    node_id             varchar(100) not null,
+    role                integer      not null,
+    host                varchar(100) not null,
+    port                integer      not null,
+    create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    primary key (cluster_name, node_group_id, host, port)
+);
+create table if not exists t_topology_log
+(
+    cluster_name        varchar(200) not null,
+    node_group_count    integer      not null,
+    node_group_id       integer      not null,
+    node_id             varchar(100) not null,
+    host                varchar(100) not null,
+    port                integer      not null,
+    data_dirs           text,
+    create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    primary key (cluster_name, host, port)
+);
 
 
 

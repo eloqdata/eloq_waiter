@@ -116,8 +116,6 @@ impl TaskGroup for CtrlDBTaskGroup {
             }
             SubCommand::Status { detail, .. } => {
                 if detail {
-                    bail!("zxlog: detail status is not supported yet");
-
                     let mut barrier = Vec::new();
                     let mut executable = IndexMap::new();
 
