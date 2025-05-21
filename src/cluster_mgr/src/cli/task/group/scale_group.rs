@@ -585,48 +585,11 @@ impl super::TaskGroup for ScaleTaskGroup {
             host: "_local".to_string(),
         };
 
-        // // We need to upload to all hosts that will be in the final cluster configuration
-        // // For AddNodes: all existing hosts + newly added hosts
-        // // For RemoveNodes: all existing hosts except the ones being removed
-        // let upload_target_nodes = match operation_type {
-        //     ScaleOperationType::AddNodes => {
-        //         // For add operations, we need all hosts (existing + new)
-        //         let mut all_hosts = candidate_nodes_before_scale.clone();
-
-        //         // Add the new nodes (both candidate and non-candidate)
-        //         all_hosts.extend(nodes_list.clone());
-
-        //         info!(
-        //             "Uploading configuration to all existing and newly added hosts: {} total nodes",
-        //             all_hosts.len()
-        //         );
-        //         all_hosts
-        //     }
-        //     ScaleOperationType::RemoveNodes => {
-        //         // For remove operations, we need all hosts except those being removed
-        //         let nodes_to_remove: std::collections::HashSet<String> =
-        //             nodes_list.iter().cloned().collect();
-
-        //         let remaining_hosts: Vec<String> = all_nodes_before_scale
-        //             .iter()
-        //             .filter(|node| !nodes_to_remove.contains(*node))
-        //             .cloned()
-        //             .collect();
-
-        //         info!(
-        //             "Uploading configuration to remaining hosts after removal: {} total nodes",
-        //             remaining_hosts.len()
-        //         );
-        //         remaining_hosts
-        //     }
-        // };
-
         let upload_tasks_map = upload_tasks_with_nodes(
             UploadTaskBuilderType::ScaleTxConf,
             config,
             &operation_type,
             &nodes_list,
-            // &upload_target_nodes,
             &is_candidate,
             scale_op_rx.clone(),
         );
@@ -1005,7 +968,6 @@ impl super::TaskGroup for ScaleTaskGroup {
         barrier.push(1);
         executable.insert(topology_display_task_id, topology_display_instance);
 
-        // Implementation of TODO: Remove directories and files for removed nodes
         if let ScaleOperationType::RemoveNodes = operation_type {
             info!("Creating cleanup tasks for removed TX node directories and files");
 
