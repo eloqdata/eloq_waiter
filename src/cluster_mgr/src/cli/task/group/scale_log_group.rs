@@ -3,11 +3,14 @@ use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleLogTaskGroup, TaskGroup};
 use crate::cli::task::monograph_log_ctl_task::{LogCtlCmd, MonographLogCtlTask};
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
+use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::scale_log_op_task::ScaleLogOpTask;
 use crate::cli::task::task_base::{
     TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::task::task_utils::ScaleOperationType;
+use crate::cli::task::topology_display_task::TopologyDisplayTask;
+use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{build_task_instance, get_source_host};
 use crate::cli::SubCommand;
 use crate::config::config_base::UploadFile;
@@ -21,6 +24,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
+use tokio::sync::watch;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -479,10 +483,10 @@ impl TaskGroup for ScaleLogTaskGroup {
                     let log_task = ScaleLogOpTask::new(
                         scale_task_id.clone(),
                         event_id.clone(),
-                        scale_node_list,
+                        scale_node_list.clone(),
                         log_ng_id,
                         deploy_cfg.clone(),
-                        operation_type,
+                        operation_type.clone(),
                     );
 
                     let scale_instance = TaskInstance {
@@ -524,7 +528,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         scale_node_list.clone(),
                         log_ng_id,
                         deploy_cfg.clone(),
-                        operation_type,
+                        operation_type.clone(),
                     );
 
                     let scale_instance = TaskInstance {
@@ -801,6 +805,86 @@ impl TaskGroup for ScaleLogTaskGroup {
             };
             barrier.push(1);
             executable.insert(db_update_task_id, db_update_instance);
+
+            // Add topology update and display tasks as final steps
+
+            // Create new channel for getting final cluster topology
+            let empty_cluster_nodes = ClusterNodes {
+                masters: Vec::new(),
+                replicas: Vec::new(),
+            };
+            let (final_topology_tx, final_topology_rx) =
+                watch::channel(empty_cluster_nodes.clone());
+
+            // Add RedisOpTask to get final cluster topology for tx nodes
+            // We need to use tx nodes for TopologyUpdateTask as it requires tx nodes topology
+            let final_topology_task_id = TaskId {
+                cmd: "topology".to_string(),
+                task: "get-final-topology".to_string(),
+                host: "_local".to_string(),
+            };
+
+            // Get all tx nodes from deployment config
+            let tx_nodes =
+                temp_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx);
+
+            let final_topology_task = RedisOpTask::new(
+                final_topology_task_id.clone(),
+                tx_nodes,
+                "cluster nodes".to_string(),
+                final_topology_tx.clone(),
+                None, // No password needed
+                true, // Skip checkpoint
+            );
+
+            let final_topology_instance = TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(final_topology_task),
+                task_host: TaskHost::Local,
+            };
+
+            barrier.push(1);
+            executable.insert(final_topology_task_id, final_topology_instance);
+
+            // Add TopologyUpdateTask using proper constructor
+            // This will update both TX and LOG topology in the database
+            let topology_update_tasks = match operation_type {
+                ScaleOperationType::AddNodes => {
+                    // For add operation, no nodes are being removed
+                    TopologyUpdateTask::from_redis(&temp_config, final_topology_rx.clone(), None)
+                }
+                ScaleOperationType::RemoveNodes => {
+                    // For remove operation, pass the list of nodes being removed
+                    TopologyUpdateTask::from_redis(
+                        &temp_config,
+                        final_topology_rx.clone(),
+                        Some(scale_node_list.clone()),
+                    )
+                }
+            };
+            barrier.push(topology_update_tasks.len());
+            executable.extend(topology_update_tasks);
+
+            // Add TopologyDisplayTask
+            let topology_display_task_id = TaskId {
+                cmd: "topology".to_string(),
+                task: "display-topology".to_string(),
+                host: "_local".to_string(),
+            };
+
+            let topology_display_task = TopologyDisplayTask::new(
+                topology_display_task_id.clone(),
+                temp_config.deployment.cluster_name.clone(),
+            );
+
+            let topology_display_instance = TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(topology_display_task),
+                task_host: TaskHost::Local,
+            };
+
+            barrier.push(1);
+            executable.insert(topology_display_task_id, topology_display_instance);
 
             return Ok(TaskExecutionContext {
                 task_group: "scalelog".to_string(),

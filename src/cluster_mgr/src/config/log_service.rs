@@ -229,11 +229,8 @@ impl LogService {
                         port_usage.insert(node.host.clone(), node.port);
                         node.port
                     } else {
-                        // Q? check the logic change of logservice
+                        // below produce port+1,port+2,...; i think it is out of use by the current design.
                         // *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16
-                        info!( "zxlog: *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16: {:#?}", *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16); //
-
-                        info!("zxlog: node.port: {:#?}", node.port); // zxlog
 
                         node.port
                     };

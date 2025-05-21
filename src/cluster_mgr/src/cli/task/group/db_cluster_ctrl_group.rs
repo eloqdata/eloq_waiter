@@ -9,7 +9,7 @@ use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{stop_with_failover, stop_with_hot_standby};
 use crate::cli::task::topology_display_task::TopologyDisplayTask;
-use crate::cli::task::topology_update_task::TopologyUpdateFromRedisTask;
+use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::SubCommand;
 use crate::config::config_base::DeployConfig;
 use anyhow::{bail, Result};
@@ -149,7 +149,7 @@ impl TaskGroup for CtrlDBTaskGroup {
 
                     // Barrier group 2: update topology from Redis result
                     let update_map =
-                        TopologyUpdateFromRedisTask::from_redis(cluster_config, redis_rx.clone());
+                        TopologyUpdateTask::from_redis(cluster_config, redis_rx.clone(), None);
                     if !update_map.is_empty() {
                         barrier.push(update_map.len());
                         executable.extend(update_map);

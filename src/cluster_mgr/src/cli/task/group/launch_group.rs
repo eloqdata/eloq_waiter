@@ -5,10 +5,17 @@ use crate::cli::task::group::{
     CheckTaskGroup, Config, CtrlDBTaskGroup, DeploymentTaskGroup, InstallDBTaskGroup,
     InstallDepPkgTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
-use crate::cli::task::task_base::{merge_execution, TaskExecutionContext};
+use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
+use crate::cli::task::task_base::{
+    merge_execution, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
+};
+use crate::cli::task::topology_display_task::TopologyDisplayTask;
+use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::SubCommand;
 use crate::config::{config_template, CONFIG_PATH_DIR, SSH_PYTHON_SCRIPT};
+use std::collections::HashMap;
 use std::env;
+use tokio::sync::watch;
 
 #[async_trait::async_trait]
 impl TaskGroup for LaunchTaskGroup {
@@ -117,6 +124,67 @@ impl TaskGroup for LaunchTaskGroup {
                 .await?,
         ];
         merge_execution(&mut barrier, &mut executable, exe_ctx);
+
+        // Add topology update and display tasks as the final step
+
+        // Create channel for cluster nodes information
+        let empty_cluster_nodes = ClusterNodes {
+            masters: Vec::new(),
+            replicas: Vec::new(),
+        };
+        let (redis_op_tx, redis_op_rx) = watch::channel(empty_cluster_nodes.clone());
+
+        // Add RedisOpTask to get cluster topology
+        let redis_op_task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "get-topology".to_string(),
+            host: "_local".to_string(),
+        };
+
+        let redis_op_task = RedisOpTask::new(
+            redis_op_task_id.clone(),
+            cluster_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx),
+            "cluster nodes".to_string(),
+            redis_op_tx.clone(),
+            None, // No password
+            true, // Skip checkpoint
+        );
+
+        let redis_op_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(redis_op_task),
+            task_host: TaskHost::Local,
+        };
+
+        barrier.push(1);
+        executable.insert(redis_op_task_id, redis_op_instance);
+
+        // Add TopologyUpdateTask using proper constructor
+        let topology_update_tasks =
+            TopologyUpdateTask::from_redis(cluster_config, redis_op_rx.clone(), None);
+        barrier.push(topology_update_tasks.len());
+        executable.extend(topology_update_tasks);
+
+        // Add TopologyDisplayTask
+        let topology_display_task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "display-topology".to_string(),
+            host: "_local".to_string(),
+        };
+
+        let topology_display_task = TopologyDisplayTask::new(
+            topology_display_task_id.clone(),
+            cluster_config.deployment.cluster_name.clone(),
+        );
+
+        let topology_display_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(topology_display_task),
+            task_host: TaskHost::Local,
+        };
+
+        barrier.push(1);
+        executable.insert(topology_display_task_id, topology_display_instance);
 
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),

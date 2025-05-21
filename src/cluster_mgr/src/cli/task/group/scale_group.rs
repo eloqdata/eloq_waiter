@@ -7,6 +7,8 @@ use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::scale_op_task::ScaleOpTask;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
+use crate::cli::task::topology_display_task::TopologyDisplayTask;
+use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::tx_conf_update_task::TxConfUpdateTask;
 use crate::cli::task::unpack_file_task::UnpackFileTask;
 use crate::cli::task::update_scale_status_task::DbScaleOpUpdateTask;
@@ -14,7 +16,7 @@ use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, upload_tasks_with_nodes, UploadTaskBuilderType,
 };
 use crate::cli::{download_dir, SubCommand};
-use crate::config::config_base::UploadFile;
+use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::config::{config_template, SSH_PYTHON_SCRIPT};
@@ -891,6 +893,89 @@ impl super::TaskGroup for ScaleTaskGroup {
         };
         barrier.push(1);
         executable.insert(update_stage1_task_id, update_stage1_instance);
+
+        // Add topology update and display tasks after everything else is complete
+
+        // Create new channel for getting final cluster topology
+        let empty_cluster_nodes = ClusterNodes {
+            masters: Vec::new(),
+            replicas: Vec::new(),
+        };
+        let (final_topology_tx, final_topology_rx) = watch::channel(empty_cluster_nodes.clone());
+
+        // Add RedisOpTask to get final cluster topology
+        let final_topology_task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "get-final-topology".to_string(),
+            host: "_local".to_string(),
+        };
+
+        // Get all nodes that should exist after scale operation
+        let final_nodes = match operation_type {
+            ScaleOperationType::AddNodes => {
+                // For add operation, use candidate_nodes_after_scale
+                candidate_nodes_after_scale.clone()
+            }
+            ScaleOperationType::RemoveNodes => {
+                // For remove operation, use candidate_nodes_after_scale
+                candidate_nodes_after_scale.clone()
+            }
+        };
+
+        let final_topology_task = RedisOpTask::new(
+            final_topology_task_id.clone(),
+            final_nodes,
+            "cluster nodes".to_string(),
+            final_topology_tx.clone(),
+            password.clone(),
+            true, // Skip checkpoint
+        );
+
+        let final_topology_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(final_topology_task),
+            task_host: TaskHost::Local,
+        };
+
+        barrier.push(1);
+        executable.insert(final_topology_task_id, final_topology_instance);
+
+        // Add TopologyUpdateTask using proper constructor
+        let topology_update_tasks = match operation_type {
+            ScaleOperationType::AddNodes => {
+                // For add operation, no nodes are being removed
+                TopologyUpdateTask::from_redis(deploy_config, final_topology_rx.clone(), None)
+            }
+            ScaleOperationType::RemoveNodes => {
+                // For remove operation, pass the list of nodes being removed
+                TopologyUpdateTask::from_redis(
+                    deploy_config,
+                    final_topology_rx.clone(),
+                    Some(nodes_list.clone()),
+                )
+            }
+        };
+        barrier.push(topology_update_tasks.len());
+        executable.extend(topology_update_tasks);
+
+        // Add TopologyDisplayTask
+        let topology_display_task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "display-topology".to_string(),
+            host: "_local".to_string(),
+        };
+
+        let topology_display_task =
+            TopologyDisplayTask::new(topology_display_task_id.clone(), cluster_name.clone());
+
+        let topology_display_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(topology_display_task),
+            task_host: TaskHost::Local,
+        };
+
+        barrier.push(1);
+        executable.insert(topology_display_task_id, topology_display_instance);
 
         info!("Scale task group configured with sequential tasks for scaling operation");
 

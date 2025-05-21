@@ -1,36 +1,41 @@
+use crate::cli::task::cluster_config_utils::{parse_cluster_config, ClusterGroupConfig};
 use crate::cli::task::redis_op_task::ClusterNodes;
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::parse_ng_config;
-use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::config_base::DeployConfig;
+use crate::cli::{upload_dir, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::config_base::{DeployConfig, SCALED_CLUSTER_CONFIG};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{STATE_MGR, TOPOLOGY_LOG_STATE, TOPOLOGY_TX_STATE};
 use crate::state::topology_log_operation::{TopologyLogEntity, TopologyLogOperation};
 use crate::state::topology_tx_operation::{TopologyTxEntity, TopologyTxOperation};
 use crate::StateValue;
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use tokio::sync::watch;
 use tracing::{error, info};
 
 // Update topology in t_topology_tx using live data from RedisOpTask
 #[derive(Debug, Clone)]
-pub struct TopologyUpdateFromRedisTask {
+pub struct TopologyUpdateTask {
     task_id: TaskId,
     cluster_name: String,
     config: DeployConfig,
     receiver: watch::Receiver<ClusterNodes>,
+    remove_nodes: Option<Vec<String>>, // Optional list of nodes to be removed (format: "host:port")
 }
 
-impl TopologyUpdateFromRedisTask {
+impl TopologyUpdateTask {
     /// Create tasks to update topology using data from a RedisOpTask channel
     pub fn from_redis(
         config: &DeployConfig,
         receiver: watch::Receiver<ClusterNodes>,
+        remove_nodes: Option<Vec<String>>,
     ) -> IndexMap<TaskId, TaskInstance> {
         let mut map = IndexMap::new();
         let task_id = TaskId {
@@ -38,11 +43,12 @@ impl TopologyUpdateFromRedisTask {
             task: "redis".to_string(),
             host: "local".to_string(),
         };
-        let task = Box::new(TopologyUpdateFromRedisTask {
+        let task = Box::new(TopologyUpdateTask {
             task_id: task_id.clone(),
             cluster_name: config.deployment.cluster_name.clone(),
             config: config.clone(),
             receiver,
+            remove_nodes,
         });
         map.insert(
             task_id.clone(),
@@ -53,6 +59,74 @@ impl TopologyUpdateFromRedisTask {
             },
         );
         map
+    }
+
+    // Try to get topology from cluster_config file in upload/<cluster-name> directory
+    fn get_topology_from_config_file(&self) -> Result<Option<Vec<TopologyTxEntity>>> {
+        let config_path = upload_dir()
+            .join(&self.cluster_name)
+            .join(SCALED_CLUSTER_CONFIG);
+        let path = Path::new(&config_path);
+
+        if !path.exists() {
+            info!("Cluster config file not found at {}", config_path.display());
+            return Ok(None);
+        }
+
+        info!("Found cluster config file at {}", config_path.display());
+        let content = fs::read_to_string(path).with_context(|| {
+            format!(
+                "Failed to read cluster config file: {}",
+                config_path.display()
+            )
+        })?;
+
+        // Parse the config file using the proper parser from cluster_config_utils
+        let cluster_config = parse_cluster_config(&content).with_context(|| {
+            format!(
+                "Failed to parse cluster config from {}",
+                config_path.display()
+            )
+        })?;
+
+        // Transform ClusterGroupConfig into TopologyTxEntity objects
+        let mut tx_entities = Vec::new();
+        let now = Utc::now();
+        let cluster_name = &self.config.deployment.cluster_name;
+        let node_group_count = cluster_config.node_groups.len() as i32;
+
+        for (&ng_id, nodes) in &cluster_config.node_groups {
+            for node in nodes {
+                // Determine the role based on is_candidate flag
+                // 1 = Replica (Standby), 2 = Voter (non-candidate)
+                let role = if node.is_candidate {
+                    1 // Replica
+                } else {
+                    2 // Voter
+                };
+
+                tx_entities.push(TopologyTxEntity {
+                    cluster_name: cluster_name.clone(),
+                    node_group_count,
+                    node_group_id: ng_id as i32,
+                    node_id: format!("{}", node.node_id),
+                    role,
+                    host: node.host_name.clone(),
+                    port: node.port as i32,
+                    create_timestamp: now,
+                    update_timestamp: now,
+                });
+            }
+        }
+
+        info!(
+            "Parsed cluster config with {} node groups and {} nodes, version {}",
+            node_group_count,
+            tx_entities.len(),
+            cluster_config.version
+        );
+
+        Ok(Some(tx_entities))
     }
 
     // Extract TX entries from node group config parsed by parse_ng_config
@@ -97,7 +171,7 @@ impl TopologyUpdateFromRedisTask {
                         // 1 = Replica (Standby), 2 = Voter
                         // All is_candidate=true nodes are set as replicas at this step
                         let role = if node.is_candidate {
-                            1 // All candidates are replicas initially
+                            1 // Set all candidates as replicas initially
                         } else {
                             2 // Voter
                         };
@@ -180,7 +254,7 @@ impl TopologyUpdateFromRedisTask {
 }
 
 #[async_trait]
-impl TaskExecutor for TopologyUpdateFromRedisTask {
+impl TaskExecutor for TopologyUpdateTask {
     fn identifier(&self) -> TaskId {
         self.task_id.clone()
     }
@@ -208,9 +282,119 @@ impl TaskExecutor for TopologyUpdateFromRedisTask {
 
         let mut success_count = 0;
         let mut failure_count = 0;
+        let mut deleted_count = 0;
 
-        // Use the new extract_tx_topology method that uses parse_ng_config
-        let tx_entries = self.extract_tx_topology();
+        // If remove_nodes is provided, delete those entries from topology tables
+        if let Some(nodes_to_remove) = &self.remove_nodes {
+            if !nodes_to_remove.is_empty() {
+                info!("Removing nodes from topology tables: {:?}", nodes_to_remove);
+
+                // Process each node to be removed
+                for node_str in nodes_to_remove {
+                    if let Some((host, port_str)) = node_str.split_once(':') {
+                        if let Ok(port) = port_str.parse::<i32>() {
+                            // Delete from TX topology table
+                            match tx_op
+                                .del(|| {
+                                    let cond_text =
+                                        "cluster_name = ? AND host = ? AND port = ?".to_string();
+                                    let bind_values = vec![
+                                        StateValue::Varchar(self.cluster_name.clone()),
+                                        StateValue::Varchar(host.to_string()),
+                                        StateValue::Integer(port),
+                                    ];
+                                    Some(QueryCondition {
+                                        cond_text,
+                                        bind_values,
+                                    })
+                                })
+                                .await
+                            {
+                                Ok(count) => {
+                                    if count > 0 {
+                                        deleted_count += count;
+                                        info!(
+                                            "Deleted {} entry(s) for TX node {}:{}",
+                                            count, host, port
+                                        );
+                                    } else {
+                                        info!(
+                                            "No TX topology entries found for node {}:{}",
+                                            host, port
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    failure_count += 1;
+                                    error!(
+                                        "Failed to delete TX topology entry for node {}:{}: {}",
+                                        host, port, e
+                                    );
+                                }
+                            }
+
+                            // Delete from LOG topology table
+                            match log_op
+                                .del(|| {
+                                    let cond_text =
+                                        "cluster_name = ? AND host = ? AND port = ?".to_string();
+                                    let bind_values = vec![
+                                        StateValue::Varchar(self.cluster_name.clone()),
+                                        StateValue::Varchar(host.to_string()),
+                                        StateValue::Integer(port),
+                                    ];
+                                    Some(QueryCondition {
+                                        cond_text,
+                                        bind_values,
+                                    })
+                                })
+                                .await
+                            {
+                                Ok(count) => {
+                                    if count > 0 {
+                                        deleted_count += count;
+                                        info!(
+                                            "Deleted {} entry(s) for LOG node {}:{}",
+                                            count, host, port
+                                        );
+                                    } else {
+                                        info!(
+                                            "No LOG topology entries found for node {}:{}",
+                                            host, port
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    failure_count += 1;
+                                    error!(
+                                        "Failed to delete LOG topology entry for node {}:{}: {}",
+                                        host, port, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to get topology from cluster_config file
+        let tx_entries = match self.get_topology_from_config_file() {
+            Ok(Some(entries)) => {
+                info!("Using topology from cluster_config file");
+                entries
+            }
+            Ok(None) => {
+                //  Fall back to extract_tx_topology if no cluster_config found (before scale)
+                info!("No cluster_config found, using extract_tx_topology method");
+                self.extract_tx_topology()
+            }
+            Err(e) => {
+                bail!("Error reading cluster_config file: {}", e);
+            }
+        };
+
+        // Update TX entries in database
         for tx_entity in tx_entries {
             match tx_op.put(tx_entity.clone()).await {
                 Ok(_) => {
@@ -328,8 +512,8 @@ impl TaskExecutor for TopologyUpdateFromRedisTask {
         }
 
         let output = format!(
-            "Topology update from Redis completed for cluster {}. Updated {} entries, {} failures.",
-            self.cluster_name, success_count, failure_count
+            "Topology update from Redis completed for cluster {}. Updated {} entries, deleted {} entries, {} failures.",
+            self.cluster_name, success_count, deleted_count, failure_count
         );
         info!("{}", output);
         let status = if failure_count > 0 { 1 } else { 0 };

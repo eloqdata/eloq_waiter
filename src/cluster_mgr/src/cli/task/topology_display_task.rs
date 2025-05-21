@@ -125,8 +125,14 @@ impl TaskExecutor for TopologyDisplayTask {
         let mut group_ids: Vec<i32> = grouped_tx.keys().cloned().collect();
         group_ids.sort();
 
+        // Store the last group ID before entering the loop
+        let last_group_id = *group_ids.last().unwrap_or(&-1);
+
         for group_id in group_ids {
-            if let Some(nodes) = grouped_tx.get(&group_id) {
+            if let Some(nodes) = grouped_tx.get_mut(&group_id) {
+                // Sort nodes within each group by role: Master(0) -> Replica(1) -> Voter(2)
+                nodes.sort_by_key(|node| node.role);
+
                 for node in nodes {
                     // Interpret role: 0=Master,1=Replica,2=Voter
                     let role = match node.role {
@@ -142,6 +148,17 @@ impl TaskExecutor for TopologyDisplayTask {
                         Cell::new(&node.host),
                         Cell::new(&node.port.to_string()),
                         Cell::new(role),
+                    ]));
+                }
+
+                // Add a blank row as separator between node groups (except after the last group)
+                if group_id != last_group_id {
+                    table.add_row(Row::new(vec![
+                        Cell::new(""),
+                        Cell::new(""),
+                        Cell::new(""),
+                        Cell::new(""),
+                        Cell::new(""),
                     ]));
                 }
             }

@@ -585,7 +585,7 @@ type NodeGroupId = u32;
 ///
 /// HashMap of node group configurations
 pub fn parse_ng_config(
-    ip_port_list: &str,
+    tx_ip_port_list: &str,
     standby_ip_port_list: &str,
     voter_ip_port_list: &str,
     port_delta: Option<i16>,
@@ -600,14 +600,14 @@ pub fn parse_ng_config(
     let mut ng_cnt: NodeGroupId = 0;
 
     // Parse primary nodes (one per node group)
-    for token in ip_port_list.split(NG_DELIMITER) {
+    for token in tx_ip_port_list.split(NG_DELIMITER) {
         if token.trim().is_empty() {
             continue;
         }
 
         let c_idx = match token.find(':') {
             Some(idx) => idx,
-            None => return Err(anyhow!("Port missing in ip_port_list: {}", ip_port_list)),
+            None => return Err(anyhow!("Port missing in ip_port_list: {}", tx_ip_port_list)),
         };
 
         // Check for duplicate nodes
