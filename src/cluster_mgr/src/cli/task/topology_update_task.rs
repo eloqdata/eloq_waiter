@@ -239,7 +239,7 @@ impl TopologyUpdateTask {
                 log_entities.push(TopologyLogEntity {
                     cluster_name: cluster_name.clone(),
                     node_group_count: log_count,
-                    node_group_id: i as i32,
+                    node_group_id: 0, // set all log nodes to group 0 for the current design
                     node_id: format!("log-{}", i),
                     host: node.host.clone(),
                     port: node.port as i32,
