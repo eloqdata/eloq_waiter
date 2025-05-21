@@ -46,7 +46,6 @@ pub struct SSHSession {
     port: usize,
 }
 
-// TODO(ZX) later, check the logic here
 impl SSHSession {
     pub async fn from_task_host(host: TaskHost, key_path: String) -> anyhow::Result<Self> {
         match host {

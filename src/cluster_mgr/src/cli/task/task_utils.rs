@@ -559,3 +559,274 @@ fn check_whether_to_skip_checkpoint(cluster_name: &str) -> bool {
 
     skip_ckpt
 }
+
+/// Node configuration with node ID, IP, port, and candidate status
+#[derive(Debug, Clone)]
+pub struct NgNodeConfig {
+    pub node_id: u32,
+    pub ip: String,
+    pub port: u16,
+    pub is_candidate: bool,
+}
+
+type NodeId = u32;
+type NodeGroupId = u32;
+
+/// Parse node group configuration from string lists
+///
+/// # Arguments
+///
+/// * `ip_port_list` - Comma-separated list of primary nodes (one per node group)
+/// * `standby_ip_port_list` - Comma-separated list of standby nodes, with pipe-delimited nodes per group
+/// * `voter_ip_port_list` - Comma-separated list of voter nodes, with pipe-delimited nodes per group
+/// * `port_delta` - Optional port adjustment (default: 0)
+///
+/// # Returns
+///
+/// HashMap of node group configurations
+pub fn parse_ng_config(
+    tx_ip_port_list: &str,
+    standby_ip_port_list: &str,
+    voter_ip_port_list: &str,
+    port_delta: Option<i16>,
+) -> anyhow::Result<HashMap<NodeGroupId, Vec<NgNodeConfig>>> {
+    let port_delta = port_delta.unwrap_or(0);
+    const NG_DELIMITER: char = ',';
+    const NODE_DELIMITER: char = '|';
+
+    // Contains explicitly set members
+    let mut ng_configs = HashMap::new();
+    let mut node_map = HashMap::new();
+    let mut ng_cnt: NodeGroupId = 0;
+
+    // Parse primary nodes (one per node group)
+    for token in tx_ip_port_list.split(NG_DELIMITER) {
+        if token.trim().is_empty() {
+            continue;
+        }
+
+        let c_idx = match token.find(':') {
+            Some(idx) => idx,
+            None => return Err(anyhow!("Port missing in ip_port_list: {}", tx_ip_port_list)),
+        };
+
+        // Check for duplicate nodes
+        if node_map.contains_key(token) {
+            return Err(anyhow!("Node repeated in config ip_port_list: {}", token));
+        }
+
+        let port_str = &token[(c_idx + 1)..];
+        let port = match port_str.parse::<u16>() {
+            Ok(p) => (p as i32 + port_delta as i32) as u16,
+            Err(_) => return Err(anyhow!("Invalid port in ip_port_list: {}", port_str)),
+        };
+
+        let ip = token[..c_idx].to_string();
+        let ng_id = ng_cnt;
+        let node_id = ng_id;
+
+        node_map.insert(token.to_string(), node_id);
+        ng_cnt += 1;
+
+        // Create new node group and add the first node
+        ng_configs.insert(
+            ng_id,
+            vec![NgNodeConfig {
+                node_id,
+                ip,
+                port,
+                is_candidate: true,
+            }],
+        );
+    }
+
+    // Parse standby nodes
+    if !standby_ip_port_list.trim().is_empty() {
+        let mut s_ng_idx = 0;
+        for token in standby_ip_port_list.split(NG_DELIMITER) {
+            if s_ng_idx >= ng_cnt || token.trim().is_empty() {
+                continue;
+            }
+
+            // Get the node group vector for this index
+            if let Some(members_vec) = ng_configs.get_mut(&s_ng_idx) {
+                // Process pipe-delimited standby nodes for this group
+                for token2 in token.split(NODE_DELIMITER) {
+                    if token2.trim().is_empty() {
+                        continue;
+                    }
+
+                    let c_idx = match token2.find(':') {
+                        Some(idx) => idx,
+                        None => {
+                            return Err(anyhow!("Port missing in standby_ip_port_list: {}", token2))
+                        }
+                    };
+
+                    // Check for duplicate nodes across primary and standby
+                    if node_map.contains_key(token2) {
+                        return Err(anyhow!(
+                            "Node in standby_ip_port_list also appears in ip_port_list: {}",
+                            token2
+                        ));
+                    }
+
+                    let port_str = &token2[(c_idx + 1)..];
+                    let port = match port_str.parse::<u16>() {
+                        Ok(p) => (p as i32 + port_delta as i32) as u16,
+                        Err(_) => {
+                            return Err(anyhow!(
+                                "Invalid port in standby_ip_port_list: {}",
+                                port_str
+                            ))
+                        }
+                    };
+
+                    let ip = token2[..c_idx].to_string();
+                    let node_id = node_map.len() as u32;
+                    node_map.insert(token2.to_string(), node_id);
+
+                    members_vec.push(NgNodeConfig {
+                        node_id,
+                        ip,
+                        port,
+                        is_candidate: true,
+                    });
+                }
+            }
+            s_ng_idx += 1;
+        }
+    }
+
+    // Parse voter nodes
+    if !voter_ip_port_list.trim().is_empty() {
+        let mut v_ng_idx = 0;
+        for token in voter_ip_port_list.split(NG_DELIMITER) {
+            if v_ng_idx >= ng_cnt || token.trim().is_empty() {
+                continue;
+            }
+
+            // Get the node group vector for this index
+            if let Some(members_vec) = ng_configs.get_mut(&v_ng_idx) {
+                // Process pipe-delimited voter nodes for this group
+                for token2 in token.split(NODE_DELIMITER) {
+                    if token2.trim().is_empty() {
+                        continue;
+                    }
+
+                    let c_idx = match token2.find(':') {
+                        Some(idx) => idx,
+                        None => {
+                            return Err(anyhow!("Port missing in voter_ip_port_list: {}", token2))
+                        }
+                    };
+
+                    let port_str = &token2[(c_idx + 1)..];
+                    let port = match port_str.parse::<u16>() {
+                        Ok(p) => (p as i32 + port_delta as i32) as u16,
+                        Err(_) => {
+                            return Err(anyhow!("Invalid port in voter_ip_port_list: {}", port_str))
+                        }
+                    };
+
+                    let ip = token2[..c_idx].to_string();
+
+                    // Check if this node already exists in the node map
+                    let node_id = match node_map.get(token2) {
+                        Some(&id) => id,
+                        None => {
+                            let id = node_map.len() as u32;
+                            node_map.insert(token2.to_string(), id);
+                            id
+                        }
+                    };
+
+                    // Check if this node already exists in the member vector (same group)
+                    if members_vec.iter().any(|m_node| m_node.node_id == node_id) {
+                        return Err(anyhow!("Voter node appeared in the same group: {}", token2));
+                    }
+
+                    members_vec.push(NgNodeConfig {
+                        node_id,
+                        ip,
+                        port,
+                        is_candidate: false,
+                    });
+                }
+            }
+            v_ng_idx += 1;
+        }
+    }
+
+    // Calculate required replica count for each node group based on its size
+    let mut replica_num_list = HashMap::new();
+    for (ng_id, explicit_members) in &ng_configs {
+        // Calculate the required replica count for this node group
+        let explicit_members_count = explicit_members.len() as u32;
+        // Ensure replica_num is at least 3 for high availability
+        let replica_num = std::cmp::max(explicit_members_count, 3);
+        replica_num_list.insert(*ng_id, replica_num);
+    }
+
+    info!(
+        "Generated replica counts per node group: {:?}",
+        replica_num_list
+    );
+    info!("Initial node configuration: {:#?}", ng_configs);
+
+    // Adjust node groups to ensure each has sufficient replicas
+    adjust_ng_configs(&mut ng_configs, &replica_num_list)?;
+
+    Ok(ng_configs)
+}
+
+/// Ensure each node group has sufficient members based on its replica_num
+///
+/// This function will borrow nodes from other groups if necessary
+fn adjust_ng_configs(
+    ng_configs: &mut HashMap<NodeGroupId, Vec<NgNodeConfig>>,
+    replica_num_list: &HashMap<NodeGroupId, u32>,
+) -> anyhow::Result<()> {
+    let ng_cnt = ng_configs.len() as u32;
+    if ng_cnt == 0 {
+        return Ok(());
+    }
+
+    for ng_id in 0..ng_cnt {
+        // Get the replica count for this specific node group
+        let replica_num = replica_num_list.get(&ng_id).cloned().unwrap_or(3);
+
+        if let Some(members_set_in_deploy_config_explicitly) = ng_configs.get(&ng_id) {
+            if members_set_in_deploy_config_explicitly.len() >= replica_num as usize {
+                continue;
+            }
+
+            // Calculate how many replicas to borrow
+            let left_rep_cnt = replica_num - members_set_in_deploy_config_explicitly.len() as u32;
+            let left_rep_cnt = std::cmp::min(left_rep_cnt, ng_cnt - 1);
+
+            // Make a mutable copy of the current members
+            let mut updated_members = members_set_in_deploy_config_explicitly.clone();
+
+            // Borrow nodes from other groups
+            for idx in 1..=left_rep_cnt {
+                let borrow_ng_id = (ng_id + idx) % ng_cnt;
+
+                if let Some(borrow_members) = ng_configs.get(&borrow_ng_id) {
+                    if !borrow_members.is_empty() {
+                        let mut tmp_conf = borrow_members[0].clone();
+                        tmp_conf.is_candidate = false;
+                        updated_members.push(tmp_conf);
+                    }
+                }
+            }
+
+            // Update the node group with the new members
+            ng_configs.insert(ng_id, updated_members);
+        }
+    }
+
+    info!("Adjusted node configuration: {:#?}", ng_configs);
+
+    Ok(())
+}
