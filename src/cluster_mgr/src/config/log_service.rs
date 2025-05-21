@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::info;
 
 const LOG_SRV_REPLICA_NUM: usize = 3;
 
@@ -145,7 +146,9 @@ impl LogService {
     }
 
     pub fn log_replica(&self) -> usize {
-        self.replica as usize
+        // self.replica as usize
+        self.nodes.len()
+        // temporarily change from replica to nodes.len(), this will be changed back after scale-log support multiple log groups
     }
 
     fn try_set_leader(
@@ -226,8 +229,9 @@ impl LogService {
                         port_usage.insert(node.host.clone(), node.port);
                         node.port
                     } else {
-                        // Q? check the logic change of logservice
+                        // below produce port+1,port+2,...; i think it is out of use by the current design.
                         // *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16
+
                         node.port
                     };
                     let node_host = &node.host;
@@ -428,8 +432,6 @@ mod tests {
             readiness: Some(LogReadiness::default()),
         }
     }
-
-    // TODO(ZX) check the logic of parsing log service node
 
     #[test]
     pub fn test_gen_nodes() {

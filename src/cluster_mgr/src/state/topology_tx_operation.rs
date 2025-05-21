@@ -26,9 +26,8 @@ pub(crate) const TOPOLOGY_TX_UPDATE: [&str; 2] = [
         create_timestamp,
         update_timestamp
     ) values("#,
-    r#") on conflict(cluster_name, host, port) do update set
+    r#") on conflict(cluster_name, node_group_id, host, port) do update set
         node_group_count=excluded.node_group_count,
-        node_group_id=excluded.node_group_id,
         node_id=excluded.node_id,
         role=excluded.role,
         update_timestamp=excluded.update_timestamp
