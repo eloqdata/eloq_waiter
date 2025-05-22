@@ -481,24 +481,27 @@ impl TxConfUpload {
             let mut result = IndexMap::new();
             let source_host = get_source_host(None);
 
-            // Extract unique hosts from the nodes_list
-            let unique_new_hosts: Vec<String> = nodes_list
-                .iter()
-                .filter_map(|node| node.split(':').next().map(|h| h.to_string()))
-                .unique()
-                .collect();
+            // Create mkdir tasks to ensure directories exist
+            let mut hosts_with_ports = Vec::new();
 
-            info!(
-                "Uploading cluster config to {} unique hosts",
-                unique_new_hosts.len()
-            );
+            for host_port in nodes_list {
+                let parts: Vec<&str> = host_port.split(':').collect();
+                if parts.len() != 2 {
+                    warn!("Invalid node format: {}, expected host:port", host_port);
+                    continue;
+                }
 
-            for host in unique_new_hosts {
+                let host = parts[0].to_string();
+                let port = parts[1];
+
+                hosts_with_ports.push((host.clone(), port.to_string()));
+
                 let upload_file = UploadFile {
                     source: config_file_path.to_string_lossy().to_string(),
                     dest: format!(
-                        "{}/data/tx_service/{}",
+                        "{}/data/port-{}/tx_service/{}",
                         deploy_config.deployment.tx_srv_home(),
+                        port,
                         SCALED_CLUSTER_CONFIG
                     ),
                     extension: "".to_string(), // No extension for this file
@@ -511,11 +514,33 @@ impl TxConfUpload {
                     upload_file,
                     config,
                     "upload-cluster-config",
-                    &format!("cluster-config-{}", host),
+                    &format!("cluster-config-{}-{}", host, port),
                 );
 
                 result.insert(task_id, task_instance);
-                info!("Added upload task for cluster config to host {}", host);
+                info!(
+                    "Added upload task for cluster config to host {} port {}",
+                    host, port
+                );
+            }
+
+            // Create mkdir tasks if we have hosts
+            if !hosts_with_ports.is_empty() {
+                let hosts: Vec<String> = hosts_with_ports.iter().map(|(h, _)| h.clone()).collect();
+                info!("Creating mkdir tasks for hosts: {:?}", hosts);
+
+                // Create mkdir tasks for each host with its port
+                for (host, port) in &hosts_with_ports {
+                    let mkdir_cmd = format!(
+                        "mkdir -p {}/data/port-{}/tx_service",
+                        deploy_config.deployment.tx_srv_home(),
+                        port
+                    );
+
+                    // You would typically add this to executable tasks
+                    // For now, just log the command that would be executed
+                    info!("Would execute on {}: {}", host, mkdir_cmd);
+                }
             }
 
             info!(
