@@ -638,6 +638,7 @@ impl Deployment {
         )?)
         .unwrap();
 
+        // Each eloqkv process will store data in {tx_srv_home}/data/port-{}, need to differentiate between different ports in case multiple eloqkv processes are running on the same host
         ini.set(
             SECTION_LOCAL,
             "eloq_data_path",
@@ -1339,7 +1340,7 @@ impl Deployment {
 
         let mut txlog_flag = String::new();
         if self.log_service.is_some() {
-            let txlog_service_list = self
+            let service_nodes = self
                 .log_service
                 .as_ref()
                 .unwrap()
@@ -1352,9 +1353,9 @@ impl Deployment {
                         port_str = node.port
                     )
                 })
-                .collect::<Vec<_>>()
-                .join(",");
-            let txlog_group_replica_num = txlog_service_list.len();
+                .collect::<Vec<_>>();
+            let txlog_group_replica_num = service_nodes.len();
+            let txlog_service_list = service_nodes.join(",");
 
             txlog_flag = format!(
                 "--txlog_service_list={} --txlog_group_replica_num={}",
@@ -1419,7 +1420,7 @@ impl Deployment {
 
         let mut txlog_flag = String::new();
         if self.log_service.is_some() {
-            let txlog_service_list = self
+            let service_nodes = self
                 .log_service
                 .as_ref()
                 .unwrap()
@@ -1432,9 +1433,9 @@ impl Deployment {
                         port_str = node.port
                     )
                 })
-                .collect::<Vec<_>>()
-                .join(",");
-            let txlog_group_replica_num = txlog_service_list.len();
+                .collect::<Vec<_>>();
+            let txlog_group_replica_num = service_nodes.len();
+            let txlog_service_list = service_nodes.join(",");
 
             txlog_flag = format!(
                 "--txlog_service_list={} --txlog_group_replica_num={}",
