@@ -47,12 +47,10 @@ impl TaskGroup for UpdateConfigTaskGroup {
         let mut barrier = vec![];
 
         // Validate the field updates
-        if let Some(ref field_updates) = fields {
-            validate_fields(field_updates, tx_node_id)?;
-        }
+        validate_fields(&fields, tx_node_id)?;
 
-        // Use the TopologyUpdateTask if both fields and tx_node_id are provided
-        if let (Some(field_updates), Some(node_id)) = (&fields, tx_node_id) {
+        // Use the TopologyUpdateTask if tx_node_id is provided
+        if let Some(node_id) = tx_node_id {
             // Get all Redis host:port combinations from the config
             let mut candidate_nodes =
                 deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
@@ -97,10 +95,10 @@ impl TaskGroup for UpdateConfigTaskGroup {
 
             // Add TopologyUpdateTask
             executable.extend(TopologyUpdateTask::for_config_update(
-                &deploy_config,
+                deploy_config,
                 redis_op_rx,
                 node_id,
-                field_updates.clone(),
+                fields,
             ));
             barrier.push(1);
 
@@ -108,11 +106,11 @@ impl TaskGroup for UpdateConfigTaskGroup {
             let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, &config);
             barrier.push(upload_tasks.len());
             executable.extend(upload_tasks);
-        } else if let Some(field_updates) = fields {
+        } else {
             // Use TopologyUpdateTask to update configuration for all nodes
             executable.extend(TopologyUpdateTask::for_all_nodes_config_update(
-                &deploy_config,
-                field_updates,
+                deploy_config,
+                fields,
             ));
             barrier.push(executable.len());
 
@@ -120,8 +118,6 @@ impl TaskGroup for UpdateConfigTaskGroup {
             let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, &config);
             barrier.push(upload_tasks.len());
             executable.extend(upload_tasks);
-        } else {
-            bail!("No fields provided");
         }
 
         if need_restart {

@@ -148,12 +148,11 @@ pub enum SubCommand {
         restart: bool,
         #[arg(long, help = "Password for Redis operations")]
         password: Option<String>,
-        // TODO(ZX) if no fields provided, update t_topology_tx table using the manually updated ini file in ~/.eloqctl/upload/{cluster_name}, then upload the ini file to all nodes in ~/.eloqctl/upload/{cluster_name}
         #[arg(
             long,
             help = "Fields to update in format field_1:value_1,field_2:value_2"
         )]
-        fields: Option<Vec<String>>,
+        fields: Vec<String>,
         #[arg(long, help = "Specific tx node ID to update configuration for")]
         tx_node_id: Option<i32>,
     },

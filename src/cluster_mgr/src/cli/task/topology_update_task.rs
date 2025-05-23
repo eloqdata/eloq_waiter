@@ -1,4 +1,5 @@
 use crate::cli::task::cluster_config_utils::parse_cluster_config;
+use crate::cli::task::config_fields::field_exists;
 use crate::cli::task::redis_op_task::ClusterNodes;
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
@@ -29,7 +30,7 @@ pub struct TopologyUpdateTask {
     receiver: watch::Receiver<ClusterNodes>,
     remove_nodes: Option<Vec<String>>, // Optional list of nodes to be removed (format: "host:port")
     tx_node_id: Option<i32>,           // Optional node ID to update config for
-    field_updates: Option<Vec<String>>, // Optional field updates in "field:value" format
+    field_updates: Vec<String>,        // Field updates in "field:value" format
 }
 
 impl TopologyUpdateTask {
@@ -52,7 +53,7 @@ impl TopologyUpdateTask {
             receiver,
             remove_nodes,
             tx_node_id: None,
-            field_updates: None,
+            field_updates: Vec::new(), // Empty vector for this use case
         });
         map.insert(
             task_id.clone(),
@@ -85,7 +86,7 @@ impl TopologyUpdateTask {
             receiver,
             remove_nodes: None,
             tx_node_id: Some(tx_node_id),
-            field_updates: Some(field_updates),
+            field_updates,
         });
         map.insert(
             task_id.clone(),
@@ -123,7 +124,7 @@ impl TopologyUpdateTask {
             receiver: rx,
             remove_nodes: None,
             tx_node_id: None, // No specific node ID
-            field_updates: Some(field_updates),
+            field_updates,
         });
 
         map.insert(
@@ -188,6 +189,7 @@ impl TopologyUpdateTask {
         for field_update in field_updates {
             if let Some((field, value)) = field_update.split_once(':') {
                 match field {
+                    // These fields are explicitly defined in ConfigJson
                     "eloq_data_path" => {
                         config.eloq_data_path = value.to_string();
                         info!("Updated eloq_data_path to {}", value);
@@ -208,13 +210,102 @@ impl TopologyUpdateTask {
                             error!("Invalid boolean value for enable_wal: {}", value);
                         }
                     }
+                    "checkpoint_interval" => {
+                        if let Ok(interval) = value.parse::<u32>() {
+                            config.checkpoint_interval = Some(interval);
+                            info!("Updated checkpoint_interval to {}", interval);
+                        } else {
+                            error!("Invalid integer value for checkpoint_interval: {}", value);
+                        }
+                    }
+                    "enable_cache_replacement" => {
+                        if let Ok(enable) = value.parse::<bool>() {
+                            config.enable_cache_replacement = Some(enable);
+                            info!("Updated enable_cache_replacement to {}", enable);
+                        } else {
+                            error!(
+                                "Invalid boolean value for enable_cache_replacement: {}",
+                                value
+                            );
+                        }
+                    }
+                    // All other fields go into additional_settings
                     _ => {
-                        error!("Unknown configuration field: {}", field);
+                        if field_exists(field) {
+                            config
+                                .additional_settings
+                                .insert(field.to_string(), value.to_string());
+                            info!("Updated {} to {}", field, value);
+                        } else {
+                            error!("Unknown configuration field: {}", field);
+                        }
                     }
                 }
             }
         }
         config
+    }
+
+    // Parse INI content to ConfigJson
+    fn parse_ini_to_config_json(&self, ini_content: &str) -> Result<ConfigJson> {
+        let mut config = ConfigJson {
+            eloq_data_path: String::new(),
+            enable_data_store: false,
+            enable_wal: false,
+            checkpoint_interval: None,
+            enable_cache_replacement: None,
+            additional_settings: std::collections::HashMap::new(),
+        };
+
+        for line in ini_content.lines() {
+            let line = line.trim();
+
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                continue;
+            }
+
+            // Parse key-value pairs
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+
+                match key {
+                    "eloq_data_path" => {
+                        config.eloq_data_path = value.to_string();
+                    }
+                    "enable_data_store" => {
+                        config.enable_data_store = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                    }
+                    "enable_wal" => {
+                        config.enable_wal = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                    }
+                    "checkpoint_interval" => {
+                        if let Ok(interval) = value.parse::<u32>() {
+                            config.checkpoint_interval = Some(interval);
+                        }
+                    }
+                    "enable_cache_replacement" => {
+                        let enable = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                        config.enable_cache_replacement = Some(enable);
+                    }
+                    // Store any other fields in additional_settings
+                    _ => {
+                        config
+                            .additional_settings
+                            .insert(key.to_string(), value.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(config)
     }
 
     // Load ConfigJson for a specific host and port from INI files
@@ -254,18 +345,16 @@ impl TopologyUpdateTask {
         if host_dir.exists() {
             // Look for port-specific INI files (EloqKv-node-{port}.ini)
             if let Ok(entries) = fs::read_dir(&host_dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
-                            if let Some(file_name) = path.file_name() {
-                                if let Some(file_name_str) = file_name.to_str() {
-                                    // Look for a file with the specific port
-                                    if file_name_str.contains(&format!("node-{}", port)) {
-                                        info!("Found port-specific INI file: {}", path.display());
-                                        if let Ok(content) = fs::read_to_string(&path) {
-                                            return self.parse_ini_to_config_json(&content);
-                                        }
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
+                        if let Some(file_name) = path.file_name() {
+                            if let Some(file_name_str) = file_name.to_str() {
+                                // Look for a file with the specific port
+                                if file_name_str.contains(&format!("node-{}", port)) {
+                                    info!("Found port-specific INI file: {}", path.display());
+                                    if let Ok(content) = fs::read_to_string(&path) {
+                                        return self.parse_ini_to_config_json(&content);
                                     }
                                 }
                             }
@@ -275,6 +364,7 @@ impl TopologyUpdateTask {
             }
         }
 
+        // Q? bail here?
         // Fall back to default config if no matching file found
         info!(
             "No specific INI file found for {}:{}, using default",
@@ -284,51 +374,10 @@ impl TopologyUpdateTask {
             eloq_data_path: format!("/home/eloq/{}/EloqKV/data/port-{}", self.cluster_name, port),
             enable_data_store: true,
             enable_wal: false,
+            checkpoint_interval: None,
+            enable_cache_replacement: None,
+            additional_settings: std::collections::HashMap::new(),
         })
-    }
-
-    // Parse INI content to ConfigJson
-    fn parse_ini_to_config_json(&self, ini_content: &str) -> Result<ConfigJson> {
-        let mut config = ConfigJson {
-            eloq_data_path: String::new(),
-            enable_data_store: false,
-            enable_wal: false,
-        };
-
-        for line in ini_content.lines() {
-            let line = line.trim();
-
-            // Skip empty lines and comments
-            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
-                continue;
-            }
-
-            // Parse key-value pairs
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-
-                match key {
-                    "eloq_data_path" => {
-                        config.eloq_data_path = value.to_string();
-                    }
-                    "enable_data_store" => {
-                        config.enable_data_store = value.to_lowercase() == "true"
-                            || value == "1"
-                            || value.to_lowercase() == "yes";
-                    }
-                    "enable_wal" => {
-                        config.enable_wal = value.to_lowercase() == "true"
-                            || value == "1"
-                            || value.to_lowercase() == "yes";
-                    }
-                    // Add more fields as needed
-                    _ => {}
-                }
-            }
-        }
-
-        Ok(config)
     }
 
     // Try to get topology from cluster_config file
@@ -524,26 +573,21 @@ impl TopologyUpdateTask {
         if host_dir.exists() {
             // Look for the specific INI file to update
             if let Ok(entries) = fs::read_dir(&host_dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
-                            if let Some(file_name) = path.file_name() {
-                                if let Some(file_name_str) = file_name.to_str() {
-                                    // Find the port-specific INI file
-                                    if file_name_str.contains(&format!("node-{}", port)) {
-                                        // Found the file, now update only the specific fields
-                                        info!("Updating INI file: {}", path.display());
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
+                        if let Some(file_name) = path.file_name() {
+                            if let Some(file_name_str) = file_name.to_str() {
+                                // Find the port-specific INI file
+                                if file_name_str.contains(&format!("node-{}", port)) {
+                                    // Found the file, now update only the specific fields
+                                    info!("Updating INI file: {}", path.display());
 
-                                        // Update the file preserving other content
-                                        self.update_existing_ini_file(&path, config)?;
+                                    // Update the file preserving other content
+                                    self.update_existing_ini_file(&path, config)?;
 
-                                        info!(
-                                            "Successfully updated INI file at {}",
-                                            path.display()
-                                        );
-                                        return Ok(true);
-                                    }
+                                    info!("Successfully updated INI file at {}", path.display());
+                                    return Ok(true);
                                 }
                             }
                         }
@@ -597,10 +641,17 @@ impl TopologyUpdateTask {
             .with_context(|| format!("Failed to read INI file: {}", file_path.display()))?;
 
         // Track which fields we've updated
-        let mut updated_fields = HashMap::new();
+        let mut updated_fields = std::collections::HashMap::new();
         updated_fields.insert("eloq_data_path".to_string(), false);
         updated_fields.insert("enable_data_store".to_string(), false);
         updated_fields.insert("enable_wal".to_string(), false);
+        updated_fields.insert("checkpoint_interval".to_string(), false);
+        updated_fields.insert("enable_cache_replacement".to_string(), false);
+
+        // Track additional settings
+        for (key, _) in &config.additional_settings {
+            updated_fields.insert(key.clone(), false);
+        }
 
         // Process line by line, updating our specific fields
         let mut updated_lines = Vec::new();
@@ -636,9 +687,33 @@ impl TopologyUpdateTask {
                         updated_lines.push(format!("enable_wal={}", config.enable_wal));
                         updated_fields.insert("enable_wal".to_string(), true);
                     }
+                    "checkpoint_interval" => {
+                        if let Some(interval) = config.checkpoint_interval {
+                            updated_lines.push(format!("checkpoint_interval={}", interval));
+                            updated_fields.insert("checkpoint_interval".to_string(), true);
+                        } else {
+                            // Keep original line if no value provided
+                            updated_lines.push(line.to_string());
+                        }
+                    }
+                    "enable_cache_replacement" => {
+                        if let Some(enable) = config.enable_cache_replacement {
+                            updated_lines.push(format!("enable_cache_replacement={}", enable));
+                            updated_fields.insert("enable_cache_replacement".to_string(), true);
+                        } else {
+                            // Keep original line if no value provided
+                            updated_lines.push(line.to_string());
+                        }
+                    }
                     _ => {
-                        // Keep other fields unchanged
-                        updated_lines.push(line.to_string());
+                        // Check if it's in our additional settings
+                        if let Some(value) = config.additional_settings.get(key) {
+                            updated_lines.push(format!("{}={}", key, value));
+                            updated_fields.insert(key.to_string(), true);
+                        } else {
+                            // Keep other fields unchanged
+                            updated_lines.push(line.to_string());
+                        }
                     }
                 }
             } else {
@@ -648,34 +723,49 @@ impl TopologyUpdateTask {
         }
 
         // Add any fields that weren't found in the original file
-        // Try to add them in the right section if possible
+        let local_section = updated_lines.iter().position(|l| l == "[local]");
+        let insert_position = local_section.map(|pos| pos + 1).unwrap_or(0);
+
+        // Check basic fields
         if !updated_fields["eloq_data_path"] {
-            let local_section = updated_lines.iter().position(|l| l == "[local]");
-            if let Some(pos) = local_section {
-                updated_lines.insert(pos + 1, format!("eloq_data_path={}", config.eloq_data_path));
-            } else {
-                updated_lines.push(format!("eloq_data_path={}", config.eloq_data_path));
-            }
+            updated_lines.insert(
+                insert_position,
+                format!("eloq_data_path={}", config.eloq_data_path),
+            );
         }
 
         if !updated_fields["enable_data_store"] {
-            let local_section = updated_lines.iter().position(|l| l == "[local]");
-            if let Some(pos) = local_section {
-                updated_lines.insert(
-                    pos + 1,
-                    format!("enable_data_store={}", config.enable_data_store),
-                );
-            } else {
-                updated_lines.push(format!("enable_data_store={}", config.enable_data_store));
-            }
+            updated_lines.insert(
+                insert_position,
+                format!("enable_data_store={}", config.enable_data_store),
+            );
         }
 
         if !updated_fields["enable_wal"] {
-            let local_section = updated_lines.iter().position(|l| l == "[local]");
-            if let Some(pos) = local_section {
-                updated_lines.insert(pos + 1, format!("enable_wal={}", config.enable_wal));
-            } else {
-                updated_lines.push(format!("enable_wal={}", config.enable_wal));
+            updated_lines.insert(insert_position, format!("enable_wal={}", config.enable_wal));
+        }
+
+        // Add checkpoint_interval if present and not already updated
+        if let Some(interval) = config.checkpoint_interval {
+            if !updated_fields["checkpoint_interval"] {
+                updated_lines.insert(insert_position, format!("checkpoint_interval={}", interval));
+            }
+        }
+
+        // Add enable_cache_replacement if present and not already updated
+        if let Some(enable) = config.enable_cache_replacement {
+            if !updated_fields["enable_cache_replacement"] {
+                updated_lines.insert(
+                    insert_position,
+                    format!("enable_cache_replacement={}", enable),
+                );
+            }
+        }
+
+        // Check additional settings
+        for (key, value) in &config.additional_settings {
+            if !updated_fields.get(key).unwrap_or(&false) {
+                updated_lines.insert(insert_position, format!("{}={}", key, value));
             }
         }
 
@@ -697,6 +787,20 @@ impl TopologyUpdateTask {
         result.push_str(&format!("eloq_data_path={}\n", config.eloq_data_path));
         result.push_str(&format!("enable_data_store={}\n", config.enable_data_store));
         result.push_str(&format!("enable_wal={}\n", config.enable_wal));
+
+        // Add checkpoint_interval and enable_cache_replacement if present
+        if let Some(interval) = config.checkpoint_interval {
+            result.push_str(&format!("checkpoint_interval={}\n", interval));
+        }
+
+        if let Some(enable) = config.enable_cache_replacement {
+            result.push_str(&format!("enable_cache_replacement={}\n", enable));
+        }
+
+        // Add any additional settings
+        for (key, value) in &config.additional_settings {
+            result.push_str(&format!("{}={}\n", key, value));
+        }
 
         result
     }
@@ -729,8 +833,8 @@ impl TaskExecutor for TopologyUpdateTask {
         let tx_op = STATE_MGR.get_state_operation::<TopologyTxOperation>(TOPOLOGY_TX_STATE);
         let log_op = STATE_MGR.get_state_operation::<TopologyLogOperation>(TOPOLOGY_LOG_STATE);
 
-        // Handle node-specific configuration update if tx_node_id and field_updates are provided
-        if let Some(field_updates) = &self.field_updates {
+        // Handle node-specific configuration update if tx_node_id is provided
+        if !self.field_updates.is_empty() {
             if let Some(node_id) = &self.tx_node_id {
                 info!(
                     "Updating configuration for node ID {} in cluster {}",
@@ -777,8 +881,8 @@ impl TaskExecutor for TopologyUpdateTask {
                         // Process all matching entities
                         for mut entity in entities {
                             // Update the configuration based on field updates
-                            let updated_config =
-                                self.update_config_json(entity.ini_config.clone(), field_updates);
+                            let updated_config = self
+                                .update_config_json(entity.ini_config.clone(), &self.field_updates);
                             entity.ini_config = updated_config.clone();
                             entity.update_timestamp = now;
 
@@ -843,7 +947,7 @@ impl TaskExecutor for TopologyUpdateTask {
                     }
                 }
             } else {
-                // Update configuration for all nodes if tx_node_id is None but field_updates is provided
+                // Update configuration for all nodes if tx_node_id is None
                 info!(
                     "Updating configuration for all nodes in cluster {}",
                     self.cluster_name
@@ -876,8 +980,8 @@ impl TaskExecutor for TopologyUpdateTask {
                         // Update each node's configuration
                         for mut entity in entities {
                             // Update the configuration based on field updates
-                            let updated_config =
-                                self.update_config_json(entity.ini_config.clone(), field_updates);
+                            let updated_config = self
+                                .update_config_json(entity.ini_config.clone(), &self.field_updates);
                             entity.ini_config = updated_config.clone();
                             entity.update_timestamp = now;
 

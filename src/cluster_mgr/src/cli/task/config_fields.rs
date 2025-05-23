@@ -6,8 +6,6 @@ use once_cell::sync::Lazy;
 /// update scope (node-specific or cluster-wide) and other properties.
 use std::collections::HashMap;
 
-// TODO(ZX) add more fields
-
 /// Represents the scope of a configuration field update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldScope {

@@ -43,11 +43,16 @@ pub(crate) const TOPOLOGY_TX_UPDATE: [&str; 2] = [
 
 pub(crate) const TOPOLOGY_TX_DELETE: &str = r#"delete from t_topology_tx"#;
 
+// TODO(ZX) differentiate basic fields(eloq_data_path, checkpoint_interval, enable_data_store, enable_wal and enable_cache_replacement) and additional fields
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigJson {
     pub eloq_data_path: String,
     pub enable_data_store: bool,
     pub enable_wal: bool,
+    pub checkpoint_interval: Option<u32>,
+    pub enable_cache_replacement: Option<bool>,
+    #[serde(default)]
+    pub additional_settings: std::collections::HashMap<String, String>,
 }
 
 impl From<ConfigJson> for String {
