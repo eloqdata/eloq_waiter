@@ -1,3 +1,4 @@
+use crate::cli::task::config_fields::{field_exists, is_cluster_wide_field};
 use crate::cli::task::group::Config;
 use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
@@ -8,10 +9,11 @@ use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
 use crate::config::DeploymentPackage;
-use anyhow::bail;
+use anyhow::{bail, Result};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tokio::sync::watch;
+use tracing::{info, warn};
 
 #[async_trait::async_trait]
 impl TaskGroup for UpdateConfigTaskGroup {
@@ -44,7 +46,10 @@ impl TaskGroup for UpdateConfigTaskGroup {
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
 
-        // TODO(ZX) there should be a list of fields that can be updated(some of the fields can be updated on certain node-id, while some have to be updated across all nodes)
+        // Validate the field updates
+        if let Some(ref field_updates) = fields {
+            validate_fields(field_updates, tx_node_id)?;
+        }
 
         // Use the TopologyUpdateTask if both fields and tx_node_id are provided
         if let (Some(field_updates), Some(node_id)) = (&fields, tx_node_id) {
@@ -222,4 +227,40 @@ impl TaskGroup for UpdateConfigTaskGroup {
             executable,
         })
     }
+}
+
+/// Validates the field updates and ensures they comply with scope rules
+fn validate_fields(field_updates: &[String], tx_node_id: Option<i32>) -> Result<()> {
+    for field_update in field_updates {
+        if let Some((field, _)) = field_update.split_once(':') {
+            // Check if field exists in registry
+            if !field_exists(field) {
+                bail!(
+                    "Unknown configuration field '{}'. Run 'eloqctl help config-fields' for a list of valid fields.",
+                    field
+                );
+            }
+
+            // If updating a node-specific field, ensure we have a tx_node_id
+            // If updating a cluster-wide field, warn if tx_node_id is provided
+            if is_cluster_wide_field(field) && tx_node_id.is_some() {
+                warn!(
+                    "Field '{}' is cluster-wide but a specific node ID was provided. The update will apply to all nodes.",
+                    field
+                );
+            } else if !is_cluster_wide_field(field) && tx_node_id.is_none() {
+                info!(
+                    "Node-specific field '{}' will be updated on all nodes.",
+                    field
+                );
+            }
+        } else {
+            bail!(
+                "Invalid field update format: '{}'. Expected 'field:value'.",
+                field_update
+            );
+        }
+    }
+
+    Ok(())
 }
