@@ -16,7 +16,7 @@ use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, upload_tasks_with_nodes, UploadTaskBuilderType,
 };
 use crate::cli::{download_dir, SubCommand};
-use crate::config::config_base::{DeployConfig, UploadFile};
+use crate::config::config_base::UploadFile;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::config::{config_template, SSH_PYTHON_SCRIPT};

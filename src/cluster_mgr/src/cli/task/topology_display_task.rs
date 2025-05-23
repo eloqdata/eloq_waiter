@@ -165,7 +165,7 @@ impl TaskExecutor for TopologyDisplayTask {
         }
 
         let mut output = format!(
-            "\nCluster TX Topology for {}:\n{}",
+            "\n\nCluster TX Topology for {}:\n{}",
             self.cluster_name,
             table.to_string()
         );

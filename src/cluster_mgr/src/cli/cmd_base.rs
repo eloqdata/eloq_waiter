@@ -474,9 +474,7 @@ impl CmdExecutor {
         };
 
         match config {
-            Config::Cluster(mut deploy_config) => {
-                // Operations specific to ClusterConfig
-
+            Config::Cluster(deploy_config) => {
                 match cmd.clone() {
                     SubCommand::Connect { .. } => {
                         println!("{}", deploy_config.client_conn());

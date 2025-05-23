@@ -33,8 +33,9 @@ impl TaskGroup for CtrlDBTaskGroup {
         let (barrier, executable) = match cmd.clone() {
             SubCommand::Remove { cluster } => {
                 let (cluster, tx, log, store, monitor) = (cluster, true, true, true, true);
-                let (mut barrier, mut tasks) =
-                    self.stop_tasks(tx, log, store, cmd, &cluster_config, true);
+                let (mut barrier, mut tasks) = self
+                    .stop_tasks(tx, log, store, cmd, &cluster_config, true)
+                    .await;
                 if monitor && cluster_config.deployment.monitor.is_some() {
                     let stop_moni = SubCommand::Monitor {
                         cluster: cluster.clone(),
@@ -66,8 +67,9 @@ impl TaskGroup for CtrlDBTaskGroup {
                     password: None,
                     nodes: Vec::new(),
                 };
-                let (mut barrier, mut executable) =
-                    self.stop_tasks(true, true, false, stop_cmd, &cluster_config, false);
+                let (mut barrier, mut executable) = self
+                    .stop_tasks(true, true, false, stop_cmd, &cluster_config, false)
+                    .await;
                 let start_cmd = SubCommand::Start {
                     cluster,
                     nodes: Vec::new(),
@@ -93,8 +95,9 @@ impl TaskGroup for CtrlDBTaskGroup {
                 } else {
                     (cluster, tx.unwrap_or(true), log, store, monitor)
                 };
-                let (mut barrier, mut tasks) =
-                    self.stop_tasks(tx, log, store, cmd, &cluster_config, false);
+                let (mut barrier, mut tasks) = self
+                    .stop_tasks(tx, log, store, cmd, &cluster_config, false)
+                    .await;
                 if monitor && cluster_config.deployment.monitor.is_some() {
                     let stop_moni = SubCommand::Monitor {
                         cluster: cluster.clone(),
@@ -179,7 +182,7 @@ impl TaskGroup for CtrlDBTaskGroup {
 }
 
 impl CtrlDBTaskGroup {
-    fn stop_tasks(
+    async fn stop_tasks(
         &self,
         tx: bool,
         log: bool,
@@ -218,7 +221,7 @@ impl CtrlDBTaskGroup {
             };
 
             if has_nodes {
-                stop_with_failover(cmd.clone(), config, &mut barrier, &mut executable);
+                stop_with_failover(cmd.clone(), config, &mut barrier, &mut executable).await;
             } else if is_from_remove || is_force_stop {
                 // Enter this branch when:
                 // - The user explicitly requests to remove or force-stop the cluster.
@@ -240,7 +243,7 @@ impl CtrlDBTaskGroup {
                 barrier.push(stop_tx.len());
                 executable.extend(stop_tx);
             } else if config.deployment.tx_service.standby_host_ports.is_some() {
-                stop_with_hot_standby(cmd.clone(), config, &mut barrier, &mut executable);
+                stop_with_hot_standby(cmd.clone(), config, &mut barrier, &mut executable).await;
             } else {
                 let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
                 barrier.push(stop_tx.len());

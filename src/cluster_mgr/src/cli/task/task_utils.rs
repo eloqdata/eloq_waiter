@@ -6,13 +6,16 @@ use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId
 use crate::cli::upload_dir;
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::{config_base::DeployConfig, DeploymentPackage, MONITOR_DIR};
-use crate::state::state_base::StateOperation;
+use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
+use crate::state::topology_tx_operation::{TopologyTxEntity, TopologyTxOperation};
+use crate::StateValue;
 use anyhow::anyhow;
 use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use serde_json::Value;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -20,7 +23,7 @@ use std::fs;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScaleOperationType {
@@ -239,7 +242,7 @@ pub(crate) async fn save_task_status(
     }
 }
 
-pub fn stop_with_hot_standby(
+pub async fn stop_with_hot_standby(
     cmd: SubCommand,
     config: &DeployConfig,
     barrier: &mut Vec<usize>,
@@ -285,7 +288,8 @@ pub fn stop_with_hot_standby(
         executable.extend(stop_tx);
     } else {
         // Check if any node configuration has enable_data_store set to false. if so, skip the checkpoint tasks
-        let skip_checkpoint = check_whether_to_skip_checkpoint(&config.deployment.cluster_name);
+        let skip_checkpoint =
+            check_whether_to_skip_checkpoint(&config.deployment.cluster_name).await;
 
         let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::MonographTx);
         let standby_host_ports = config.get_host_port_list(DeploymentPackage::MonographStandby);
@@ -359,7 +363,7 @@ pub fn stop_with_hot_standby(
     }
 }
 
-pub fn stop_with_failover(
+pub async fn stop_with_failover(
     cmd: SubCommand,
     config: &DeployConfig,
     barrier: &mut Vec<usize>,
@@ -376,7 +380,7 @@ pub fn stop_with_failover(
     }
 
     // Check if any node configuration has enable_data_store set to false. if so, skip the checkpoint tasks
-    let skip_checkpoint = check_whether_to_skip_checkpoint(&config.deployment.cluster_name);
+    let skip_checkpoint = check_whether_to_skip_checkpoint(&config.deployment.cluster_name).await;
 
     // Set up topology task to get cluster information
     let topology_task_id = TaskId {
@@ -471,95 +475,54 @@ pub fn stop_with_failover(
     executable.extend(stop_nodes);
 }
 
-fn check_whether_to_skip_checkpoint(cluster_name: &str) -> bool {
-    // TODO(ZX) !!! should load and check ini config info from internal sqlite db, instead of checking the ini file in upload dir
+async fn check_whether_to_skip_checkpoint(cluster_name: &str) -> bool {
+    info!(
+        "Checking via DB whether to skip checkpoint for cluster: {}",
+        cluster_name
+    );
 
-    let upload_path = upload_dir().join(cluster_name);
-    if !upload_path.exists() {
-        return true;
-    }
+    let topology_op = STATE_MGR.get_state_operation::<TopologyTxOperation>("t_topology_tx");
 
-    let mut skip_ckpt = false;
+    let cond_supplier = || {
+        Some(QueryCondition {
+            cond_text: "cluster_name = ?1".to_string(),
+            bind_values: vec![StateValue::Varchar(cluster_name.to_string())],
+        })
+    };
 
-    // First check the root EloqKv.ini file
-    let root_ini_path = upload_path.join("EloqKv.ini");
-    if root_ini_path.exists() {
-        let mut ini = Ini::new();
-        if let Ok(_) = ini.load(root_ini_path.to_str().unwrap()) {
-            if let Some(value) = ini.get("LOCAL", "enable_data_store") {
-                if value.to_lowercase() == "false" {
+    match topology_op.load(cond_supplier).await {
+        Ok(entities) => {
+            if entities.is_empty() {
+                info!(
+                    "No topology entries found in DB for cluster: {}. Not skipping checkpoint.",
+                    cluster_name
+                );
+                return false; // No nodes, so no "enable_data_store=false" setting.
+            }
+            for entity in entities {
+                if !entity.ini_config.enable_data_store {
                     info!(
-                        "Found enable_data_store=false in root {}",
-                        root_ini_path.display()
+                        "Found enable_data_store=false in DB for a node in cluster: {}. Skipping checkpoint.",
+                        cluster_name
                     );
-                    return true;
+                    return true; // Request to skip checkpoint.
                 }
             }
+            // If loop completes, no node had enable_data_store=false.
+            info!(
+                "No node found with enable_data_store=false in DB for cluster: {}. Not skipping checkpoint.",
+                cluster_name
+            );
+            false // Default: do not skip checkpoint.
+        }
+        Err(e) => {
+            error!(
+                "Failed to load topology_tx from DB for cluster {}: {:?}. Defaulting to not skipping checkpoint.",
+                cluster_name, e
+            );
+            false // On DB error, default to not skipping checkpoint for safety.
         }
     }
-
-    // // Check monitor directory
-    // let monitor_path = upload_path.join(MONITOR_DIR);
-    // if monitor_path.exists() {
-    //     if let Ok(monitor_entries) = fs::read_dir(&monitor_path) {
-    //         for file_entry in monitor_entries.flatten() {
-    //             let file_path = file_entry.path();
-    //             if file_path.extension().and_then(|e| e.to_str()) == Some("ini") {
-    //                 // Found an INI file, check its content
-    //                 let mut ini = Ini::new();
-    //                 if let Ok(_) = ini.load(file_path.to_str().unwrap()) {
-    //                     if let Some(value) = ini.get("LOCAL", "enable_data_store") {
-    //                         if value.to_lowercase() == "false" {
-    //                             info!("Found enable_data_store=false in {}", file_path.display());
-    //                             return true;
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-    // Walk through all directories and check .ini files
-    if let Ok(entries) = fs::read_dir(upload_path) {
-        for entry in entries.flatten() {
-            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                let dir_path = entry.path();
-                // Skip the monitor directory as we already checked it
-                if dir_path.file_name().and_then(|f| f.to_str()) == Some(MONITOR_DIR) {
-                    continue;
-                }
-
-                // Check for .ini files in this directory
-                if let Ok(dir_entries) = fs::read_dir(&dir_path) {
-                    for file_entry in dir_entries.flatten() {
-                        let file_path = file_entry.path();
-                        if file_path.extension().and_then(|e| e.to_str()) == Some("ini") {
-                            // Found an INI file, check its content
-                            let mut ini = Ini::new();
-                            if let Ok(_) = ini.load(file_path.to_str().unwrap()) {
-                                if let Some(value) = ini.get("LOCAL", "enable_data_store") {
-                                    if value.to_lowercase() == "false" {
-                                        info!(
-                                            "Found enable_data_store=false in {}",
-                                            file_path.display()
-                                        );
-                                        skip_ckpt = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if skip_ckpt {
-                    break;
-                }
-            }
-        }
-    }
-
-    skip_ckpt
 }
 
 /// Node configuration with node ID, IP, port, and candidate status

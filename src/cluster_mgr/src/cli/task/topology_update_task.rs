@@ -1,4 +1,4 @@
-use crate::cli::task::cluster_config_utils::{parse_cluster_config, ClusterGroupConfig};
+use crate::cli::task::cluster_config_utils::parse_cluster_config;
 use crate::cli::task::redis_op_task::ClusterNodes;
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
@@ -14,15 +14,13 @@ use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use indexmap::IndexMap;
-use serde_json::{json, Value};
-use sqlx::{query, Row, SqlitePool};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tokio::sync::watch;
 use tracing::{error, info};
 
-// Update topology in t_topology_tx using live data from RedisOpTask
+// Update topology in t_topology_tx using live data from RedisOpTask, then update ini files in upload dir
 #[derive(Debug, Clone)]
 pub struct TopologyUpdateTask {
     task_id: TaskId,
@@ -100,158 +98,44 @@ impl TopologyUpdateTask {
         map
     }
 
-    // Load ConfigJson from t_topology_tx database rather than INI file
-    async fn load_config_from_db(&self) -> Result<ConfigJson> {
-        let tx_op = STATE_MGR.get_state_operation::<TopologyTxOperation>(TOPOLOGY_TX_STATE);
+    /// Create tasks to update configuration for all nodes
+    pub fn for_all_nodes_config_update(
+        config: &DeployConfig,
+        field_updates: Vec<String>,
+    ) -> IndexMap<TaskId, TaskInstance> {
+        let mut map = IndexMap::new();
+        let task_id = TaskId {
+            cmd: "topology-update".to_string(),
+            task: "config-update-all-nodes".to_string(),
+            host: "local".to_string(),
+        };
 
-        // Query for existing entries for this cluster
-        match tx_op
-            .load(|| {
-                let cond_text = "cluster_name = ?".to_string();
-                let bind_values = vec![StateValue::Varchar(self.cluster_name.clone())];
-                Some(QueryCondition {
-                    cond_text,
-                    bind_values,
-                })
-            })
-            .await
-        {
-            Ok(existing_entities) => {
-                if let Some(entity) = existing_entities.first() {
-                    // Return the config from the first entity found
-                    info!(
-                        "Loaded existing ConfigJson from database for cluster {}",
-                        self.cluster_name
-                    );
-                    Ok(entity.ini_config.clone())
-                } else {
-                    // During launch, check if the config is in the upload/<cluster-name> directory
-                    info!(
-                        "No existing config found in database for cluster {}, checking upload directory",
-                        self.cluster_name
-                    );
+        // Create empty receiver channel - not used for full update
+        let (_, rx) = watch::channel(ClusterNodes {
+            masters: Vec::new(),
+            replicas: Vec::new(),
+        });
 
-                    // Look for INI files in the upload directory for this cluster
-                    let upload_path = upload_dir().join(&self.cluster_name);
+        let task = Box::new(TopologyUpdateTask {
+            task_id: task_id.clone(),
+            cluster_name: config.deployment.cluster_name.clone(),
+            config: config.clone(),
+            receiver: rx,
+            remove_nodes: None,
+            tx_node_id: None, // No specific node ID
+            field_updates: Some(field_updates),
+        });
 
-                    // Look for host-specific INI files first
-                    let mut found_ini_files = false;
-                    let mut config_json = ConfigJson {
-                        eloq_data_path: String::new(),
-                        enable_data_store: false,
-                        enable_wal: false,
-                    };
+        map.insert(
+            task_id.clone(),
+            TaskInstance {
+                task_input: HashMap::new(),
+                task,
+                task_host: TaskHost::Local,
+            },
+        );
 
-                    // Get all hosts from the deployment config
-                    let all_hosts = self.config.deployment.tx_service.merge_hosts();
-
-                    for host in all_hosts {
-                        let host_dir = upload_path.join(&host);
-                        if host_dir.exists() {
-                            // Look for *node*.ini files in the host directory
-                            if let Ok(entries) = fs::read_dir(&host_dir) {
-                                for entry in entries {
-                                    if let Ok(entry) = entry {
-                                        let path = entry.path();
-                                        if path.is_file()
-                                            && path.extension().map_or(false, |ext| ext == "ini")
-                                        {
-                                            if let Some(file_name) = path.file_name() {
-                                                if let Some(file_name_str) = file_name.to_str() {
-                                                    if file_name_str.contains("node") {
-                                                        // Found a node INI file, parse it
-                                                        info!(
-                                                            "Found INI file for host {}: {}",
-                                                            host,
-                                                            path.display()
-                                                        );
-                                                        if let Ok(content) =
-                                                            fs::read_to_string(&path)
-                                                        {
-                                                            // Simple INI parsing for known fields
-                                                            for line in content.lines() {
-                                                                let line = line.trim();
-                                                                if line.is_empty()
-                                                                    || line.starts_with('#')
-                                                                    || line.starts_with(';')
-                                                                {
-                                                                    continue;
-                                                                }
-
-                                                                if let Some((key, value)) =
-                                                                    line.split_once('=')
-                                                                {
-                                                                    let key = key.trim();
-                                                                    let value = value.trim();
-
-                                                                    match key {
-                                                                        "eloq_data_path" => {
-                                                                            config_json
-                                                                                .eloq_data_path =
-                                                                                value.to_string();
-                                                                        }
-                                                                        "enable_data_store" => {
-                                                                            config_json.enable_data_store = value.to_lowercase() == "true"
-                                                                                || value == "1"
-                                                                                || value.to_lowercase() == "yes";
-                                                                        }
-                                                                        "enable_wal" => {
-                                                                            config_json
-                                                                                .enable_wal = value
-                                                                                .to_lowercase()
-                                                                                == "true"
-                                                                                || value == "1"
-                                                                                || value
-                                                                                    .to_lowercase()
-                                                                                    == "yes";
-                                                                        }
-                                                                        // Add other fields as needed
-                                                                        _ => {}
-                                                                    }
-                                                                }
-                                                            }
-                                                            found_ini_files = true;
-                                                            break; // Just use the first found INI file for this host
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if found_ini_files {
-                                break; // Use the first host's INI file we found
-                            }
-                        }
-                    }
-
-                    // If we found and parsed INI files, use that config
-                    if found_ini_files {
-                        info!("Using configuration from INI files in upload directory");
-                        Ok(config_json)
-                    } else {
-                        // Fall back to default config if no INI files found
-                        info!("No INI files found in upload directory, using default config");
-                        Ok(ConfigJson {
-                            eloq_data_path: String::new(),
-                            enable_data_store: false,
-                            enable_wal: false,
-                        })
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to query database for configuration: {}", e);
-                // Return default config on error
-                Ok(ConfigJson {
-                    eloq_data_path: String::new(),
-                    enable_data_store: false,
-                    enable_wal: false,
-                })
-            }
-        }
+        map
     }
 
     // Load ConfigJson for a specific node ID
@@ -333,6 +217,120 @@ impl TopologyUpdateTask {
         config
     }
 
+    // Load ConfigJson for a specific host and port from INI files
+    async fn load_config_from_ini_file(&self, host: &str, port: i32) -> Result<ConfigJson> {
+        let tx_op = STATE_MGR.get_state_operation::<TopologyTxOperation>(TOPOLOGY_TX_STATE);
+
+        // Try to find existing config in database first
+        match tx_op
+            .load(|| {
+                let cond_text = "cluster_name = ? AND host = ? AND port = ?".to_string();
+                let bind_values = vec![
+                    StateValue::Varchar(self.cluster_name.clone()),
+                    StateValue::Varchar(host.to_string()),
+                    StateValue::Integer(port),
+                ];
+                Some(QueryCondition {
+                    cond_text,
+                    bind_values,
+                })
+            })
+            .await
+        {
+            Ok(entities) if !entities.is_empty() => {
+                info!(
+                    "Found existing configuration for {}:{} in database",
+                    host, port
+                );
+                return Ok(entities[0].ini_config.clone());
+            }
+            _ => {}
+        }
+
+        // Look for node-specific INI file
+        let upload_path = upload_dir().join(&self.cluster_name);
+        let host_dir = upload_path.join(host);
+
+        if host_dir.exists() {
+            // Look for port-specific INI files (EloqKv-node-{port}.ini)
+            if let Ok(entries) = fs::read_dir(&host_dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
+                            if let Some(file_name) = path.file_name() {
+                                if let Some(file_name_str) = file_name.to_str() {
+                                    // Look for a file with the specific port
+                                    if file_name_str.contains(&format!("node-{}", port)) {
+                                        info!("Found port-specific INI file: {}", path.display());
+                                        if let Ok(content) = fs::read_to_string(&path) {
+                                            return self.parse_ini_to_config_json(&content);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to default config if no matching file found
+        info!(
+            "No specific INI file found for {}:{}, using default",
+            host, port
+        );
+        Ok(ConfigJson {
+            eloq_data_path: format!("/home/eloq/{}/EloqKV/data/port-{}", self.cluster_name, port),
+            enable_data_store: true,
+            enable_wal: false,
+        })
+    }
+
+    // Parse INI content to ConfigJson
+    fn parse_ini_to_config_json(&self, ini_content: &str) -> Result<ConfigJson> {
+        let mut config = ConfigJson {
+            eloq_data_path: String::new(),
+            enable_data_store: false,
+            enable_wal: false,
+        };
+
+        for line in ini_content.lines() {
+            let line = line.trim();
+
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                continue;
+            }
+
+            // Parse key-value pairs
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+
+                match key {
+                    "eloq_data_path" => {
+                        config.eloq_data_path = value.to_string();
+                    }
+                    "enable_data_store" => {
+                        config.enable_data_store = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                    }
+                    "enable_wal" => {
+                        config.enable_wal = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                    }
+                    // Add more fields as needed
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(config)
+    }
+
     // Try to get topology from cluster_config file
     async fn get_topology_from_config_file(&self) -> Result<Option<Vec<TopologyTxEntity>>> {
         let config_path = upload_dir()
@@ -367,11 +365,13 @@ impl TopologyUpdateTask {
         let cluster_name = &self.config.deployment.cluster_name;
         let node_group_count = cluster_config.node_groups.len() as i32;
 
-        // Load INI file from upload directory to store in entities
-        let config_json = self.load_config_from_db().await?;
-
         for (&ng_id, nodes) in &cluster_config.node_groups {
             for node in nodes {
+                // Load INI file from upload directory to store in entities
+                let config_json = self
+                    .load_config_from_ini_file(&node.host_name, node.port as i32)
+                    .await?;
+
                 // Determine the role based on is_candidate flag
                 // 1 = Replica (Standby), 2 = Voter (non-candidate)
                 let role = if node.is_candidate {
@@ -388,7 +388,7 @@ impl TopologyUpdateTask {
                     role,
                     host: node.host_name.clone(),
                     port: node.port as i32,
-                    ini_config: config_json.clone(),
+                    ini_config: config_json,
                     create_timestamp: now,
                     update_timestamp: now,
                 });
@@ -406,14 +406,11 @@ impl TopologyUpdateTask {
     }
 
     // Extract TX entries from node group config parsed by parse_ng_config
-    async fn extract_tx_topology(&self) -> Result<Vec<TopologyTxEntity>> {
+    async fn extract_tx_topology_from_ini_file(&self) -> Result<Vec<TopologyTxEntity>> {
         let mut tx_entities = Vec::new();
         let port_delta = 10000;
         let cluster_name = &self.config.deployment.cluster_name;
         let now = Utc::now();
-
-        // Load configuration from database instead of INI file
-        let config_json = self.load_config_from_db().await?;
 
         // Get the configuration strings from the deployment config
         let tx_ip_port_list = self.config.deployment.tx_service.tx_host_ports.join(",");
@@ -455,6 +452,11 @@ impl TopologyUpdateTask {
                             2 // Voter
                         };
 
+                        let port = node.port as i32 - port_delta as i32;
+
+                        // Load configuration specific to this host and port
+                        let config_json = self.load_config_from_ini_file(&node.ip, port).await?;
+
                         tx_entities.push(TopologyTxEntity {
                             cluster_name: cluster_name.clone(),
                             node_group_count,
@@ -462,8 +464,8 @@ impl TopologyUpdateTask {
                             node_id: node.node_id as i32,
                             role,
                             host: node.ip.clone(),
-                            port: (node.port as i32 - port_delta as i32),
-                            ini_config: config_json.clone(),
+                            port,
+                            ini_config: config_json,
                             create_timestamp: now,
                             update_timestamp: now,
                         });
@@ -508,6 +510,196 @@ impl TopologyUpdateTask {
         }
         log_entities
     }
+
+    // Write ConfigJson back to INI file
+    async fn write_config_to_ini_file(
+        &self,
+        host: &str,
+        port: i32,
+        config: &ConfigJson,
+    ) -> Result<bool> {
+        let upload_path = upload_dir().join(&self.cluster_name);
+        let host_dir = upload_path.join(host);
+
+        if host_dir.exists() {
+            // Look for the specific INI file to update
+            if let Ok(entries) = fs::read_dir(&host_dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "ini") {
+                            if let Some(file_name) = path.file_name() {
+                                if let Some(file_name_str) = file_name.to_str() {
+                                    // Find the port-specific INI file
+                                    if file_name_str.contains(&format!("node-{}", port)) {
+                                        // Found the file, now update only the specific fields
+                                        info!("Updating INI file: {}", path.display());
+
+                                        // Update the file preserving other content
+                                        self.update_existing_ini_file(&path, config)?;
+
+                                        info!(
+                                            "Successfully updated INI file at {}",
+                                            path.display()
+                                        );
+                                        return Ok(true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If we didn't find a specific file but the host directory exists,
+            // create a new INI file for this port
+            let new_file_path = host_dir.join(format!("EloqKv-node-{}.ini", port));
+            info!("Creating new INI file: {}", new_file_path.display());
+            let ini_content = self.config_json_to_ini(config);
+
+            fs::write(&new_file_path, ini_content).with_context(|| {
+                format!("Failed to create new INI file: {}", new_file_path.display())
+            })?;
+
+            info!(
+                "Successfully created new INI file at {}",
+                new_file_path.display()
+            );
+            return Ok(true);
+        } else {
+            // Create the host directory if it doesn't exist
+            info!("Creating host directory: {}", host_dir.display());
+            fs::create_dir_all(&host_dir).with_context(|| {
+                format!("Failed to create host directory: {}", host_dir.display())
+            })?;
+
+            // Create a new INI file for this port
+            let new_file_path = host_dir.join(format!("EloqKv-node-{}.ini", port));
+            info!("Creating new INI file: {}", new_file_path.display());
+            let ini_content = self.config_json_to_ini(config);
+
+            fs::write(&new_file_path, ini_content).with_context(|| {
+                format!("Failed to create new INI file: {}", new_file_path.display())
+            })?;
+
+            info!(
+                "Successfully created new INI file at {}",
+                new_file_path.display()
+            );
+            return Ok(true);
+        }
+    }
+
+    // Update an existing INI file, preserving all non-modified fields
+    fn update_existing_ini_file(&self, file_path: &Path, config: &ConfigJson) -> Result<()> {
+        // Read the existing file
+        let content = fs::read_to_string(file_path)
+            .with_context(|| format!("Failed to read INI file: {}", file_path.display()))?;
+
+        // Track which fields we've updated
+        let mut updated_fields = HashMap::new();
+        updated_fields.insert("eloq_data_path".to_string(), false);
+        updated_fields.insert("enable_data_store".to_string(), false);
+        updated_fields.insert("enable_wal".to_string(), false);
+
+        // Process line by line, updating our specific fields
+        let mut updated_lines = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+
+            if line.is_empty()
+                || line.starts_with('#')
+                || line.starts_with(';')
+                || line.starts_with('[')
+            {
+                // Keep comments, section headers, and empty lines intact
+                updated_lines.push(line.to_string());
+                continue;
+            }
+
+            // Check if this line is a field we want to update
+            if let Some((key, _)) = line.split_once('=') {
+                let key = key.trim();
+
+                match key {
+                    "eloq_data_path" => {
+                        updated_lines.push(format!("eloq_data_path={}", config.eloq_data_path));
+                        updated_fields.insert("eloq_data_path".to_string(), true);
+                    }
+                    "enable_data_store" => {
+                        updated_lines
+                            .push(format!("enable_data_store={}", config.enable_data_store));
+                        updated_fields.insert("enable_data_store".to_string(), true);
+                    }
+                    "enable_wal" => {
+                        updated_lines.push(format!("enable_wal={}", config.enable_wal));
+                        updated_fields.insert("enable_wal".to_string(), true);
+                    }
+                    _ => {
+                        // Keep other fields unchanged
+                        updated_lines.push(line.to_string());
+                    }
+                }
+            } else {
+                // Keep any non key-value lines intact
+                updated_lines.push(line.to_string());
+            }
+        }
+
+        // Add any fields that weren't found in the original file
+        // Try to add them in the right section if possible
+        if !updated_fields["eloq_data_path"] {
+            let local_section = updated_lines.iter().position(|l| l == "[local]");
+            if let Some(pos) = local_section {
+                updated_lines.insert(pos + 1, format!("eloq_data_path={}", config.eloq_data_path));
+            } else {
+                updated_lines.push(format!("eloq_data_path={}", config.eloq_data_path));
+            }
+        }
+
+        if !updated_fields["enable_data_store"] {
+            let local_section = updated_lines.iter().position(|l| l == "[local]");
+            if let Some(pos) = local_section {
+                updated_lines.insert(
+                    pos + 1,
+                    format!("enable_data_store={}", config.enable_data_store),
+                );
+            } else {
+                updated_lines.push(format!("enable_data_store={}", config.enable_data_store));
+            }
+        }
+
+        if !updated_fields["enable_wal"] {
+            let local_section = updated_lines.iter().position(|l| l == "[local]");
+            if let Some(pos) = local_section {
+                updated_lines.insert(pos + 1, format!("enable_wal={}", config.enable_wal));
+            } else {
+                updated_lines.push(format!("enable_wal={}", config.enable_wal));
+            }
+        }
+
+        // Write the updated content back to file
+        let updated_content = updated_lines.join("\n");
+        fs::write(file_path, updated_content).with_context(|| {
+            format!("Failed to write updated INI file: {}", file_path.display())
+        })?;
+
+        Ok(())
+    }
+
+    // Convert ConfigJson to INI format
+    fn config_json_to_ini(&self, config: &ConfigJson) -> String {
+        let mut result = String::new();
+
+        // Create a basic minimal INI file with just our tracked fields
+        result.push_str("[local]\n");
+        result.push_str(&format!("eloq_data_path={}\n", config.eloq_data_path));
+        result.push_str(&format!("enable_data_store={}\n", config.enable_data_store));
+        result.push_str(&format!("enable_wal={}\n", config.enable_wal));
+
+        result
+    }
 }
 
 #[async_trait]
@@ -538,53 +730,104 @@ impl TaskExecutor for TopologyUpdateTask {
         let log_op = STATE_MGR.get_state_operation::<TopologyLogOperation>(TOPOLOGY_LOG_STATE);
 
         // Handle node-specific configuration update if tx_node_id and field_updates are provided
-        if let (Some(node_id), Some(field_updates)) = (&self.tx_node_id, &self.field_updates) {
-            if !field_updates.is_empty() {
+        if let Some(field_updates) = &self.field_updates {
+            if let Some(node_id) = &self.tx_node_id {
                 info!(
                     "Updating configuration for node ID {} in cluster {}",
                     node_id, self.cluster_name
                 );
 
-                // Load the existing entity for the specified node
-                match self.load_config_for_node(*node_id).await {
-                    Ok(Some(mut entity)) => {
-                        // Update the configuration based on field updates
-                        let updated_config =
-                            self.update_config_json(entity.ini_config.clone(), field_updates);
-                        entity.ini_config = updated_config;
-                        entity.update_timestamp = now;
+                // Query the database for all entities matching this node_id
+                match tx_op
+                    .load(|| {
+                        let cond_text = "cluster_name = ? AND node_id = ?".to_string();
+                        let bind_values = vec![
+                            StateValue::Varchar(self.cluster_name.clone()),
+                            StateValue::Integer(*node_id),
+                        ];
+                        Some(QueryCondition {
+                            cond_text,
+                            bind_values,
+                        })
+                    })
+                    .await
+                {
+                    Ok(entities) => {
+                        if entities.is_empty() {
+                            let msg = format!(
+                                "Node with ID {} not found in cluster {}",
+                                node_id, self.cluster_name
+                            );
+                            error!("{}", msg);
+                            task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                            task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
+                            return Ok(Some(task_result));
+                        }
 
-                        // Save the updated entity back to the database
-                        match tx_op.put(entity.clone()).await {
-                            Ok(_) => {
-                                let msg = format!(
-                                    "Successfully updated configuration for node {}:{} (ID: {}) in cluster {}",
-                                    entity.host, entity.port, entity.node_id, self.cluster_name
-                                );
-                                info!("{}", msg);
-                                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
-                                task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
-                                return Ok(Some(task_result));
-                            }
-                            Err(e) => {
-                                let msg = format!(
-                                    "Failed to update configuration for node {}:{} (ID: {}): {}",
-                                    entity.host, entity.port, entity.node_id, e
-                                );
-                                error!("{}", msg);
-                                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                                task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
-                                return Ok(Some(task_result));
+                        info!(
+                            "Found {} entries with node ID {} in cluster {}",
+                            entities.len(),
+                            node_id,
+                            self.cluster_name
+                        );
+
+                        let mut success_count = 0;
+                        let mut failure_count = 0;
+
+                        // Process all matching entities
+                        for mut entity in entities {
+                            // Update the configuration based on field updates
+                            let updated_config =
+                                self.update_config_json(entity.ini_config.clone(), field_updates);
+                            entity.ini_config = updated_config.clone();
+                            entity.update_timestamp = now;
+
+                            // Save the updated entity back to the database
+                            match tx_op.put(entity.clone()).await {
+                                Ok(_) => {
+                                    // Now also update the INI file in the upload directory
+                                    match self
+                                        .write_config_to_ini_file(
+                                            &entity.host,
+                                            entity.port,
+                                            &updated_config,
+                                        )
+                                        .await
+                                    {
+                                        Ok(_) => {
+                                            success_count += 1;
+                                            info!(
+                                                "Successfully updated configuration for node {}:{} (ID: {}) in group {} in cluster {}",
+                                                entity.host, entity.port, entity.node_id, entity.node_group_id, self.cluster_name
+                                            );
+                                        }
+                                        Err(e) => {
+                                            failure_count += 1;
+                                            error!(
+                                                "Updated database but failed to update INI file for node {}:{} (ID: {}) in group {}: {}",
+                                                entity.host, entity.port, entity.node_id, entity.node_group_id, e
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    failure_count += 1;
+                                    error!(
+                                        "Failed to update configuration for node {}:{} (ID: {}) in group {}: {}",
+                                        entity.host, entity.port, entity.node_id, entity.node_group_id, e
+                                    );
+                                }
                             }
                         }
-                    }
-                    Ok(None) => {
+
+                        // Set the final task result
                         let msg = format!(
-                            "Node with ID {} not found in cluster {}",
-                            node_id, self.cluster_name
+                            "Configuration update completed for node ID {} in cluster {}. Successfully updated {} entries, {} failures.",
+                            node_id, self.cluster_name, success_count, failure_count
                         );
-                        error!("{}", msg);
-                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        info!("{}", msg);
+                        let status = if failure_count > 0 { 1 } else { 0 };
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(status));
                         task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
                         return Ok(Some(task_result));
                     }
@@ -592,6 +835,104 @@ impl TaskExecutor for TopologyUpdateTask {
                         let msg = format!(
                             "Error loading node with ID {} from cluster {}: {}",
                             node_id, self.cluster_name, e
+                        );
+                        error!("{}", msg);
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
+                        return Ok(Some(task_result));
+                    }
+                }
+            } else {
+                // Update configuration for all nodes if tx_node_id is None but field_updates is provided
+                info!(
+                    "Updating configuration for all nodes in cluster {}",
+                    self.cluster_name
+                );
+
+                // Load all nodes for this cluster
+                match tx_op
+                    .load(|| {
+                        let cond_text = "cluster_name = ?".to_string();
+                        let bind_values = vec![StateValue::Varchar(self.cluster_name.clone())];
+                        Some(QueryCondition {
+                            cond_text,
+                            bind_values,
+                        })
+                    })
+                    .await
+                {
+                    Ok(entities) => {
+                        if entities.is_empty() {
+                            let msg = format!("No nodes found in cluster {}", self.cluster_name);
+                            error!("{}", msg);
+                            task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                            task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
+                            return Ok(Some(task_result));
+                        }
+
+                        let mut success_count = 0;
+                        let mut failure_count = 0;
+
+                        // Update each node's configuration
+                        for mut entity in entities {
+                            // Update the configuration based on field updates
+                            let updated_config =
+                                self.update_config_json(entity.ini_config.clone(), field_updates);
+                            entity.ini_config = updated_config.clone();
+                            entity.update_timestamp = now;
+
+                            // Save the updated entity back to the database
+                            match tx_op.put(entity.clone()).await {
+                                Ok(_) => {
+                                    // Now also update the INI file in the upload directory
+                                    match self
+                                        .write_config_to_ini_file(
+                                            &entity.host,
+                                            entity.port,
+                                            &updated_config,
+                                        )
+                                        .await
+                                    {
+                                        Ok(_) => {
+                                            success_count += 1;
+                                            info!(
+                                                "Successfully updated configuration for node {}:{} (ID: {}) in cluster {}",
+                                                entity.host, entity.port, entity.node_id, self.cluster_name
+                                            );
+                                        }
+                                        Err(e) => {
+                                            failure_count += 1;
+                                            error!(
+                                                "Updated database but failed to update INI file for node {}:{} (ID: {}): {}",
+                                                entity.host, entity.port, entity.node_id, e
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    failure_count += 1;
+                                    error!(
+                                        "Failed to update configuration for node {}:{} (ID: {}): {}",
+                                        entity.host, entity.port, entity.node_id, e
+                                    );
+                                }
+                            }
+                        }
+
+                        let msg = format!(
+                            "Configuration update completed for cluster {}. Successfully updated {} nodes, {} failures.",
+                            self.cluster_name, success_count, failure_count
+                        );
+                        info!("{}", msg);
+                        let status = if failure_count > 0 { 1 } else { 0 };
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(status));
+                        task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
+                        return Ok(Some(task_result));
+                    }
+                    Err(e) => {
+                        let msg = format!(
+                            "Error loading nodes from cluster {}: {}",
+                            self.cluster_name, e
                         );
                         error!("{}", msg);
                         task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
@@ -707,9 +1048,9 @@ impl TaskExecutor for TopologyUpdateTask {
                 entries
             }
             Ok(None) => {
-                //  Fall back to extract_tx_topology if no cluster_config found (before scale) #Q? only used on launch?
+                //  Fall back to extract_tx_topology if no cluster_config found (before scale)
                 info!("No cluster_config found, using extract_tx_topology method");
-                match self.extract_tx_topology().await {
+                match self.extract_tx_topology_from_ini_file().await {
                     Ok(entries) => entries,
                     Err(e) => {
                         let msg = format!("Failed to extract TX topology: {}", e);
