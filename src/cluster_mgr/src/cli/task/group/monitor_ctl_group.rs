@@ -52,7 +52,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
             let pick_mono_instance = monograph_hosts.first().unwrap();
             let create_user_task = ExecCustomCommand::build_task_by_host(
                 create_monitor_user_cmd,
-                &config,
+                config,
                 vec![pick_mono_instance.to_string()],
                 Some("create_monitor_user".to_string()),
             );
@@ -63,7 +63,7 @@ impl TaskGroup for MonitorCtlTaskGroup {
                 format!("{} -e  'FLUSH PRIVILEGES'", cluster_config.client_conn());
             let flush_privilege_task = ExecCustomCommand::build_task_by_host(
                 flush_privileges,
-                &config,
+                config,
                 monograph_hosts,
                 Some("flush_privilege".to_string()),
             );
@@ -72,11 +72,11 @@ impl TaskGroup for MonitorCtlTaskGroup {
         }
 
         let exporter_task_instance =
-            MonitorCtlTask::exporter_ctl_task(cmd_arg.clone(), &cluster_config);
+            MonitorCtlTask::exporter_ctl_task(cmd_arg.clone(), cluster_config);
         let prometheus_task_instance =
-            MonitorCtlTask::prometheus_ctl_task(cmd_arg.clone(), &cluster_config);
+            MonitorCtlTask::prometheus_ctl_task(cmd_arg.clone(), cluster_config);
         let grafana_task_instance =
-            MonitorCtlTask::grafana_ctl_task(cmd_arg.clone(), &cluster_config);
+            MonitorCtlTask::grafana_ctl_task(cmd_arg.clone(), cluster_config);
 
         barrier.push(exporter_task_instance.len());
         barrier.push(prometheus_task_instance.len());

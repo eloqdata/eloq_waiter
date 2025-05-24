@@ -46,6 +46,16 @@ pub struct SSHSession {
     port: usize,
 }
 
+// Connection parameters for SSH
+struct ConnectionParams {
+    max_retries: usize,
+    timeout_secs: u64,
+    retry_delay_secs: u64,
+    user: String,
+    host: String,
+    port: usize,
+}
+
 impl SSHSession {
     pub async fn from_task_host(host: TaskHost, key_path: String) -> anyhow::Result<Self> {
         match host {
@@ -97,18 +107,16 @@ impl SSHSession {
             };
 
             // Step 3: Attempt connection with retries
-            Self::attempt_connection(
-                ssh_config,
-                &ssh_addr,
-                user,
-                host,
+            let conn_params = ConnectionParams {
+                max_retries: MAX_RETRIES,
+                timeout_secs: CONNECTION_TIMEOUT_SECS,
+                retry_delay_secs: RETRY_DELAY_SECS,
+                user: user.to_string(),
+                host: host.to_string(),
                 port,
-                key_pair,
-                MAX_RETRIES,
-                CONNECTION_TIMEOUT_SECS,
-                RETRY_DELAY_SECS,
-            )
-            .await
+            };
+
+            Self::attempt_connection(ssh_config, &ssh_addr, conn_params, key_pair).await
         })
         .await
         {
@@ -142,26 +150,24 @@ impl SSHSession {
     async fn attempt_connection(
         ssh_config: Arc<client::Config>,
         ssh_addr: &std::net::SocketAddr,
-        user: &str,
-        host: &str,
-        port: usize,
+        conn_params: ConnectionParams,
         key_pair: key::KeyPair,
-        max_retries: usize,
-        connection_timeout_secs: u64,
-        retry_delay_secs: u64,
     ) -> anyhow::Result<Self> {
         let ssh_client = SSHClient {};
         let mut last_error = None;
 
-        for attempt in 1..=max_retries {
-            info!("SSH connection attempt {} to {}:{}", attempt, host, port);
+        for attempt in 1..=conn_params.max_retries {
+            info!(
+                "SSH connection attempt {} to {}:{}",
+                attempt, conn_params.host, conn_params.port
+            );
 
             // Step 3a: Establish connection
             let session = match Self::establish_connection(
                 ssh_config.clone(),
                 ssh_addr,
                 &ssh_client,
-                connection_timeout_secs,
+                conn_params.timeout_secs,
             )
             .await
             {
@@ -171,8 +177,8 @@ impl SSHSession {
                     last_error = Some(e);
 
                     // If this wasn't the last attempt, wait before retrying
-                    if attempt < max_retries {
-                        tokio::time::sleep(Duration::from_secs(retry_delay_secs)).await;
+                    if attempt < conn_params.max_retries {
+                        tokio::time::sleep(Duration::from_secs(conn_params.retry_delay_secs)).await;
                     }
                     continue;
                 }
@@ -181,20 +187,23 @@ impl SSHSession {
             // Step 3b: Authenticate
             match Self::authenticate_session(
                 session,
-                user,
+                conn_params.user.as_str(),
                 key_pair.clone(),
                 ssh_addr,
-                connection_timeout_secs,
+                conn_params.timeout_secs,
             )
             .await
             {
                 Ok(session) => {
-                    info!("SSH connection established to {}@{}", user, host);
+                    info!(
+                        "SSH connection established to {}@{}",
+                        conn_params.user, conn_params.host
+                    );
                     return Ok(Self {
                         session: Arc::new(Mutex::new(session)),
-                        user: user.to_string(),
-                        host: host.to_string(),
-                        port,
+                        user: conn_params.user,
+                        host: conn_params.host,
+                        port: conn_params.port,
                     });
                 }
                 Err(e) => {
@@ -207,8 +216,8 @@ impl SSHSession {
                     }
 
                     // If this wasn't the last attempt, wait before retrying
-                    if attempt < max_retries {
-                        tokio::time::sleep(Duration::from_secs(retry_delay_secs)).await;
+                    if attempt < conn_params.max_retries {
+                        tokio::time::sleep(Duration::from_secs(conn_params.retry_delay_secs)).await;
                     }
                 }
             }
@@ -217,7 +226,11 @@ impl SSHSession {
         // If we got here, all retries failed
         Err(last_error.unwrap_or_else(|| {
             anyhow::anyhow!(
-                "Failed to connect to {user}@{host}:{port} after {max_retries} attempts"
+                "Failed to connect to {}@{}:{} after {} attempts",
+                conn_params.user,
+                conn_params.host,
+                conn_params.port,
+                conn_params.max_retries
             )
         }))
     }

@@ -129,7 +129,6 @@ impl TaskExecutor for ScaleLogOpTask {
 
                 // Keep sending RPC until success
                 let mut retry_count = 0;
-                let mut last_error = None;
                 loop {
                     match add_log_peer(&url, request.clone()).await {
                         Ok(response) => {
@@ -145,7 +144,6 @@ impl TaskExecutor for ScaleLogOpTask {
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         }
                         Err(e) => {
-                            last_error = Some(e.to_string());
                             retry_count += 1;
                             error!("Failed to add log peers (attempt {}): {}", retry_count, e);
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -154,8 +152,7 @@ impl TaskExecutor for ScaleLogOpTask {
                             if retry_count >= 10 {
                                 let error_msg = format!(
                                     "Failed to add log peers after {} attempts: {}",
-                                    retry_count,
-                                    last_error.unwrap_or_else(|| "Unknown error".to_string())
+                                    retry_count, e
                                 );
                                 error!("{}", error_msg);
                                 task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
@@ -191,7 +188,6 @@ impl TaskExecutor for ScaleLogOpTask {
 
                 // Keep sending RPC until success
                 let mut retry_count = 0;
-                let mut last_error = None;
                 loop {
                     match remove_log_peer(&url, request.clone()).await {
                         Ok(response) => {
@@ -207,7 +203,6 @@ impl TaskExecutor for ScaleLogOpTask {
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         }
                         Err(e) => {
-                            last_error = Some(e.to_string());
                             retry_count += 1;
                             error!(
                                 "Failed to remove log peers (attempt {}): {}",
@@ -219,8 +214,7 @@ impl TaskExecutor for ScaleLogOpTask {
                             if retry_count >= 10 {
                                 let error_msg = format!(
                                     "Failed to remove log peers after {} attempts: {}",
-                                    retry_count,
-                                    last_error.unwrap_or_else(|| "Unknown error".to_string())
+                                    retry_count, e
                                 );
                                 error!("{}", error_msg);
                                 task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));

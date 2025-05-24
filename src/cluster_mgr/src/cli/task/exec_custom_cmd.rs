@@ -152,14 +152,14 @@ impl ExecCustomCommand {
 
         let ssh_port = config.ssh_port() as usize;
         let task_host = TaskHost::Remote {
-            user: user,
+            user,
             port: ssh_port,
-            host: host,
+            host,
         };
 
         let task_id = TaskId {
             cmd: cmd.as_ref().to_string(),
-            task: task,
+            task,
             host: "_local".to_string(),
         };
         (

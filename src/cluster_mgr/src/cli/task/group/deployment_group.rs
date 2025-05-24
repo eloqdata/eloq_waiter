@@ -58,8 +58,8 @@ impl TaskGroup for DeploymentTaskGroup {
             })
             .collect_vec();
 
-        let download_task = DownloadTask::from_config(&cluster_config)?;
-        let mut copy_or_download_task_instances = LocalCopyTask::form_config(&cluster_config)?;
+        let download_task = DownloadTask::from_config(cluster_config)?;
+        let mut copy_or_download_task_instances = LocalCopyTask::form_config(cluster_config)?;
         copy_or_download_task_instances.extend(download_task);
 
         let need_skip_success_task = if let Some(ref opts) = cluster_config.conf_opts {
@@ -74,30 +74,30 @@ impl TaskGroup for DeploymentTaskGroup {
         let (db_upload_task, unpack_task) = if need_skip_success_task {
             (
                 DeploymentTaskGroup::skip_success_task_execution(
-                    &upload_tasks(UploadTaskBuilderType::MonographAll, &config),
+                    &upload_tasks(UploadTaskBuilderType::MonographAll, config),
                     &success_task_vec,
                 ),
                 DeploymentTaskGroup::skip_success_task_execution(
-                    &UnpackFileTask::from_config(&cluster_config)?,
+                    &UnpackFileTask::from_config(cluster_config)?,
                     &success_task_vec,
                 ),
             )
         } else {
             (
-                upload_tasks(UploadTaskBuilderType::MonographAll, &config),
-                UnpackFileTask::from_config(&cluster_config)?,
+                upload_tasks(UploadTaskBuilderType::MonographAll, config),
+                UnpackFileTask::from_config(cluster_config)?,
             )
         };
 
-        let upload_tx_conf = upload_tasks(UploadTaskBuilderType::TxConf, &config);
+        let upload_tx_conf = upload_tasks(UploadTaskBuilderType::TxConf, config);
 
         let mkdir_remote_dir = ExecCustomCommand::from_config(
             &cmd_args,
             "mkdir",
             format!("mkdir -p {}", cluster_config.install_dir()),
-            &config,
+            config,
         );
-        let upload_monitor_conf_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, &config);
+        let upload_monitor_conf_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, config);
 
         let barrier = Some(vec![
             mkdir_remote_dir.len(),

@@ -36,7 +36,7 @@ impl TaskGroup for ScaleLogTaskGroup {
         config: &Config,
     ) -> anyhow::Result<TaskExecutionContext> {
         if let SubCommand::ScaleLog {
-            cluster,
+            cluster: _cluster,
             add_nodes,
             remove_nodes,
             log_ng_id,
@@ -234,7 +234,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                     info!("Creating mkdir task for new nodes");
                     let mkdir_remote_dir = ExecCustomCommand::build_task_by_host(
                         format!("mkdir -p {}", deploy_cfg.install_dir()),
-                        &config,
+                        config,
                         hosts_to_upload_log_binary.clone(),
                         Some("mkdir".to_string()),
                     );
@@ -248,7 +248,7 @@ impl TaskGroup for ScaleLogTaskGroup {
 
                     // Upload log start bash file for all nodes
                     for node_str in &node_list_to_upload_bash {
-                        if let Some((host, port_str)) = node_str.split_once(':') {
+                        if let Some((host, _port_str)) = node_str.split_once(':') {
                             // Gather all start_tx_log_*.bash scripts for this host
                             let mut sources = Vec::new();
                             if let Some(script_list) = &log_scripts_paths {
@@ -281,7 +281,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                                 source_host,
                                 upload_file,
                                 config,
-                                &"deploy".to_string(),
+                                "deploy",
                                 &format!("deploy_log_start_bash_to_{}", node_str),
                             );
 
@@ -342,8 +342,8 @@ impl TaskGroup for ScaleLogTaskGroup {
                             source_host,
                             upload_file,
                             config,
-                            &"deploy".to_string(),
-                            &"deploy_monograph_all_gz".to_string(),
+                            "deploy",
+                            "deploy_monograph_all_gz",
                         );
 
                         barrier.push(1);
@@ -649,7 +649,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         // Create the delete task using ExecCustomCommand
                         let delete_tasks = ExecCustomCommand::build_task_by_host(
                             delete_cmd,
-                            &config,
+                            config,
                             vec![host.clone()],
                             Some(format!("delete_removed_log_scripts_{}", host)),
                         );
@@ -706,7 +706,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         // Create the cleanup task using ExecCustomCommand
                         let cleanup_tasks = ExecCustomCommand::build_task_by_host(
                             cleanup_cmd,
-                            &config,
+                            config,
                             vec![host.clone()],
                             Some(format!("cleanup_log_data_{}", host)),
                         );
@@ -760,7 +760,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                     info!("Generated log scripts: {:?}", log_scripts_paths);
 
                     // Extract existing host names from the original config - used to identify which hosts remain
-                    let remaining_hosts: Vec<String> = temp_log_service
+                    let _remaining_hosts: Vec<String> = temp_log_service
                         .nodes
                         .iter()
                         .map(|node| node.host.clone())
@@ -787,7 +787,7 @@ impl TaskGroup for ScaleLogTaskGroup {
 
                     // Upload log start bash file for all remaining nodes
                     for node_str in &node_list_to_upload_bash {
-                        if let Some((host, port_str)) = node_str.split_once(':') {
+                        if let Some((host, _port_str)) = node_str.split_once(':') {
                             // Gather all start_tx_log_*.bash scripts for this host
                             let mut sources = Vec::new();
                             if let Some(script_list) = &log_scripts_paths {
@@ -820,7 +820,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                                 source_host,
                                 upload_file,
                                 config,
-                                &"deploy".to_string(),
+                                "deploy",
                                 &format!("deploy_log_start_bash_to_{}", node_str),
                             );
 
@@ -851,7 +851,6 @@ impl TaskGroup for ScaleLogTaskGroup {
             let db_update_task = DbDeploymentUpdateLogTask::new(
                 db_update_task_id.clone(),
                 temp_config.clone(),
-                log_ng_id,
                 deploy_cfg.deployment.cluster_name.clone(),
             );
 

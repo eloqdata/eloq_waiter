@@ -125,7 +125,7 @@ impl TaskExecutor for CheckTxClusterScaleStatusTask {
                                     if response.status == 3 {
                                         // FINISHED
                                         info!("Cluster scale operation is FINISHED");
-                                        let status_value = response.status as i32;
+                                        let status_value = response.status;
 
                                         // Send status through channel if available
                                         if let Some(tx) = &self.scale_status_tx {
@@ -154,7 +154,7 @@ impl TaskExecutor for CheckTxClusterScaleStatusTask {
                                     // If status is NOT_STARTED (1), mark the scale as failed
                                     if response.status == 1 {
                                         info!("Cluster scale status is NOT_STARTED");
-                                        let status_value = response.status as i32;
+                                        let status_value = response.status;
 
                                         // Send status through channel if available
                                         if let Some(tx) = &self.scale_status_tx {
@@ -180,7 +180,7 @@ impl TaskExecutor for CheckTxClusterScaleStatusTask {
 
                                     // Check if we've exceeded our timeout
                                     if start_time.elapsed() > max_poll_duration {
-                                        let status_value = response.status as i32;
+                                        let status_value = response.status;
                                         if let Some(tx) = &self.scale_status_tx {
                                             let _ = tx.send(status_value);
                                             if status_value == 0 {

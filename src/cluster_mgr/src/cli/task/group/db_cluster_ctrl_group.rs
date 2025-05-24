@@ -12,7 +12,7 @@ use crate::cli::task::topology_display_task::TopologyDisplayTask;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::SubCommand;
 use crate::config::config_base::DeployConfig;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tokio::sync::watch;
@@ -34,7 +34,7 @@ impl TaskGroup for CtrlDBTaskGroup {
             SubCommand::Remove { cluster } => {
                 let (cluster, tx, log, store, monitor) = (cluster, true, true, true, true);
                 let (mut barrier, mut tasks) = self
-                    .stop_tasks(tx, log, store, cmd, &cluster_config, true)
+                    .stop_tasks(tx, log, store, cmd, cluster_config, true)
                     .await;
                 if monitor && cluster_config.deployment.monitor.is_some() {
                     let stop_moni = SubCommand::Monitor {
@@ -68,18 +68,18 @@ impl TaskGroup for CtrlDBTaskGroup {
                     nodes: Vec::new(),
                 };
                 let (mut barrier, mut executable) = self
-                    .stop_tasks(true, true, false, stop_cmd, &cluster_config, false)
+                    .stop_tasks(true, true, false, stop_cmd, cluster_config, false)
                     .await;
                 let start_cmd = SubCommand::Start {
                     cluster,
                     nodes: Vec::new(),
                 };
-                let (b, exe) = self.start_tasks(start_cmd, &cluster_config);
+                let (b, exe) = self.start_tasks(start_cmd, cluster_config);
                 barrier.extend(b);
                 executable.extend(exe);
                 (barrier, executable)
             }
-            SubCommand::Start { .. } => self.start_tasks(cmd, &cluster_config),
+            SubCommand::Start { .. } => self.start_tasks(cmd, cluster_config),
             SubCommand::Stop {
                 cluster,
                 tx,
@@ -96,7 +96,7 @@ impl TaskGroup for CtrlDBTaskGroup {
                     (cluster, tx.unwrap_or(true), log, store, monitor)
                 };
                 let (mut barrier, mut tasks) = self
-                    .stop_tasks(tx, log, store, cmd, &cluster_config, false)
+                    .stop_tasks(tx, log, store, cmd, cluster_config, false)
                     .await;
                 if monitor && cluster_config.deployment.monitor.is_some() {
                     let stop_moni = SubCommand::Monitor {
@@ -166,7 +166,7 @@ impl TaskGroup for CtrlDBTaskGroup {
 
                     (barrier, executable)
                 } else {
-                    let tasks = self.status_tasks(cmd, &cluster_config);
+                    let tasks = self.status_tasks(cmd, cluster_config);
                     (vec![tasks.len()], tasks)
                 }
             }

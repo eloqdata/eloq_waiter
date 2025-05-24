@@ -1,4 +1,3 @@
-use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
 };
@@ -12,16 +11,12 @@ use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct UploadTask {
-    config: Config,
     task_id: TaskId,
 }
 
 impl UploadTask {
-    pub fn new(config: &Config, task_id: TaskId) -> Self {
-        Self {
-            config: config.clone(),
-            task_id,
-        }
+    pub fn new(task_id: TaskId) -> Self {
+        Self { task_id }
     }
 }
 
@@ -36,10 +31,6 @@ impl TaskExecutor for UploadTask {
         _task_host: TaskHost,
         task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        let user = &self.config.conn_user();
-        let port = self.config.ssh_port() as usize;
-        let auth_key = &self.config.conn_ssh_auth_key();
-
         info!("execute {}", self.task_id.format_string());
         let scp_command_opt = task_arg.get(SCP_COMMAND);
         assert!(scp_command_opt.is_some());

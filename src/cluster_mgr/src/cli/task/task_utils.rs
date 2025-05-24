@@ -3,27 +3,23 @@ use crate::cli::ssh::SSHSession;
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
-use crate::cli::upload_dir;
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::config::{config_base::DeployConfig, DeploymentPackage, MONITOR_DIR};
+use crate::config::{config_base::DeployConfig, DeploymentPackage};
 use crate::state::state_base::{QueryCondition, StateOperation};
 use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
-use crate::state::topology_tx_operation::{TopologyTxEntity, TopologyTxOperation};
+use crate::state::topology_tx_operation::TopologyTxOperation;
 use crate::StateValue;
 use anyhow::anyhow;
-use configparser::ini::Ini;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use serde_json::Value;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScaleOperationType {
@@ -534,7 +530,8 @@ pub struct NgNodeConfig {
     pub is_candidate: bool,
 }
 
-type NodeId = u32;
+// TODO(ZX) use this
+pub type NodeId = u32;
 type NodeGroupId = u32;
 
 /// Parse node group configuration from string lists

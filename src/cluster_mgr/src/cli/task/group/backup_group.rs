@@ -52,7 +52,7 @@ impl TaskGroup for BackupTaskGroup {
                             &cmd,
                             format!("mkdir for {}", full_path),
                             format!("mkdir -p {}", full_path),
-                            &config,
+                            config,
                             dest_host,
                             dest_user,
                         );
@@ -74,15 +74,19 @@ impl TaskGroup for BackupTaskGroup {
                             host: "_local".to_string(),
                         };
 
+                        let backup_config = crate::cli::task::backup_task::BackupConfig {
+                            path: path.clone(),
+                            snapshot_ts,
+                            password: password.clone(),
+                            dest_host: dest_host.clone(),
+                            dest_user: dest_user.clone(),
+                        };
+
                         let backup_task = BackupTask::new(
                             task_id.clone(),
                             redis_host_ports,
                             cluster.clone(),
-                            path.clone(),
-                            snapshot_ts.clone(),
-                            password.clone(),
-                            dest_host.clone(),
-                            dest_user.clone(),
+                            backup_config,
                         );
 
                         // Insert task instance into the executable map
@@ -106,14 +110,12 @@ impl TaskGroup for BackupTaskGroup {
                         let cutoff_datetime: Option<DateTime<Utc>> =
                             if let Some(until_duration) = until {
                                 Some(Utc::now() - *until_duration)
-                            } else if let Some(before_datetime) = before {
-                                Some(*before_datetime)
                             } else {
-                                None
+                                before.as_ref().map(|before_datetime| *before_datetime)
                             };
 
                         STATE_MGR
-                            .remove_snapshots(&cluster, &cutoff_datetime)
+                            .remove_snapshots(cluster, &cutoff_datetime)
                             .await?;
 
                         // Step 2: Parse snapshot_ts and filter snapshots
@@ -147,7 +149,7 @@ impl TaskGroup for BackupTaskGroup {
                                 &cmd,
                                 format!("remove snapshot for {}", snapshot_path),
                                 format!("rm -rf {}", snapshot_path),
-                                &config,
+                                config,
                                 &Some(dest_host),
                                 &Some(dest_user),
                             );
@@ -201,9 +203,9 @@ impl TaskGroup for BackupTaskGroup {
                         // Create the task instance
                         let (id, instance) = ExecCustomCommand::from_path(
                             &cmd,
-                            format!("dump to aof"),
+                            "dump to aof".to_string(),
                             command,
-                            &config,
+                            config,
                             &dest_host_option,
                             &dest_user_option,
                         );
@@ -259,9 +261,9 @@ impl TaskGroup for BackupTaskGroup {
                         // Create the task instance
                         let (id, instance) = ExecCustomCommand::from_path(
                             &cmd,
-                            format!("dump to rdb"),
+                            "dump to rdb".to_string(),
                             command,
-                            &config,
+                            config,
                             &dest_host_option,
                             &dest_user_option,
                         );

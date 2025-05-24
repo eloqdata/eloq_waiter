@@ -17,17 +17,23 @@ use std::collections::HashMap;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+/// Configuration for scale operation
+#[derive(Clone, Debug)]
+pub struct ScaleOpConfig {
+    pub operation_type: ScaleOperationType,
+    pub nodes_list: Vec<String>,
+    pub is_candidate: Option<Vec<bool>>,
+    pub cluster_name: String,
+    pub ng_id: Option<u32>,
+}
+
 /// Task for performing cluster scale operations
 #[derive(Clone, Debug)]
 pub struct ScaleOpTask {
     task_id: TaskId,
     event_id: String,
-    operation_type: ScaleOperationType,
-    nodes_list: Vec<String>,
-    is_candidate: Option<Vec<bool>>,
-    cluster_name: String,
+    config: ScaleOpConfig,
     receiver: watch::Receiver<ClusterNodes>,
-    ng_id: Option<u32>,
     sender: watch::Sender<ClusterNodesWithConfig>,
 }
 
@@ -36,30 +42,23 @@ impl ScaleOpTask {
     pub fn new(
         task_id: TaskId,
         event_id: String,
-        operation_type: ScaleOperationType,
-        nodes_list: Vec<String>,
-        is_candidate: Option<Vec<bool>>,
-        cluster_name: String,
-        ng_id: Option<u32>,
+        config: ScaleOpConfig,
         receiver: watch::Receiver<ClusterNodes>,
         sender: watch::Sender<ClusterNodesWithConfig>,
     ) -> Self {
         Self {
             task_id,
             event_id,
-            operation_type,
-            nodes_list,
-            is_candidate,
-            cluster_name,
+            config,
             receiver,
-            ng_id,
             sender,
         }
     }
 
     /// Extract port numbers from host:port strings
     fn extract_ports_from_nodes(&self) -> Vec<i32> {
-        self.nodes_list
+        self.config
+            .nodes_list
             .iter()
             .map(|p| {
                 p.split(':')
@@ -93,7 +92,7 @@ impl TaskExecutor for ScaleOpTask {
             TaskArgValue::Str("scale operation".to_string()),
         )]);
 
-        let operation_type_str = match self.operation_type {
+        let operation_type_str = match self.config.operation_type {
             ScaleOperationType::AddNodes => "add nodes",
             ScaleOperationType::RemoveNodes => "remove nodes",
         };
@@ -164,7 +163,7 @@ impl TaskExecutor for ScaleOpTask {
         info!("Extracted ports from node list: {:?}", ports);
 
         // Determine if we're using ng_id and what its value is
-        if let Some(ng_id) = self.ng_id {
+        if let Some(ng_id) = self.config.ng_id {
             info!("Using provided ng_id: {} (type: u32)", ng_id);
 
             // Add some type checking logs for verification
@@ -178,23 +177,21 @@ impl TaskExecutor for ScaleOpTask {
         }
 
         // Execute RPC based on operation type
-        let rpc_result = match self.operation_type {
+        let rpc_result = match self.config.operation_type {
             ScaleOperationType::AddNodes => {
                 // Use is_candidate setting for all nodes or derive from ports
-                let is_candidate: Vec<bool> = if let Some(is_candidate) = &self.is_candidate {
+                let is_candidate: Vec<bool> = if let Some(is_candidate) = &self.config.is_candidate
+                {
                     is_candidate.clone()
                 } else {
-                    ports
-                        .iter()
-                        .map(|&p| if p != 0 { true } else { false })
-                        .collect()
+                    ports.iter().map(|&p| p != 0).collect()
                 };
 
                 // The ports are already i32, ready for the proto
                 info!("Using i32 ports for proto: {:?}", ports);
 
                 // Log details before creating the request
-                let ng_id_value = match self.ng_id {
+                let ng_id_value = match self.config.ng_id {
                     Some(id) => {
                         info!("Successfully unwrapped ng_id value: {}", id);
                         id
@@ -206,16 +203,17 @@ impl TaskExecutor for ScaleOpTask {
                 };
 
                 let hosts: Vec<String> = self
+                    .config
                     .nodes_list
                     .iter()
                     .map(|hostport| hostport.split(':').next().unwrap_or(hostport).to_string())
                     .collect();
 
                 info!("Creating NodeGroupAddPeersRequest with:");
-                info!("  - ng_id: {} (from {:?})", ng_id_value, self.ng_id);
+                info!("  - ng_id: {} (from {:?})", ng_id_value, self.config.ng_id);
                 info!("  - ng_id proto field type is uint32 (defined in proto file)");
                 info!("  - event_id: {}", self.event_id);
-                info!("  - original nodes_list: {:?}", self.nodes_list);
+                info!("  - original nodes_list: {:?}", self.config.nodes_list);
                 info!("  - extracted hosts: {:?}", hosts);
                 info!("  - extracted ports: {:?}", ports);
                 info!("  - is_candidate: {:?}", is_candidate);
@@ -238,6 +236,7 @@ impl TaskExecutor for ScaleOpTask {
                 info!("Using i32 ports for proto: {:?}", ports);
 
                 let hosts: Vec<String> = self
+                    .config
                     .nodes_list
                     .iter()
                     .map(|hostport| hostport.split(':').next().unwrap_or(hostport).to_string())
@@ -246,7 +245,7 @@ impl TaskExecutor for ScaleOpTask {
                 info!("Creating ClusterRemoveNodeRequest with:");
                 info!("  - event_id: {}", self.event_id);
                 info!("  - remove_node_count: {}", 0);
-                info!("  - original nodes_list: {:?}", self.nodes_list);
+                info!("  - original nodes_list: {:?}", self.config.nodes_list);
                 info!("  - extracted hosts: {:?}", hosts);
                 info!("  - extracted ports: {:?}", ports);
 
@@ -338,10 +337,10 @@ impl TaskExecutor for ScaleOpTask {
 
                 // For AddNodes operation, we would normally start the new nodes here
                 // but for simplicity, we're just logging that we would do this
-                if let ScaleOperationType::AddNodes = self.operation_type {
+                if let ScaleOperationType::AddNodes = self.config.operation_type {
                     info!(
                         "New nodes added to cluster: {}. Node startup should be handled separately.",
-                        self.nodes_list.join(", ")
+                        self.config.nodes_list.join(", ")
                     );
                 }
 
@@ -366,7 +365,7 @@ impl TaskExecutor for ScaleOpTask {
                 }
 
                 // For remove operations, remove the nodes from the topology
-                if let ScaleOperationType::RemoveNodes = self.operation_type {
+                if let ScaleOperationType::RemoveNodes = self.config.operation_type {
                     // Extract port numbers from the nodes to remove
                     let ports_to_remove = self.extract_ports_from_nodes();
 

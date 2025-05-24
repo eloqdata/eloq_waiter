@@ -154,7 +154,7 @@ pub enum SubCommand {
         )]
         fields: Vec<String>,
         #[arg(long, help = "Specific tx node ID to update configuration for")]
-        tx_node_id: Option<i32>,
+        tx_node_id: Option<u32>,
     },
 
     #[command(long_about = "Remove cluster")]

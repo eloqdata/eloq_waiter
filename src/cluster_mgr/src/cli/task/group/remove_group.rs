@@ -97,7 +97,7 @@ impl TaskGroup for RemoveTaskGroup {
             &cmd_arg,
             "clean",
             format!("rm -r {}", cluster_config.install_dir()),
-            &config,
+            config,
         );
         barrier.push(clean_tasks.len());
         executable.extend(clean_tasks);

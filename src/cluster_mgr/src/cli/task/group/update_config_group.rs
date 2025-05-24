@@ -103,7 +103,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
             barrier.push(1);
 
             // Add upload task to ensure the updated INI file is copied to target host
-            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, &config);
+            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, config);
             barrier.push(upload_tasks.len());
             executable.extend(upload_tasks);
         } else {
@@ -115,7 +115,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
             barrier.push(executable.len());
 
             // Then upload the updated INI files to target hosts
-            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, &config);
+            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, config);
             barrier.push(upload_tasks.len());
             executable.extend(upload_tasks);
         }
@@ -140,7 +140,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         password: None,
                         nodes: Vec::new(),
                     },
-                    &deploy_config,
+                    deploy_config,
                     &mut barrier,
                     &mut executable,
                 )
@@ -158,7 +158,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         password: None,
                         nodes: Vec::new(),
                     },
-                    &deploy_config,
+                    deploy_config,
                     ServerType::Tx,
                 );
                 barrier.push(stop_tx_task.len());
@@ -170,7 +170,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                     cluster: cluster_name.to_string(),
                     nodes: Vec::new(),
                 },
-                &deploy_config,
+                deploy_config,
                 ServerType::Tx,
             );
             barrier.push(start_tx_task.len());
@@ -187,7 +187,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         cluster: cluster_name.to_string(),
                         nodes: Vec::new(),
                     },
-                    &deploy_config,
+                    deploy_config,
                     ServerType::Standby,
                 );
                 barrier.push(start_standby.len());
@@ -205,7 +205,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         cluster: cluster_name.to_string(),
                         nodes: Vec::new(),
                     },
-                    &deploy_config,
+                    deploy_config,
                     ServerType::Voter,
                 );
                 barrier.push(start_voter.len());
@@ -226,7 +226,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
 }
 
 /// Validates the field updates and ensures they comply with scope rules
-fn validate_fields(field_updates: &[String], tx_node_id: Option<i32>) -> Result<()> {
+fn validate_fields(field_updates: &[String], tx_node_id: Option<u32>) -> Result<()> {
     for field_update in field_updates {
         if let Some((field, _)) = field_update.split_once(':') {
             // Check if field exists in registry

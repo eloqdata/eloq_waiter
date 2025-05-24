@@ -3,7 +3,7 @@ use crate::cli::task::config_fields::field_exists;
 use crate::cli::task::redis_op_task::ClusterNodes;
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
-use crate::cli::task::task_utils::parse_ng_config;
+use crate::cli::task::task_utils::{parse_ng_config, NodeId};
 use crate::cli::{upload_dir, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::{DeployConfig, SCALED_CLUSTER_CONFIG};
 use crate::state::state_base::{QueryCondition, StateOperation};
@@ -29,7 +29,7 @@ pub struct TopologyUpdateTask {
     config: DeployConfig,
     receiver: watch::Receiver<ClusterNodes>,
     remove_nodes: Option<Vec<String>>, // Optional list of nodes to be removed (format: "host:port")
-    tx_node_id: Option<i32>,           // Optional node ID to update config for
+    tx_node_id: Option<NodeId>,        // Optional node ID to update config for
     field_updates: Vec<String>,        // Field updates in "field:value" format
 }
 
@@ -70,7 +70,7 @@ impl TopologyUpdateTask {
     pub fn for_config_update(
         config: &DeployConfig,
         receiver: watch::Receiver<ClusterNodes>,
-        tx_node_id: i32,
+        tx_node_id: NodeId,
         field_updates: Vec<String>,
     ) -> IndexMap<TaskId, TaskInstance> {
         let mut map = IndexMap::new();
@@ -137,51 +137,6 @@ impl TopologyUpdateTask {
         );
 
         map
-    }
-
-    // Load ConfigJson for a specific node ID
-    async fn load_config_for_node(&self, node_id: i32) -> Result<Option<TopologyTxEntity>> {
-        let tx_op = STATE_MGR.get_state_operation::<TopologyTxOperation>(TOPOLOGY_TX_STATE);
-
-        // Query for specific node entry
-        match tx_op
-            .load(|| {
-                let cond_text = "cluster_name = ? AND node_id = ?".to_string();
-                let bind_values = vec![
-                    StateValue::Varchar(self.cluster_name.clone()),
-                    StateValue::Integer(node_id),
-                ];
-                Some(QueryCondition {
-                    cond_text,
-                    bind_values,
-                })
-            })
-            .await
-        {
-            Ok(entities) => {
-                if let Some(entity) = entities.first() {
-                    info!(
-                        "Found node {}:{} (ID: {}) in group {} for cluster {}",
-                        entity.host,
-                        entity.port,
-                        entity.node_id,
-                        entity.node_group_id,
-                        self.cluster_name
-                    );
-                    Ok(Some(entity.clone()))
-                } else {
-                    info!(
-                        "No node with ID {} found for cluster {}",
-                        node_id, self.cluster_name
-                    );
-                    Ok(None)
-                }
-            }
-            Err(e) => {
-                error!("Error querying node with ID {}: {}", node_id, e);
-                Err(anyhow::anyhow!("Failed to query node: {}", e))
-            }
-        }
     }
 
     // Update ConfigJson based on field updates
@@ -609,7 +564,7 @@ impl TopologyUpdateTask {
                 "Successfully created new INI file at {}",
                 new_file_path.display()
             );
-            return Ok(true);
+            Ok(true)
         } else {
             // Create the host directory if it doesn't exist
             info!("Creating host directory: {}", host_dir.display());
@@ -630,7 +585,7 @@ impl TopologyUpdateTask {
                 "Successfully created new INI file at {}",
                 new_file_path.display()
             );
-            return Ok(true);
+            Ok(true)
         }
     }
 
@@ -649,7 +604,7 @@ impl TopologyUpdateTask {
         updated_fields.insert("enable_cache_replacement".to_string(), false);
 
         // Track additional settings
-        for (key, _) in &config.additional_settings {
+        for key in config.additional_settings.keys() {
             updated_fields.insert(key.clone(), false);
         }
 
@@ -847,7 +802,7 @@ impl TaskExecutor for TopologyUpdateTask {
                         let cond_text = "cluster_name = ? AND node_id = ?".to_string();
                         let bind_values = vec![
                             StateValue::Varchar(self.cluster_name.clone()),
-                            StateValue::Integer(*node_id),
+                            StateValue::Integer(*node_id as i32),
                         ];
                         Some(QueryCondition {
                             cond_text,
@@ -1224,7 +1179,7 @@ impl TaskExecutor for TopologyUpdateTask {
         let cluster_nodes = self.receiver.borrow().clone();
 
         // Update master roles for nodes identified as masters from Redis
-        let master_count = cluster_nodes.masters.len() as i32;
+        let _master_count = cluster_nodes.masters.len() as i32;
         for master in cluster_nodes.masters.iter() {
             // First, query for existing entry with the same host:port (should be a replica)
             let master_ip = master.ip.clone();

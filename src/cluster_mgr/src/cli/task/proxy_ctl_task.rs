@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::task_base::{
     ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
+use super::task_utils::NodeId;
 use crate::cli::ssh::{SSHCommandOption, SSHSession};
 use crate::cli::ProxyCommand;
 use crate::config::proxy_config_base::ProxyConfig;
@@ -19,6 +20,7 @@ pub struct ProxyCtlTask {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ProxyTaskType {
     StartProxy {
         command: String,
@@ -29,10 +31,12 @@ pub enum ProxyTaskType {
     AddCluster {
         cluster_name: String,
         request_body: String,
+        node_id: NodeId,
     },
     RemoveCluster {
         cluster_name: String,
         token: String,
+        node_id: NodeId,
     },
 }
 
@@ -304,14 +308,14 @@ impl TaskExecutor for ProxyCtlTask {
                 let sess = SSHSession::from_task_host(host.clone(), self.ssh_key.clone()).await?;
 
                 let output = sess
-                    .command(&command, SSHCommandOption::CollectOutput)
+                    .command(command, SSHCommandOption::CollectOutput)
                     .await?;
                 Ok(Some(output))
             }
             ProxyTaskType::StopProxy { command } => {
                 let sess = SSHSession::from_task_host(host.clone(), self.ssh_key.clone()).await?;
                 let output = sess
-                    .command(&command, SSHCommandOption::CollectOutput)
+                    .command(command, SSHCommandOption::CollectOutput)
                     .await?;
                 Ok(Some(output))
             }

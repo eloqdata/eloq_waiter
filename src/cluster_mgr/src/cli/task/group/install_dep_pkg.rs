@@ -19,7 +19,7 @@ impl TaskGroup for InstallDepPkgTaskGroup {
             }
         };
 
-        let install_runtime_deps = DepPkgTask::from_config(&cluster_config)?;
+        let install_runtime_deps = DepPkgTask::from_config(cluster_config)?;
         Ok(TaskExecutionContext {
             task_group: cmd_arg.as_ref().to_string(),
             barrier: None,

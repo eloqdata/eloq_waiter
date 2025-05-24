@@ -123,8 +123,8 @@ impl DbDeploymentUpdateTask {
             cluster_name: self.cluster_name.clone(),
             deployment_config: config_string,
             host_list: all_hosts,
-            create_timestamp: now.into(),
-            update_timestamp: now.into(),
+            create_timestamp: now,
+            update_timestamp: now,
         };
 
         // Get the deployment operation implementation from the global state manager
@@ -332,15 +332,14 @@ impl TaskExecutor for DbDeploymentUpdateTask {
             })?;
 
             // Create a new empty ClusterNodesWithConfig with only the cluster_config field set
-            let result = ClusterNodesWithConfig {
+
+            ClusterNodesWithConfig {
                 nodes: ClusterNodes {
                     masters: Vec::new(),
                     replicas: Vec::new(),
                 },
                 cluster_config: Some(content),
-            };
-
-            result
+            }
         };
 
         // Update the database with the new configuration - this will use the cluster_config from RPC if available

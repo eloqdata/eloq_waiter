@@ -3,7 +3,6 @@ use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId
 use crate::cli::SubCommand;
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::state::state_mgr::STATE_MGR;
-use crate::state::topology_log_operation::TopologyLogEntity;
 use crate::state::topology_tx_operation::TopologyTxEntity;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -118,7 +117,7 @@ impl TaskExecutor for TopologyDisplayTask {
         for entity in tx_entities.clone() {
             grouped_tx
                 .entry(entity.node_group_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(entity);
         }
 
@@ -166,8 +165,7 @@ impl TaskExecutor for TopologyDisplayTask {
 
         let mut output = format!(
             "\n\nCluster TX Topology for {}:\n{}",
-            self.cluster_name,
-            table.to_string()
+            self.cluster_name, table
         );
 
         // Append log service info if available
@@ -193,8 +191,7 @@ impl TaskExecutor for TopologyDisplayTask {
                 }
                 output.push_str(&format!(
                     "\n\nLog Service Topology for {}:\n{}",
-                    self.cluster_name,
-                    log_table.to_string()
+                    self.cluster_name, log_table
                 ));
             }
         }

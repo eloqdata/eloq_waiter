@@ -2,9 +2,8 @@ use crate::{state_operation_impl, StateValue, Stateful};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, json, to_string, Value as JsonValue};
-use sqlx::{sqlite::SqliteRow, types::Json, FromRow, Row};
-use std::fmt;
+use serde_json::{from_str, to_string};
+use sqlx::{sqlite::SqliteRow, FromRow, Row};
 
 pub(crate) const TOPOLOGY_TX_SELECT: &str = r#"select
     cluster_name,

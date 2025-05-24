@@ -32,7 +32,7 @@ impl TaskGroup for ProxyTaskGroup {
                         config: config_path,
                     } => {
                         // download binary
-                        let download_task = DownloadTask::from_proxy_config(&proxy_config)?;
+                        let download_task = DownloadTask::from_proxy_config(proxy_config)?;
                         barrier.push(download_task.len());
                         executable.extend(download_task);
 
@@ -47,7 +47,7 @@ impl TaskGroup for ProxyTaskGroup {
                         executable.extend(mkdir_remote_task);
 
                         // upload ini config file and binary
-                        let proxy_upload_task = upload_tasks(UploadTaskBuilderType::Proxy, &config);
+                        let proxy_upload_task = upload_tasks(UploadTaskBuilderType::Proxy, config);
                         barrier.push(proxy_upload_task.len());
                         executable.extend(proxy_upload_task);
 

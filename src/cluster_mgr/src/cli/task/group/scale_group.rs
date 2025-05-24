@@ -4,7 +4,7 @@ use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
-use crate::cli::task::scale_op_task::ScaleOpTask;
+use crate::cli::task::scale_op_task::{ScaleOpConfig, ScaleOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::cli::task::topology_display_task::TopologyDisplayTask;
@@ -486,14 +486,18 @@ impl super::TaskGroup for ScaleTaskGroup {
             };
 
             // Take the RedisOpTask result from redis_op_rx(old cluster config) and send the ScaleOpTask result to scale_op_tx(new cluster config)
+            let scale_config = ScaleOpConfig {
+                operation_type: operation_type.clone(),
+                nodes_list: nodes_list.clone(),
+                is_candidate: is_candidate.clone(),
+                cluster_name: cluster_name.clone(),
+                ng_id,
+            };
+
             let scale_task = ScaleOpTask::new(
                 scale_task_id.clone(),
                 scale_event_id.clone(),
-                operation_type.clone(),
-                nodes_list.clone(),
-                is_candidate.clone(),
-                cluster_name.clone(),
-                ng_id,
+                scale_config,
                 redis_op_rx.clone(),
                 scale_op_tx.clone(),
             );
