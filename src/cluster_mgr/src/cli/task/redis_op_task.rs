@@ -241,7 +241,7 @@ impl TaskExecutor for RedisOpTask {
 
     async fn execute(
         &self,
-        task_host: TaskHost,
+        _task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         let mut task_result =
@@ -266,12 +266,11 @@ impl TaskExecutor for RedisOpTask {
         let nodes: Vec<String> = expanded_nodes
             .iter()
             .map(|host_port| {
-                let redis_url = if let Some(password) = &self.password {
+                if let Some(password) = &self.password {
                     format!("redis://:{}@{}", password, host_port)
                 } else {
                     format!("redis://{}", host_port)
-                };
-                redis_url
+                }
             })
             .collect();
 

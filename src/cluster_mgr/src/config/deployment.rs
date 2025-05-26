@@ -1401,12 +1401,7 @@ impl Deployment {
     }
 
     // only used in `start --nodes`
-    pub fn srv_start_cmd_with_host(
-        &self,
-        port: &str,
-        server_type: ServerType,
-        host: &str,
-    ) -> String {
+    pub fn srv_start_cmd_with_host(&self, port: &str, server_type: ServerType) -> String {
         let ini_file = match server_type {
             ServerType::Node => self.tx_srv_ini(port),
             _ => unreachable!(),

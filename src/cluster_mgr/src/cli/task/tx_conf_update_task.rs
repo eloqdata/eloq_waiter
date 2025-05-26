@@ -56,9 +56,9 @@ impl TxConfUpdateTask {
         );
 
         // Prepare masters, replicas, and voters lists
-        let mut all_masters_str = String::new();
-        let mut all_replicas_str = String::new();
-        let mut all_voters_str = String::new();
+        let all_masters_str;
+        let all_replicas_str;
+        let all_voters_str;
 
         // If we have a cluster configuration from RPC response, use it to generate node group configurations
         if let Some(config_str) = &cluster_nodes_with_config.cluster_config {
@@ -168,9 +168,9 @@ impl TxConfUpdateTask {
         );
 
         // Prepare masters, replicas, and voters lists
-        let mut all_masters_str = String::new();
-        let mut all_replicas_str = String::new();
-        let mut all_voters_str = String::new();
+        let all_masters_str;
+        let all_replicas_str;
+        let all_voters_str;
 
         // If we have a cluster configuration from RPC response, use it to generate node group configurations
         if let Some(config_str) = &cluster_nodes_with_config.cluster_config {
@@ -226,6 +226,7 @@ impl TxConfUpdateTask {
             fs::create_dir_all(&upload_dir)?;
         }
 
+        // iterate over all dirs in the upload/<cluster-name> to update ini config
         for host_entry in fs::read_dir(&upload_dir)? {
             let host_dir = host_entry?.path();
             if !host_dir.is_dir() {

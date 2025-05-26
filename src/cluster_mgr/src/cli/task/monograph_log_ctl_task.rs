@@ -348,7 +348,7 @@ impl TaskExecutor for MonographLogCtlTask {
                     execution_value.get(PROCESS_PID).unwrap().clone(),
                 );
                 if pid == PID_NOT_FOUND {
-                    let output = format!("\nlog service is down.");
+                    let output = "\nlog service is down.".to_string();
                     execution_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
                 } else {
                     let output = format!("\nlog service is running, pid: {}.", pid);

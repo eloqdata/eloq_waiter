@@ -2,10 +2,12 @@ use anyhow::anyhow;
 use std::collections::HashMap;
 use tracing::info;
 
+use crate::cli::task::task_utils::{NodeGroupId, NodeId};
+
 /// Represents a node configuration parsed from the RPC response
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
-    pub node_id: u32,
+    pub node_id: NodeId,
     pub host_name: String,
     pub port: u16,
     pub is_candidate: bool,
@@ -14,7 +16,7 @@ pub struct NodeConfig {
 /// Cluster configuration with node group information
 #[derive(Debug, Clone)]
 pub struct ClusterGroupConfig {
-    pub node_groups: HashMap<u32, Vec<NodeConfig>>,
+    pub node_groups: HashMap<NodeGroupId, Vec<NodeConfig>>,
     pub version: u64,
 }
 
@@ -31,7 +33,6 @@ pub fn parse_cluster_config(config_str: &str) -> anyhow::Result<ClusterGroupConf
     let lines: Vec<&str> = config_str.lines().collect();
     let mut line_idx = 0;
     let mut ng_configs = HashMap::new();
-    let mut latest_version = 0;
 
     if lines.is_empty() {
         return Err(anyhow!("Empty cluster configuration"));
@@ -113,8 +114,8 @@ pub fn parse_cluster_config(config_str: &str) -> anyhow::Result<ClusterGroupConf
     }
 
     // Last line is the version
-    if line_idx < lines.len() {
-        latest_version = lines[line_idx]
+    let latest_version = if line_idx < lines.len() {
+        let latest_version = lines[line_idx]
             .trim()
             .parse::<u64>()
             .map_err(|e| anyhow!("Failed to parse version: {}", e))?;
@@ -124,9 +125,10 @@ pub fn parse_cluster_config(config_str: &str) -> anyhow::Result<ClusterGroupConf
             ng_configs.len(),
             latest_version
         );
+        latest_version
     } else {
         return Err(anyhow!("Missing version information in cluster config"));
-    }
+    };
 
     Ok(ClusterGroupConfig {
         node_groups: ng_configs,
@@ -137,12 +139,9 @@ pub fn parse_cluster_config(config_str: &str) -> anyhow::Result<ClusterGroupConf
 /// Generate node lists with proper separators based on node groups
 pub fn format_node_lists(cluster_group_config: &ClusterGroupConfig) -> FormattedNodeLists {
     let ng_configs = &cluster_group_config.node_groups;
-    let mut masters_str = String::new();
-    let mut replicas_str = String::new();
-    let mut voters_str = String::new();
 
     // Group masters by node group id: within group '|' and between groups ','
-    {
+    let masters_str = {
         // Collect one master per node group
         let mut master_groups: Vec<(u32, Vec<String>)> = ng_configs
             .iter()
@@ -177,11 +176,11 @@ pub fn format_node_lists(cluster_group_config: &ClusterGroupConfig) -> Formatted
                 }
             })
             .collect();
-        masters_str = master_parts.join(",");
-    }
+        master_parts.join(",")
+    };
 
     // Group replicas by node group id: within group '|' and between groups ','
-    {
+    let replicas_str = {
         // Skip first candidate (master), collect remaining candidates as replicas
         let mut replica_groups: Vec<(u32, Vec<String>)> = ng_configs
             .iter()
@@ -211,11 +210,11 @@ pub fn format_node_lists(cluster_group_config: &ClusterGroupConfig) -> Formatted
                 }
             })
             .collect();
-        replicas_str = replica_parts.join(",");
-    }
+        replica_parts.join(",")
+    };
 
     // Group voters by node group id: within group '|' and between groups ','
-    {
+    let voters_str = {
         let mut voter_groups: Vec<(u32, Vec<String>)> = ng_configs
             .iter()
             .map(|(&ng_id, nodes)| {
@@ -244,8 +243,8 @@ pub fn format_node_lists(cluster_group_config: &ClusterGroupConfig) -> Formatted
                 }
             })
             .collect();
-        voters_str = voter_parts.join(",");
-    }
+        voter_parts.join(",")
+    };
 
     FormattedNodeLists {
         masters_str,

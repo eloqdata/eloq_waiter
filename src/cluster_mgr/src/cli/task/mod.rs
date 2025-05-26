@@ -5,6 +5,7 @@ mod check_task;
 pub mod check_tx_cluster_scale_status_task;
 pub mod cluster_config_utils;
 mod codis_task;
+pub mod config_fields;
 pub mod copy_task;
 pub mod db_update_log_task;
 pub mod db_update_task;

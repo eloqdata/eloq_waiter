@@ -1,5 +1,5 @@
-use super::redis_op_task::parse_cluster_nodes;
 use crate::cli::task::grpc::GrpcClient;
+use crate::cli::task::redis_op_task::parse_cluster_nodes;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::state::snapshot_info_operation::{SnapshotEntity, SnapshotOperation};
@@ -19,15 +19,20 @@ use tracing::error;
 use tracing::info;
 
 #[derive(Clone, Debug)]
+pub struct BackupConfig {
+    pub path: String,
+    pub snapshot_ts: DateTime<Utc>,
+    pub password: Option<String>,
+    pub dest_host: Option<String>,
+    pub dest_user: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct BackupTask {
     task_id: TaskId,
     redis_host_ports: Vec<String>,
     cluster_name: String,
-    path: String,
-    snapshot_ts: DateTime<Utc>,
-    password: Option<String>,
-    dest_host: Option<String>,
-    dest_user: Option<String>,
+    back_up_config: BackupConfig,
 }
 
 impl BackupTask {
@@ -35,21 +40,13 @@ impl BackupTask {
         task_id: TaskId,
         redis_host_ports: Vec<String>,
         cluster_name: String,
-        path: String,
-        snapshot_ts: DateTime<Utc>,
-        password: Option<String>,
-        dest_host: Option<String>,
-        dest_user: Option<String>,
+        config: BackupConfig,
     ) -> Self {
         Self {
             task_id,
             redis_host_ports,
             cluster_name,
-            path,
-            snapshot_ts,
-            password,
-            dest_host,
-            dest_user,
+            back_up_config: config,
         }
     }
 
@@ -72,16 +69,16 @@ impl BackupTask {
         let put_rs = snapshot_operation
             .put(SnapshotEntity {
                 cluster_name: self.cluster_name.clone(),
-                snapshot_ts: current_date_time.into(),
+                snapshot_ts: current_date_time,
                 snapshot_status: status,
                 snapshot_path: format!(
                     "{}/{}/{}",
-                    self.path.clone(),
+                    self.back_up_config.path.clone(),
                     self.cluster_name.clone(),
                     Self::format_string(current_date_time)
                 ),
-                dest_host: dest_host,
-                dest_user: dest_user,
+                dest_host,
+                dest_user,
             })
             .await;
 
@@ -143,7 +140,7 @@ impl TaskExecutor for BackupTask {
             .redis_host_ports
             .iter()
             .map(|host_port| {
-                if let Some(password) = &self.password {
+                if let Some(password) = &self.back_up_config.password {
                     format!("redis://:{}@{}", password, host_port)
                 } else {
                     format!("redis://{}", host_port)
@@ -182,9 +179,10 @@ impl TaskExecutor for BackupTask {
                 // Collect tasks for concurrent execution
                 let mut tasks = Vec::new();
 
-                let (dest_host, dest_user) = if let (Some(dest_host), Some(dest_user)) =
-                    (&self.dest_host, &self.dest_user)
-                {
+                let (dest_host, dest_user) = if let (Some(dest_host), Some(dest_user)) = (
+                    &self.back_up_config.dest_host,
+                    &self.back_up_config.dest_user,
+                ) {
                     // Both are Some, use the provided values
                     (dest_host.clone(), dest_user.clone())
                 } else {
@@ -194,7 +192,7 @@ impl TaskExecutor for BackupTask {
                 println!("dest_host:{dest_host},dest_user:{dest_user}");
 
                 self.save_snapshot_info(
-                    self.snapshot_ts.clone(),
+                    self.back_up_config.snapshot_ts,
                     2,
                     dest_host.clone(),
                     dest_user.clone(),
@@ -204,7 +202,7 @@ impl TaskExecutor for BackupTask {
                 for node in &masters {
                     // Clone variables for the async block
                     let node_ip = node.ip.clone();
-                    let node_port = node.port.clone() + 10000 + 1;
+                    let node_port = node.port + 10000 + 1;
                     let dest_host = dest_host.clone();
                     let dest_user = dest_user.clone();
 
@@ -213,7 +211,7 @@ impl TaskExecutor for BackupTask {
                         self.cluster_name.clone(),
                         node.ip,
                         node.port,
-                        Self::format_string(self.snapshot_ts)
+                        Self::format_string(self.back_up_config.snapshot_ts)
                     );
 
                     // Create the async task
@@ -231,9 +229,9 @@ impl TaskExecutor for BackupTask {
                                 dest_user.clone(),
                                 format!(
                                     "{}/{}/{}",
-                                    self.path.clone(),
+                                    self.back_up_config.path.clone(),
                                     self.cluster_name.clone(),
-                                    Self::format_string(self.snapshot_ts)
+                                    Self::format_string(self.back_up_config.snapshot_ts)
                                 ),
                             )
                             .await
@@ -291,8 +289,13 @@ impl TaskExecutor for BackupTask {
                 }
 
                 if trigger_backup_succeed && backup_finished {
-                    self.save_snapshot_info(self.snapshot_ts.clone(), 0, dest_host, dest_user)
-                        .await;
+                    self.save_snapshot_info(
+                        self.back_up_config.snapshot_ts,
+                        0,
+                        dest_host,
+                        dest_user,
+                    )
+                    .await;
 
                     task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
                     task_result.insert(
@@ -300,8 +303,13 @@ impl TaskExecutor for BackupTask {
                         TaskArgValue::Str("All snapshots completed successfully".to_string()),
                     );
                 } else if !trigger_backup_succeed {
-                    self.save_snapshot_info(self.snapshot_ts.clone(), 1, dest_host, dest_user)
-                        .await;
+                    self.save_snapshot_info(
+                        self.back_up_config.snapshot_ts,
+                        1,
+                        dest_host,
+                        dest_user,
+                    )
+                    .await;
 
                     task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
                     task_result.insert(
@@ -354,7 +362,7 @@ impl TaskExecutor for BackupTask {
                     match task.await {
                         Ok(_) => {
                             self.save_snapshot_info(
-                                self.snapshot_ts.clone(),
+                                self.back_up_config.snapshot_ts,
                                 0,
                                 dest_host,
                                 dest_user,
@@ -372,7 +380,7 @@ impl TaskExecutor for BackupTask {
                         Err(e) => {
                             error!("Error backup failed");
                             self.save_snapshot_info(
-                                self.snapshot_ts.clone(),
+                                self.back_up_config.snapshot_ts,
                                 1,
                                 dest_host,
                                 dest_user,
