@@ -17,7 +17,7 @@ pub const CMD_OUTPUT: &str = "_cmd_output_";
 pub const CMD: &str = "_cmd_";
 
 #[derive(Parser, Default, Debug)]
-#[command(author, version = "0.7.1", about = "EloqData cluster management tool")]
+#[command(author, version = "0.7.2", about = "EloqData cluster management tool")]
 #[command(next_line_help = true)]
 pub struct Command {
     #[arg(long, value_name = "home-dir")]
@@ -146,6 +146,15 @@ pub enum SubCommand {
         cluster: String,
         #[arg(long, default_value_t = false)]
         restart: bool,
+        #[arg(long, help = "Password for Redis operations")]
+        password: Option<String>,
+        #[arg(
+            long,
+            help = "Fields to update in format field_1:value_1,field_2:value_2"
+        )]
+        fields: Vec<String>,
+        #[arg(long, help = "Specific tx node ID to update configuration for")]
+        tx_node_id: Option<u32>,
     },
 
     #[command(long_about = "Remove cluster")]

@@ -41,8 +41,8 @@ impl Stateful for ScaleEntity {
             StateValue::Integer(self.stage),
             // Default to empty string if no error
             StateValue::Varchar(self.error_message.clone().unwrap_or_default()),
-            StateValue::Timestamp(self.create_timestamp.clone()),
-            StateValue::Timestamp(self.update_timestamp.clone()),
+            StateValue::Timestamp(self.create_timestamp),
+            StateValue::Timestamp(self.update_timestamp),
         ]
     }
 }

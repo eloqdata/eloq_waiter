@@ -24,7 +24,7 @@ use std::thread;
 use std::time::Duration;
 use strum_macros::AsRefStr;
 use tokio::sync::watch;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 #[derive(Clone, Debug, Eq, PartialEq, AsRefStr)]
 pub enum TxCtlCmd {
@@ -289,7 +289,7 @@ struct TaskGenerationContext<'a> {
 
 fn generate_tasks_for_host_ports(
     context: &TaskGenerationContext,
-    host_ports: &Vec<String>,
+    host_ports: &[String],
     server_type: ServerType,
 ) -> IndexMap<TaskId, TaskInstance> {
     let cmd_str_ref = context.cmd_arg.as_ref();
@@ -313,11 +313,10 @@ fn generate_tasks_for_host_ports(
                 "start" => (
                     TxCtlCmd::Start(if matches!(server_type, ServerType::Node) {
                         // For nodes, we need to use both host and port
-                        context.config.deployment.srv_start_cmd_with_host(
-                            port,
-                            server_type.clone(),
-                            host,
-                        )
+                        context
+                            .config
+                            .deployment
+                            .srv_start_cmd_with_host(port, server_type.clone())
                     } else {
                         context
                             .config
@@ -780,10 +779,9 @@ impl TaskExecutor for MonographTxCtlTask {
                 let start_cmd = self.ctl_cmd.cmd_value();
                 info!("start_cmd: {}", start_cmd);
                 info!("check_status_cmd: {}", check_status_cmd);
-                let rs = tx_ctl!(self, check_process_status, {==, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
+                tx_ctl!(self, check_process_status, {==, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
                     wait_command_complete!(start_cmd, check_status_cmd, ssh_session.clone(), is_some)
-                });
-                rs
+                })
             }
             _ => {
                 unreachable!("Unrecognized command: {}", ctl_cmd_ref);
@@ -792,22 +790,17 @@ impl TaskExecutor for MonographTxCtlTask {
 
         ssh_session.close().await?;
         let mut ctl_rtn_value = mono_ctl_rs?;
-        match ctl_cmd_ref {
-            "status" => {
-                if ctl_rtn_value.get(PROCESS_PID).is_some() {
-                    let pid = TaskArgValue::into_inner_value::<String>(
-                        ctl_rtn_value.get(PROCESS_PID).unwrap().clone(),
-                    );
-                    if pid == PID_NOT_FOUND {
-                        let output = format!("\neloqkv service is down.");
-                        ctl_rtn_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
-                    } else {
-                        let output = format!("\neloqkv service is running, pid: {}.", pid);
-                        ctl_rtn_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
-                    }
-                }
+        if ctl_cmd_ref == "status" && ctl_rtn_value.contains_key(PROCESS_PID) {
+            let pid = TaskArgValue::into_inner_value::<String>(
+                ctl_rtn_value.get(PROCESS_PID).unwrap().clone(),
+            );
+            if pid == PID_NOT_FOUND {
+                let output = "\neloqkv service is down.".to_string();
+                ctl_rtn_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+            } else {
+                let output = format!("\neloqkv service is running, pid: {}.", pid);
+                ctl_rtn_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
             }
-            _ => {}
         }
         let exec_cmd = if let Some(cmd) = ctl_rtn_value.get(CMD) {
             cmd.clone().into_inner_value()

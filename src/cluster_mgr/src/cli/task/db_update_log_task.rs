@@ -16,21 +16,14 @@ use tracing::info;
 pub struct DbDeploymentUpdateLogTask {
     task_id: TaskId,
     config: DeployConfig,
-    log_ng_id: Option<u32>,
     cluster_name: String,
 }
 
 impl DbDeploymentUpdateLogTask {
-    pub fn new(
-        task_id: TaskId,
-        config: DeployConfig,
-        log_ng_id: Option<u32>,
-        cluster_name: String,
-    ) -> Self {
+    pub fn new(task_id: TaskId, config: DeployConfig, cluster_name: String) -> Self {
         Self {
             task_id,
             config,
-            log_ng_id,
             cluster_name,
         }
     }
@@ -59,8 +52,8 @@ impl DbDeploymentUpdateLogTask {
             cluster_name: self.cluster_name.clone(),
             deployment_config: config_string,
             host_list: all_hosts,
-            create_timestamp: now.into(),
-            update_timestamp: now.into(),
+            create_timestamp: now,
+            update_timestamp: now,
         };
 
         info!("Created deployment entity for database update");

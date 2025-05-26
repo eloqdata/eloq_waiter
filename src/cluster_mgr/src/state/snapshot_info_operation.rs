@@ -27,7 +27,7 @@ impl Stateful for SnapshotEntity {
         vec![
             StateValue::Varchar(self_cloned.cluster_name),
             StateValue::Timestamp(self_cloned.snapshot_ts),
-            StateValue::Bigint(self_cloned.snapshot_status as i64),
+            StateValue::Bigint(self_cloned.snapshot_status),
             StateValue::Varchar(self_cloned.snapshot_path),
             StateValue::Varchar(self_cloned.dest_host),
             StateValue::Varchar(self_cloned.dest_user),

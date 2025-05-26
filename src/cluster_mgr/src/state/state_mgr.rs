@@ -274,11 +274,11 @@ impl StateMgr {
         cluster: &str,
         cutoff_datetime: &Option<DateTime<Utc>>,
     ) -> Result<u64> {
-        let mut cond_text = format!("cluster_name=$1 ");
+        let mut cond_text = "cluster_name=$1 ".to_string();
         let mut bind_values = vec![StateValue::Varchar(cluster.to_owned())];
 
         if cutoff_datetime.is_some() {
-            cond_text.push_str(format!(" and snapshot_ts<$2").as_str());
+            cond_text.push_str(" and snapshot_ts<$2".to_string().as_str());
             bind_values.push(StateValue::Timestamp(cutoff_datetime.unwrap()))
         }
 

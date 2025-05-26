@@ -73,10 +73,9 @@ impl UploadTaskBuilder for ProxyUploadBuilder {
             let config_path = upload_base_dir.join(&config_filename);
 
             // Write the customized INI file
-            proxy_ini.write_to_file(&config_path).expect(&format!(
-                "Failed to write config content to {}",
-                config_filename
-            ));
+            proxy_ini.write_to_file(&config_path).unwrap_or_else(|_| {
+                panic!("Failed to write config content to {}", config_filename)
+            });
         }
 
         let source_host = get_source_host(None);

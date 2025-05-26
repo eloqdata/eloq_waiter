@@ -226,7 +226,7 @@ pub(crate) fn build_task_instance(
 
     let conn = config.conn_ref();
     let scp_cmd = scp(&upload_file, conn.clone());
-    let upload_task = UploadTask::new(config, task_id.clone());
+    let upload_task = UploadTask::new(task_id.clone());
     (
         task_id,
         TaskInstance {

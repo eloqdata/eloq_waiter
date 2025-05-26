@@ -4,7 +4,7 @@ use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
-use crate::cli::task::scale_op_task::ScaleOpTask;
+use crate::cli::task::scale_op_task::{ScaleOpConfig, ScaleOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::cli::task::topology_display_task::TopologyDisplayTask;
@@ -16,7 +16,7 @@ use crate::cli::task::upload::upload_task_builder::{
     build_task_instance, get_source_host, upload_tasks_with_nodes, UploadTaskBuilderType,
 };
 use crate::cli::{download_dir, SubCommand};
-use crate::config::config_base::{DeployConfig, UploadFile};
+use crate::config::config_base::UploadFile;
 use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
 use crate::config::{config_template, SSH_PYTHON_SCRIPT};
@@ -277,7 +277,6 @@ impl super::TaskGroup for ScaleTaskGroup {
                 }
             };
 
-        // Derive candidate_nodes_after_scale based on actual operation
         let candidate_nodes_after_scale = match operation_type {
             ScaleOperationType::AddNodes => {
                 let mut after = candidate_nodes_before_scale.clone();
@@ -486,14 +485,18 @@ impl super::TaskGroup for ScaleTaskGroup {
             };
 
             // Take the RedisOpTask result from redis_op_rx(old cluster config) and send the ScaleOpTask result to scale_op_tx(new cluster config)
+            let scale_config = ScaleOpConfig {
+                operation_type: operation_type.clone(),
+                nodes_list: nodes_list.clone(),
+                is_candidate: is_candidate.clone(),
+                cluster_name: cluster_name.clone(),
+                ng_id,
+            };
+
             let scale_task = ScaleOpTask::new(
                 scale_task_id.clone(),
                 scale_event_id.clone(),
-                operation_type.clone(),
-                nodes_list.clone(),
-                is_candidate.clone(),
-                cluster_name.clone(),
-                ng_id,
+                scale_config,
                 redis_op_rx.clone(),
                 scale_op_tx.clone(),
             );
@@ -884,7 +887,7 @@ impl super::TaskGroup for ScaleTaskGroup {
             operation_type.clone() as i32,
             nodes_list.clone(),
             is_candidate,
-            1,
+            1, // stage 1, scale operation finished
             cluster_name.clone(),
         );
         let update_stage1_instance = TaskInstance {
@@ -911,21 +914,9 @@ impl super::TaskGroup for ScaleTaskGroup {
             host: "_local".to_string(),
         };
 
-        // Get all nodes that should exist after scale operation
-        let final_nodes = match operation_type {
-            ScaleOperationType::AddNodes => {
-                // For add operation, use candidate_nodes_after_scale
-                candidate_nodes_after_scale.clone()
-            }
-            ScaleOperationType::RemoveNodes => {
-                // For remove operation, use candidate_nodes_after_scale
-                candidate_nodes_after_scale.clone()
-            }
-        };
-
         let final_topology_task = RedisOpTask::new(
             final_topology_task_id.clone(),
-            final_nodes,
+            candidate_nodes_after_scale,
             "cluster nodes".to_string(),
             final_topology_tx.clone(),
             password.clone(),

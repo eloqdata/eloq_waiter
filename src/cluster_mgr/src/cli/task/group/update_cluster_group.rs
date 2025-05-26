@@ -53,16 +53,16 @@ impl TaskGroup for UpdateClusterTaskGroup {
             if let Some(img) = cluster_config.deployment.log_image() {
                 downloads.push(img.to_owned());
             }
-            upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, &config));
-            unpack_tasks.extend(UnpackFileTask::unpack_eloqservers(&cluster_config));
+            upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, config));
+            unpack_tasks.extend(UnpackFileTask::unpack_eloqservers(cluster_config));
         }
         if update_cass {
             if let Some(storage_service) = &deployment.storage_service {
                 let inner_cass = storage_service.inner_cass();
                 if let Some(inner_cass) = inner_cass {
                     downloads.push(inner_cass.image_url());
-                    upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, &config));
-                    unpack_tasks.extend(UnpackFileTask::unpack_cassandra(&cluster_config, true));
+                    upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, config));
+                    unpack_tasks.extend(UnpackFileTask::unpack_cassandra(cluster_config, true));
                 }
             }
         }
@@ -79,7 +79,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
             log: true,
             store: update_cass,
             monitor: false,
-            force: force.clone(),
+            force: *force,
             all: false,
             password: password.clone(),
             nodes: Vec::new(),
@@ -94,25 +94,26 @@ impl TaskGroup for UpdateClusterTaskGroup {
             // this will succeed only if the tx-server is running properly. we can not trigger this action if the tx-server is down.
             stop_with_hot_standby(
                 stop_cmd.clone(),
-                &cluster_config,
+                cluster_config,
                 &mut barrier,
                 &mut executable,
-            );
+            )
+            .await;
         } else {
             // this means it will succeed even if the tx-server is not running. this is idempotent in that the result is the same whether the tx-server is running or not.
             let stop_tx =
-                MonographTxCtlTask::from_config(stop_cmd.clone(), &cluster_config, ServerType::Tx);
+                MonographTxCtlTask::from_config(stop_cmd.clone(), cluster_config, ServerType::Tx);
             barrier.push(stop_tx.len());
             executable.extend(stop_tx);
         }
 
         if deployment.log_service.is_some() {
-            let stop_log = MonographLogCtlTask::from_config(stop_cmd.clone(), &cluster_config);
+            let stop_log = MonographLogCtlTask::from_config(stop_cmd.clone(), cluster_config);
             barrier.push(stop_log.len());
             executable.extend(stop_log);
         }
         if update_cass {
-            let tasks = CassandraCtlTask::from_config(stop_cmd, &cluster_config);
+            let tasks = CassandraCtlTask::from_config(stop_cmd, cluster_config);
             barrier.push(tasks.len());
             executable.extend(tasks);
         }
@@ -128,22 +129,22 @@ impl TaskGroup for UpdateClusterTaskGroup {
         if let Some(storage_service) = &deployment.storage_service {
             let inner_cass = storage_service.inner_cass();
             if inner_cass.is_some() {
-                let tasks = CassandraCtlTask::from_config(start_cmd.clone(), &cluster_config);
+                let tasks = CassandraCtlTask::from_config(start_cmd.clone(), cluster_config);
                 let ba = CassandraCtlTask::start_barrier(tasks.len());
                 barrier.extend(ba);
                 executable.extend(tasks);
             }
         }
         if deployment.log_service.is_some() {
-            let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), &cluster_config);
+            let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), cluster_config);
             barrier.push(start_log.len());
             executable.extend(start_log);
-            let probe = MonographLogProbeTask::from_config(&cluster_config);
+            let probe = MonographLogProbeTask::from_config(cluster_config);
             barrier.push(probe.len());
             executable.extend(probe);
         }
         let start_tx =
-            MonographTxCtlTask::from_config(start_cmd.clone(), &cluster_config, ServerType::Tx);
+            MonographTxCtlTask::from_config(start_cmd.clone(), cluster_config, ServerType::Tx);
         barrier.push(start_tx.len());
         executable.extend(start_tx);
 
@@ -155,7 +156,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
         {
             let start_standby = MonographTxCtlTask::from_config(
                 start_cmd.clone(),
-                &cluster_config,
+                cluster_config,
                 ServerType::Standby,
             );
             barrier.push(start_standby.len());
@@ -170,7 +171,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
         {
             let start_voter = MonographTxCtlTask::from_config(
                 start_cmd.clone(),
-                &cluster_config,
+                cluster_config,
                 ServerType::Voter,
             );
             barrier.push(start_voter.len());
@@ -182,7 +183,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
                 "{}/EloqKV/bin/eloqkv --version",
                 cluster_config.install_dir()
             ),
-            &config,
+            config,
             cluster_config.deployment.tx_service.merge_hosts(),
             Some("check_eloqkv_version".to_string()),
         );

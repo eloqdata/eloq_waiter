@@ -1,11 +1,19 @@
+use crate::cli::task::config_fields::{field_exists, is_cluster_wide_field};
 use crate::cli::task::group::Config;
 use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
-use crate::cli::task::task_base::TaskExecutionContext;
+use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
+use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::stop_with_hot_standby;
+use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
+use crate::config::DeploymentPackage;
+use anyhow::{bail, Result};
 use indexmap::IndexMap;
+use std::collections::HashMap;
+use tokio::sync::watch;
+use tracing::{info, warn};
 
 #[async_trait::async_trait]
 impl TaskGroup for UpdateConfigTaskGroup {
@@ -14,7 +22,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
         cmd_arg: SubCommand,
         config: &Config,
     ) -> anyhow::Result<TaskExecutionContext> {
-        let cluster_config = match config {
+        let deploy_config = match config {
             Config::Cluster(cfg) => cfg,
             _ => {
                 return Err(anyhow::anyhow!(
@@ -23,20 +31,98 @@ impl TaskGroup for UpdateConfigTaskGroup {
             }
         };
 
-        let cluster_name = &cluster_config.deployment.cluster_name;
-        let need_restart = match cmd_arg {
-            SubCommand::UpdateConf { restart, .. } => restart,
+        let cluster_name = &deploy_config.deployment.cluster_name;
+        let (need_restart, fields, tx_node_id, password) = match cmd_arg {
+            SubCommand::UpdateConf {
+                restart,
+                fields,
+                tx_node_id,
+                password,
+                ..
+            } => (restart, fields, tx_node_id, password),
             _ => unreachable!(),
         };
 
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
-        executable.extend(upload_tasks(UploadTaskBuilderType::TxConf, &config));
-        barrier.push(executable.len());
+
+        // Validate the field updates
+        validate_fields(&fields, tx_node_id)?;
+
+        // Use the TopologyUpdateTask if tx_node_id is provided
+        if let Some(node_id) = tx_node_id {
+            // Get all Redis host:port combinations from the config
+            let mut candidate_nodes =
+                deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
+            let standby_host_ports =
+                deploy_config.get_host_port_list(DeploymentPackage::MonographStandby);
+            candidate_nodes.extend(standby_host_ports);
+
+            // Create an empty ClusterNodes struct for the channel
+            let empty_cluster_nodes = ClusterNodes {
+                masters: Vec::new(),
+                replicas: Vec::new(),
+            };
+
+            // Create channel for passing topology data from RedisOpTask to TopologyUpdateTask
+            let (redis_op_tx, redis_op_rx) = watch::channel(empty_cluster_nodes);
+
+            // Create a RedisOpTask to get the current cluster topology
+            let redis_task_id = TaskId {
+                cmd: "topology".to_string(),
+                task: "get-current-topology".to_string(),
+                host: "_local".to_string(),
+            };
+
+            let redis_task = RedisOpTask::new(
+                redis_task_id.clone(),
+                candidate_nodes,
+                "cluster nodes".to_string(),
+                redis_op_tx,
+                password.clone(), // Pass the password here
+                true,             // Skip checkpoint
+            );
+
+            let redis_task_instance = TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(redis_task),
+                task_host: TaskHost::Local,
+            };
+
+            // Add RedisOpTask
+            executable.insert(redis_task_id, redis_task_instance);
+            barrier.push(1);
+
+            // Add TopologyUpdateTask
+            executable.extend(TopologyUpdateTask::for_config_update(
+                deploy_config,
+                redis_op_rx,
+                node_id,
+                fields,
+            ));
+            barrier.push(1);
+
+            // Add upload task to ensure the updated INI file is copied to target host
+            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, config);
+            barrier.push(upload_tasks.len());
+            executable.extend(upload_tasks);
+        } else {
+            // Use TopologyUpdateTask to update configuration for all nodes
+            executable.extend(TopologyUpdateTask::for_all_nodes_config_update(
+                deploy_config,
+                fields,
+            ));
+            barrier.push(executable.len());
+
+            // Then upload the updated INI files to target hosts
+            let upload_tasks = upload_tasks(UploadTaskBuilderType::TxConf, config);
+            barrier.push(upload_tasks.len());
+            executable.extend(upload_tasks);
+        }
 
         if need_restart {
             // stop order: (standby-server -> voter-server ->) tx-server -> log-server -> kv-store
-            if cluster_config
+            if deploy_config
                 .deployment
                 .tx_service
                 .standby_host_ports
@@ -54,10 +140,11 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         password: None,
                         nodes: Vec::new(),
                     },
-                    &cluster_config,
+                    deploy_config,
                     &mut barrier,
                     &mut executable,
-                );
+                )
+                .await;
             } else {
                 let stop_tx_task = MonographTxCtlTask::from_config(
                     SubCommand::Stop {
@@ -71,7 +158,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         password: None,
                         nodes: Vec::new(),
                     },
-                    &cluster_config,
+                    deploy_config,
                     ServerType::Tx,
                 );
                 barrier.push(stop_tx_task.len());
@@ -83,13 +170,13 @@ impl TaskGroup for UpdateConfigTaskGroup {
                     cluster: cluster_name.to_string(),
                     nodes: Vec::new(),
                 },
-                &cluster_config,
+                deploy_config,
                 ServerType::Tx,
             );
             barrier.push(start_tx_task.len());
             executable.extend(start_tx_task);
 
-            if cluster_config
+            if deploy_config
                 .deployment
                 .tx_service
                 .standby_host_ports
@@ -100,14 +187,14 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         cluster: cluster_name.to_string(),
                         nodes: Vec::new(),
                     },
-                    &cluster_config,
+                    deploy_config,
                     ServerType::Standby,
                 );
                 barrier.push(start_standby.len());
                 executable.extend(start_standby);
             }
 
-            if cluster_config
+            if deploy_config
                 .deployment
                 .tx_service
                 .voter_host_ports
@@ -118,7 +205,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         cluster: cluster_name.to_string(),
                         nodes: Vec::new(),
                     },
-                    &cluster_config,
+                    deploy_config,
                     ServerType::Voter,
                 );
                 barrier.push(start_voter.len());
@@ -136,4 +223,40 @@ impl TaskGroup for UpdateConfigTaskGroup {
             executable,
         })
     }
+}
+
+/// Validates the field updates and ensures they comply with scope rules
+fn validate_fields(field_updates: &[String], tx_node_id: Option<u32>) -> Result<()> {
+    for field_update in field_updates {
+        if let Some((field, _)) = field_update.split_once(':') {
+            // Check if field exists in registry
+            if !field_exists(field) {
+                bail!(
+                    "Unknown configuration field '{}'. Run 'eloqctl help config-fields' for a list of valid fields.",
+                    field
+                );
+            }
+
+            // If updating a node-specific field, ensure we have a tx_node_id
+            // If updating a cluster-wide field, warn if tx_node_id is provided
+            if is_cluster_wide_field(field) && tx_node_id.is_some() {
+                warn!(
+                    "Field '{}' is cluster-wide but a specific node ID was provided. The update will apply to all nodes.",
+                    field
+                );
+            } else if !is_cluster_wide_field(field) && tx_node_id.is_none() {
+                info!(
+                    "Node-specific field '{}' will be updated on all nodes.",
+                    field
+                );
+            }
+        } else {
+            bail!(
+                "Invalid field update format: '{}'. Expected 'field:value'.",
+                field_update
+            );
+        }
+    }
+
+    Ok(())
 }

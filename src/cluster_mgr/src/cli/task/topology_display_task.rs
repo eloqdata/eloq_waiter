@@ -1,9 +1,9 @@
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
+use crate::cli::task::task_utils::NodeGroupId;
 use crate::cli::SubCommand;
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::state::state_mgr::STATE_MGR;
-use crate::state::topology_log_operation::TopologyLogEntity;
 use crate::state::topology_tx_operation::TopologyTxEntity;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -114,19 +114,16 @@ impl TaskExecutor for TopologyDisplayTask {
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
         table.set_titles(row!["Node Group ID", "Node ID", "Host", "Port", "Role",]);
 
-        let mut grouped_tx: HashMap<i32, Vec<TopologyTxEntity>> = HashMap::new();
+        let mut grouped_tx: HashMap<NodeGroupId, Vec<TopologyTxEntity>> = HashMap::new();
         for entity in tx_entities.clone() {
             grouped_tx
                 .entry(entity.node_group_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(entity);
         }
 
-        let mut group_ids: Vec<i32> = grouped_tx.keys().cloned().collect();
+        let mut group_ids: Vec<NodeGroupId> = grouped_tx.keys().cloned().collect();
         group_ids.sort();
-
-        // Store the last group ID before entering the loop
-        let last_group_id = *group_ids.last().unwrap_or(&-1);
 
         for group_id in group_ids {
             if let Some(nodes) = grouped_tx.get_mut(&group_id) {
@@ -144,30 +141,18 @@ impl TaskExecutor for TopologyDisplayTask {
 
                     table.add_row(Row::new(vec![
                         Cell::new(&node.node_group_id.to_string()),
-                        Cell::new(&node.node_id),
+                        Cell::new(&node.node_id.to_string()),
                         Cell::new(&node.host),
                         Cell::new(&node.port.to_string()),
                         Cell::new(role),
-                    ]));
-                }
-
-                // Add a blank row as separator between node groups (except after the last group)
-                if group_id != last_group_id {
-                    table.add_row(Row::new(vec![
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
                     ]));
                 }
             }
         }
 
         let mut output = format!(
-            "\nCluster TX Topology for {}:\n{}",
-            self.cluster_name,
-            table.to_string()
+            "\n\nCluster TX Topology for {}:\n{}",
+            self.cluster_name, table
         );
 
         // Append log service info if available
@@ -185,7 +170,7 @@ impl TaskExecutor for TopologyDisplayTask {
                 for ent in log_entities {
                     log_table.add_row(Row::new(vec![
                         Cell::new(&ent.node_group_id.to_string()),
-                        Cell::new(&ent.node_id),
+                        Cell::new(&ent.node_id.to_string()),
                         Cell::new(&ent.host),
                         Cell::new(&ent.port.to_string()),
                         Cell::new(ent.data_dirs.as_deref().unwrap_or("")),
@@ -193,8 +178,7 @@ impl TaskExecutor for TopologyDisplayTask {
                 }
                 output.push_str(&format!(
                     "\n\nLog Service Topology for {}:\n{}",
-                    self.cluster_name,
-                    log_table.to_string()
+                    self.cluster_name, log_table
                 ));
             }
         }

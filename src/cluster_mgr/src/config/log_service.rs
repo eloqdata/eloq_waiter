@@ -2,7 +2,6 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::info;
 
 const LOG_SRV_REPLICA_NUM: usize = 3;
 
