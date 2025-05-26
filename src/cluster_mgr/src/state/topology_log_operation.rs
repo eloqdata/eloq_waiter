@@ -1,4 +1,7 @@
-use crate::{state_operation_impl, StateValue, Stateful};
+use crate::{
+    cli::task::task_utils::{NodeGroupId, NodeId},
+    state_operation_impl, StateValue, Stateful,
+};
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
@@ -40,11 +43,11 @@ pub(crate) const TOPOLOGY_LOG_DELETE: &str = r#"delete from t_topology_log"#;
 #[derive(Debug, Clone, FromRow)]
 pub struct TopologyLogEntity {
     pub cluster_name: String,
-    pub node_group_count: i32,
-    pub node_group_id: i32,
-    pub node_id: String,
+    pub node_group_count: u32,
+    pub node_group_id: NodeGroupId,
+    pub node_id: NodeId,
     pub host: String,
-    pub port: i32,
+    pub port: u16,
     pub data_dirs: Option<String>,
     pub create_timestamp: DateTime<Utc>,
     pub update_timestamp: DateTime<Utc>,
@@ -54,11 +57,11 @@ impl Stateful for TopologyLogEntity {
     fn to_values(&self) -> Vec<StateValue> {
         vec![
             StateValue::Varchar(self.cluster_name.clone()),
-            StateValue::Integer(self.node_group_count),
-            StateValue::Integer(self.node_group_id),
-            StateValue::Varchar(self.node_id.clone()),
+            StateValue::Integer(self.node_group_count as i32),
+            StateValue::Integer(self.node_group_id as i32),
+            StateValue::Integer(self.node_id as i32),
             StateValue::Varchar(self.host.clone()),
-            StateValue::Integer(self.port),
+            StateValue::Integer(self.port as i32),
             match &self.data_dirs {
                 Some(d) => StateValue::Varchar(d.clone()),
                 None => StateValue::Varchar("".to_string()),

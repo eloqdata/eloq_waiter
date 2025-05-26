@@ -1,5 +1,6 @@
 use crate::cli::task::task_base::TaskExecutor;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
+use crate::cli::task::task_utils::NodeGroupId;
 use crate::cli::SubCommand;
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::state::state_mgr::STATE_MGR;
@@ -113,7 +114,7 @@ impl TaskExecutor for TopologyDisplayTask {
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
         table.set_titles(row!["Node Group ID", "Node ID", "Host", "Port", "Role",]);
 
-        let mut grouped_tx: HashMap<u32, Vec<TopologyTxEntity>> = HashMap::new();
+        let mut grouped_tx: HashMap<NodeGroupId, Vec<TopologyTxEntity>> = HashMap::new();
         for entity in tx_entities.clone() {
             grouped_tx
                 .entry(entity.node_group_id)
@@ -121,11 +122,8 @@ impl TaskExecutor for TopologyDisplayTask {
                 .push(entity);
         }
 
-        let mut group_ids: Vec<u32> = grouped_tx.keys().cloned().collect();
+        let mut group_ids: Vec<NodeGroupId> = grouped_tx.keys().cloned().collect();
         group_ids.sort();
-
-        // Q? need this? Store the last group ID before entering the loop
-        let last_group_id = *group_ids.last().unwrap_or(&0);
 
         for group_id in group_ids {
             if let Some(nodes) = grouped_tx.get_mut(&group_id) {
@@ -147,17 +145,6 @@ impl TaskExecutor for TopologyDisplayTask {
                         Cell::new(&node.host),
                         Cell::new(&node.port.to_string()),
                         Cell::new(role),
-                    ]));
-                }
-
-                // Add a blank row as separator between node groups (except after the last group)
-                if group_id != last_group_id {
-                    table.add_row(Row::new(vec![
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
-                        Cell::new(""),
                     ]));
                 }
             }
@@ -183,7 +170,7 @@ impl TaskExecutor for TopologyDisplayTask {
                 for ent in log_entities {
                     log_table.add_row(Row::new(vec![
                         Cell::new(&ent.node_group_id.to_string()),
-                        Cell::new(&ent.node_id),
+                        Cell::new(&ent.node_id.to_string()),
                         Cell::new(&ent.host),
                         Cell::new(&ent.port.to_string()),
                         Cell::new(ent.data_dirs.as_deref().unwrap_or("")),

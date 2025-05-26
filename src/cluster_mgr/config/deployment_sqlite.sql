@@ -85,7 +85,7 @@ create table if not exists t_topology_log
     cluster_name        varchar(200) not null,
     node_group_count    integer      not null,
     node_group_id       integer      not null,
-    node_id             varchar(100) not null,
+    node_id             integer      not null,
     host                varchar(100) not null,
     port                integer      not null,
     data_dirs           text,

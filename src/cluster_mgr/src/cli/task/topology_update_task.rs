@@ -446,11 +446,7 @@ impl TopologyUpdateTask {
                         // Determine the role based on is_candidate flag
                         // 1 = Replica (Standby), 2 = Voter
                         // All is_candidate=true nodes are set as replicas at this step
-                        let role = if node.is_candidate {
-                            1 // Set all candidates as replicas initially
-                        } else {
-                            2 // Voter
-                        };
+                        let role = if node.is_candidate { 1 } else { 2 };
 
                         let port = node.port - port_delta;
 
@@ -493,15 +489,15 @@ impl TopologyUpdateTask {
         let now = Utc::now();
         if let Some(log_service) = &self.config.deployment.log_service {
             let log_nodes = &log_service.nodes;
-            let log_count = log_nodes.len() as i32;
+            let log_count = log_nodes.len() as u32;
             for (i, node) in log_nodes.iter().enumerate() {
                 log_entities.push(TopologyLogEntity {
                     cluster_name: cluster_name.clone(),
                     node_group_count: log_count,
                     node_group_id: 0, // set all log nodes to group 0 for the current design
-                    node_id: format!("log-{}", i),
+                    node_id: i as NodeId,
                     host: node.host.clone(),
-                    port: node.port as i32,
+                    port: node.port,
                     data_dirs: Some(node.data_dir.join(",")),
                     create_timestamp: now,
                     update_timestamp: now,
@@ -1175,7 +1171,6 @@ impl TaskExecutor for TopologyUpdateTask {
         let cluster_nodes = self.receiver.borrow().clone();
 
         // Update master roles for nodes identified as masters from Redis
-        let _master_count = cluster_nodes.masters.len() as i32;
         for master in cluster_nodes.masters.iter() {
             // First, query for existing entry with the same host:port (should be a replica)
             let master_ip = master.ip.clone();

@@ -6,7 +6,7 @@ use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::{config_base::DeployConfig, DeploymentPackage};
 use crate::state::state_base::{QueryCondition, StateOperation};
-use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE};
+use crate::state::state_mgr::{STATE_MGR, TASK_STATUS_STATE, TOPOLOGY_TX_STATE};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
 use crate::state::topology_tx_operation::TopologyTxOperation;
 use crate::StateValue;
@@ -480,7 +480,7 @@ async fn check_whether_to_skip_checkpoint(cluster_name: &str) -> bool {
         cluster_name
     );
 
-    let topology_op = STATE_MGR.get_state_operation::<TopologyTxOperation>("t_topology_tx");
+    let topology_op = STATE_MGR.get_state_operation::<TopologyTxOperation>(TOPOLOGY_TX_STATE);
 
     let cond_supplier = || {
         Some(QueryCondition {

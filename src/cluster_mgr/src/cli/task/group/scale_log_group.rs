@@ -759,14 +759,6 @@ impl TaskGroup for ScaleLogTaskGroup {
                     let log_scripts_paths = temp_config.gen_log_start_script()?;
                     info!("Generated log scripts: {:?}", log_scripts_paths);
 
-                    // Extract existing host names from the original config - used to identify which hosts remain
-                    let _remaining_hosts: Vec<String> = temp_log_service
-                        .nodes
-                        .iter()
-                        .map(|node| node.host.clone())
-                        .unique()
-                        .collect();
-
                     // Extract all host:port combinations from the updated temp_log_service (only remaining nodes)
                     let all_log_nodes: Vec<String> = temp_log_service
                         .nodes

@@ -1,4 +1,7 @@
-use crate::{state_operation_impl, StateValue, Stateful};
+use crate::{
+    cli::task::task_utils::{NodeGroupId, NodeId},
+    state_operation_impl, StateValue, Stateful,
+};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -71,8 +74,8 @@ impl TryFrom<&str> for ConfigJson {
 pub struct TopologyTxEntity {
     pub cluster_name: String,
     pub node_group_count: u32,
-    pub node_group_id: u32,
-    pub node_id: u32,
+    pub node_group_id: NodeGroupId,
+    pub node_id: NodeId,
     pub role: i32,
     pub host: String,
     pub port: u16,

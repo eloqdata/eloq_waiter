@@ -277,7 +277,6 @@ impl super::TaskGroup for ScaleTaskGroup {
                 }
             };
 
-        // Derive candidate_nodes_after_scale based on actual operation
         let candidate_nodes_after_scale = match operation_type {
             ScaleOperationType::AddNodes => {
                 let mut after = candidate_nodes_before_scale.clone();
@@ -915,12 +914,9 @@ impl super::TaskGroup for ScaleTaskGroup {
             host: "_local".to_string(),
         };
 
-        // Get all nodes that should exist after scale operation
-        let final_nodes = candidate_nodes_after_scale.clone();
-
         let final_topology_task = RedisOpTask::new(
             final_topology_task_id.clone(),
-            final_nodes,
+            candidate_nodes_after_scale,
             "cluster nodes".to_string(),
             final_topology_tx.clone(),
             password.clone(),
