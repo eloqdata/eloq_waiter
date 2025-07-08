@@ -52,6 +52,8 @@ pub struct MonographLogProbeTask {
     task_id: TaskId,
     check_health_url: HashMap<usize, Vec<String>>,
     readiness: LogReadiness,
+    nodes_count: usize,
+    replica: u32,
 }
 
 impl MonographLogProbeTask {
@@ -82,8 +84,13 @@ impl MonographLogProbeTask {
                 task: "readiness".to_string(),
                 host: "_NONE".to_string(),
             };
-            let probe_task =
-                MonographLogProbeTask::new(task_id.clone(), log_readiness, check_health_url);
+            let probe_task = MonographLogProbeTask::new(
+                task_id.clone(),
+                log_readiness,
+                check_health_url,
+                log_srv.nodes.len(),
+                log_srv.replica,
+            );
             IndexMap::from([(
                 task_id,
                 TaskInstance {
@@ -112,11 +119,15 @@ impl MonographLogProbeTask {
         task_id: TaskId,
         log_readiness: LogReadiness,
         check_health_url: HashMap<usize, Vec<String>>,
+        nodes_count: usize,
+        replica: u32,
     ) -> Self {
         Self {
             task_id,
             readiness: log_readiness,
             check_health_url,
+            nodes_count,
+            replica,
         }
     }
 
@@ -131,7 +142,7 @@ impl MonographLogProbeTask {
     }
 
     async fn action(&self) -> ExecutionValue {
-        let expect_leader_count = self.check_health_url.len();
+        let expect_leader_count = self.nodes_count / self.replica as usize;
         let mut interval = tokio::time::interval(Duration::from_millis(300));
         let success = self.readiness.success_threshold.unwrap_or(3);
         let mut success_counter = 0_usize;
