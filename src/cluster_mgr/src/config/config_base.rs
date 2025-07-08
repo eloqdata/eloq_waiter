@@ -450,11 +450,7 @@ impl DeployConfig {
                                 .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
                                 .replace("${ASAN_OPTS}", ASAN_OPTIONS)
                                 .replace("${VERSION}", version)
-                                // temporarily change from replica to nodes.len(), this will be changed back after scale-log support multiple log groups
-                                .replace(
-                                    "${LOG_GROUP_REPLICA_NUM}",
-                                    &log_srv.nodes.len().to_string(),
-                                );
+                                .replace("${LOG_GROUP_REPLICA_NUM}", &log_srv.replica.to_string());
                             (
                                 LogProcessKey {
                                     host: host.clone(),
