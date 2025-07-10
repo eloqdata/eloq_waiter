@@ -146,9 +146,7 @@ impl LogService {
     }
 
     pub fn log_replica(&self) -> usize {
-        // self.replica as usize
-        self.nodes.len()
-        // temporarily change from replica to nodes.len(), this will be changed back after scale-log support multiple log groups
+        self.replica as usize
     }
 
     fn try_set_leader(

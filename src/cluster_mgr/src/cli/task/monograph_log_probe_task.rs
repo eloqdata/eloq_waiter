@@ -89,7 +89,7 @@ impl MonographLogProbeTask {
                 log_readiness,
                 check_health_url,
                 log_srv.nodes.len(),
-                log_srv.replica,
+                log_srv.log_replica() as u32,
             );
             IndexMap::from([(
                 task_id,
