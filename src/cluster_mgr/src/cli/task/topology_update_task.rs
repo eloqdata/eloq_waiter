@@ -165,6 +165,14 @@ impl TopologyUpdateTask {
                             error!("Invalid boolean value for enable_wal: {}", value);
                         }
                     }
+                    "enable_io_uring" => {
+                        if let Ok(enable) = value.parse::<bool>() {
+                            config.enable_io_uring = enable;
+                            info!("Updated enable_io_uring to {}", enable);
+                        } else {
+                            error!("Invalid boolean value for enable_io_uring: {}", value);
+                        }
+                    }
                     "checkpoint_interval" => {
                         if let Ok(interval) = value.parse::<u32>() {
                             config.checkpoint_interval = Some(interval);
@@ -207,6 +215,7 @@ impl TopologyUpdateTask {
             eloq_data_path: String::new(),
             enable_data_store: false,
             enable_wal: false,
+            enable_io_uring: false,
             checkpoint_interval: None,
             enable_cache_replacement: None,
             additional_settings: std::collections::HashMap::new(),
@@ -236,6 +245,11 @@ impl TopologyUpdateTask {
                     }
                     "enable_wal" => {
                         config.enable_wal = value.to_lowercase() == "true"
+                            || value == "1"
+                            || value.to_lowercase() == "yes";
+                    }
+                    "enable_io_uring" => {
+                        config.enable_io_uring = value.to_lowercase() == "true"
                             || value == "1"
                             || value.to_lowercase() == "yes";
                     }
@@ -329,6 +343,7 @@ impl TopologyUpdateTask {
             eloq_data_path: format!("/home/eloq/{}/EloqKV/data/port-{}", self.cluster_name, port),
             enable_data_store: true,
             enable_wal: false,
+            enable_io_uring: false,
             checkpoint_interval: None,
             enable_cache_replacement: None,
             additional_settings: std::collections::HashMap::new(),
@@ -592,6 +607,7 @@ impl TopologyUpdateTask {
         updated_fields.insert("eloq_data_path".to_string(), false);
         updated_fields.insert("enable_data_store".to_string(), false);
         updated_fields.insert("enable_wal".to_string(), false);
+        updated_fields.insert("enable_io_uring".to_string(), false);
         updated_fields.insert("checkpoint_interval".to_string(), false);
         updated_fields.insert("enable_cache_replacement".to_string(), false);
 
@@ -633,6 +649,10 @@ impl TopologyUpdateTask {
                     "enable_wal" => {
                         updated_lines.push(format!("enable_wal={}", config.enable_wal));
                         updated_fields.insert("enable_wal".to_string(), true);
+                    }
+                    "enable_io_uring" => {
+                        updated_lines.push(format!("enable_io_uring={}", config.enable_io_uring));
+                        updated_fields.insert("enable_io_uring".to_string(), true);
                     }
                     "checkpoint_interval" => {
                         if let Some(interval) = config.checkpoint_interval {
@@ -692,6 +712,14 @@ impl TopologyUpdateTask {
             updated_lines.insert(insert_position, format!("enable_wal={}", config.enable_wal));
         }
 
+        // Add enable_io_uring if present and not already updated
+        if !updated_fields["enable_io_uring"] {
+            updated_lines.insert(
+                insert_position,
+                format!("enable_io_uring={}", config.enable_io_uring),
+            );
+        }
+
         // Add checkpoint_interval if present and not already updated
         if let Some(interval) = config.checkpoint_interval {
             if !updated_fields["checkpoint_interval"] {
@@ -734,6 +762,7 @@ impl TopologyUpdateTask {
         result.push_str(&format!("eloq_data_path={}\n", config.eloq_data_path));
         result.push_str(&format!("enable_data_store={}\n", config.enable_data_store));
         result.push_str(&format!("enable_wal={}\n", config.enable_wal));
+        result.push_str(&format!("enable_io_uring={}\n", config.enable_io_uring));
 
         // Add checkpoint_interval and enable_cache_replacement if present
         if let Some(interval) = config.checkpoint_interval {
