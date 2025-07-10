@@ -9,6 +9,7 @@ deployment:
   version: "latest"
   install_dir: "/home/${USER}"
   enable_wal: true
+  checkpoint_interval: 120
   tx_service:
     tx_host_ports: [127.0.0.1:8000]
     client_port: 3316

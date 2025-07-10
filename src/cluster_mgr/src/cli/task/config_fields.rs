@@ -244,6 +244,17 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
     );
 
     fields.insert(
+        "enable_io_uring",
+        FieldMetadata {
+            description: "Whether to enable io_uring for async I/O operations",
+            scope: FieldScope::NodeSpecific,
+            example: "true",
+            value_type: FieldValueType::Boolean,
+            default_value: "false",
+        },
+    );
+
+    fields.insert(
         "data_store_config_file",
         FieldMetadata {
             description: "Data store configuration file path",
