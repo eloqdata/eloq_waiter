@@ -266,6 +266,8 @@ pub struct Deployment {
     pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
     pub enable_wal: Option<bool>,
+    pub enable_io_uring: Option<bool>,
+    pub checkpoint_interval: Option<u32>,
 }
 
 impl Deployment {
@@ -909,6 +911,26 @@ impl Deployment {
             );
         } else {
             println!("**WARNING:** Manually modifying `enable_wal` in template `EloqKv.ini` is not recommended.");
+        }
+
+        if self.is_empty(&ini, SECTION_LOCAL, "enable_io_uring") {
+            ini.set(
+                SECTION_LOCAL,
+                "enable_io_uring",
+                Some(self.enable_io_uring.unwrap_or(false).to_string()),
+            );
+        } else {
+            println!("**WARNING:** Manually modifying `enable_io_uring` in template `EloqKv.ini` is not recommended.");
+        }
+
+        if self.is_empty(&ini, SECTION_LOCAL, "checkpoint_interval") {
+            ini.set(
+                SECTION_LOCAL,
+                "checkpoint_interval",
+                Some(self.checkpoint_interval.unwrap_or(60).to_string()),
+            );
+        } else {
+            println!("**WARNING:** Manually modifying `checkpoint_interval` in template `EloqKv.ini` is not recommended.");
         }
 
         Ok(ini.clone())
