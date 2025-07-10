@@ -451,7 +451,10 @@ impl DeployConfig {
                                 .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
                                 .replace("${ASAN_OPTS}", ASAN_OPTIONS)
                                 .replace("${VERSION}", version)
-                                .replace("${LOG_GROUP_REPLICA_NUM}", &log_srv.replica.to_string())
+                                .replace(
+                                    "${LOG_GROUP_REPLICA_NUM}",
+                                    &log_srv.log_replica().to_string(),
+                                )
                                 .replace(
                                     "${BTHREAD_CONCURRENCY}",
                                     &bthread_concurrency.to_string(),

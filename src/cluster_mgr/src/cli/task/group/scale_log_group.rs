@@ -173,7 +173,6 @@ impl TaskGroup for ScaleLogTaskGroup {
                                 // Add to the log service
                                 temp_log_service.nodes.push(new_member);
                                 current_node_count += 1;
-                                temp_log_service.replica += 1;
 
                                 info!(
                                     "Added new log node configuration: {}:{} with node_id {}",
@@ -185,7 +184,8 @@ impl TaskGroup for ScaleLogTaskGroup {
 
                     info!(
                         "Current node count: {}, log_group_replica_num: {}",
-                        current_node_count, temp_log_service.replica
+                        current_node_count,
+                        temp_log_service.log_replica()
                     );
 
                     // Create a modified deployment config with the updated log service
@@ -743,12 +743,12 @@ impl TaskGroup for ScaleLogTaskGroup {
 
                     // Update the log_service with the filtered nodes
                     temp_log_service.nodes = nodes_to_keep;
-                    temp_log_service.replica -= removed_count;
 
                     info!(
-                        "Updated log service configuration: removed {} nodes, {} nodes remaining",
+                        "Updated log service configuration: removed {} nodes, {} nodes remaining, replica count: {}",
                         removed_count,
-                        temp_log_service.nodes.len()
+                        temp_log_service.nodes.len(),
+                        temp_log_service.log_replica()
                     );
 
                     // Update the modified configuration
