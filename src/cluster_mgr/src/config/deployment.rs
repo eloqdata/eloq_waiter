@@ -1360,29 +1360,6 @@ impl Deployment {
         let tx_bin = self.tx_srv_bin();
         let logs_dir = self.node_srv_logs(port);
 
-        let mut txlog_flag = String::new();
-        if self.log_service.is_some() {
-            let log_service = self.log_service.as_ref().unwrap();
-            let service_nodes = log_service
-                .nodes
-                .iter()
-                .map(|node| {
-                    format!(
-                        "{host_str}:{port_str}",
-                        host_str = node.host,
-                        port_str = node.port
-                    )
-                })
-                .collect::<Vec<_>>();
-            let txlog_group_replica_num = log_service.log_replica();
-            let txlog_service_list = service_nodes.join(",");
-
-            txlog_flag = format!(
-                "--txlog_service_list={} --txlog_group_replica_num={}",
-                txlog_service_list, txlog_group_replica_num
-            );
-        }
-
         let glog = format!(
             "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
         );
@@ -1414,7 +1391,7 @@ impl Deployment {
             }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} {txlog_flag} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
                 )
             }
         }
@@ -1433,29 +1410,6 @@ impl Deployment {
             _ => unreachable!(),
         };
 
-        let mut txlog_flag = String::new();
-        if self.log_service.is_some() {
-            let log_service = self.log_service.as_ref().unwrap();
-            let service_nodes = log_service
-                .nodes
-                .iter()
-                .map(|node| {
-                    format!(
-                        "{host_str}:{port_str}",
-                        host_str = node.host,
-                        port_str = node.port
-                    )
-                })
-                .collect::<Vec<_>>();
-            let txlog_group_replica_num = log_service.log_replica();
-            let txlog_service_list = service_nodes.join(",");
-
-            txlog_flag = format!(
-                "--txlog_service_list={} --txlog_group_replica_num={}",
-                txlog_service_list, txlog_group_replica_num
-            );
-        }
-
         let glog = format!(
             "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
         );
@@ -1487,7 +1441,7 @@ impl Deployment {
             }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} {txlog_flag} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
                 )
             }
         }
