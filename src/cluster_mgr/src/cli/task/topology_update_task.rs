@@ -503,20 +503,33 @@ impl TopologyUpdateTask {
         let cluster_name = &self.config.deployment.cluster_name;
         let now = Utc::now();
         if let Some(log_service) = &self.config.deployment.log_service {
-            let log_nodes = &log_service.nodes;
-            let log_count = log_nodes.len() as u32;
-            for (i, node) in log_nodes.iter().enumerate() {
-                log_entities.push(TopologyLogEntity {
-                    cluster_name: cluster_name.clone(),
-                    node_group_count: log_count,
-                    node_group_id: 0, // set all log nodes to group 0 for the current design
-                    node_id: i as NodeId,
-                    host: node.host.clone(),
-                    port: node.port,
-                    data_dirs: Some(node.data_dir.join(",")),
-                    create_timestamp: now,
-                    update_timestamp: now,
-                });
+            // Get the actual log group members from the log service grouping algorithm
+            let log_group_members = log_service.group_member_as_vec();
+            let log_count = log_service.nodes.len() as u32;
+
+            // Create a mapping from host:port to log group member info
+            let mut host_port_to_member = std::collections::HashMap::new();
+            for member in &log_group_members {
+                let key = format!("{}:{}", member.member_host, member.port);
+                host_port_to_member.insert(key, member);
+            }
+
+            // Create topology entities using the actual group IDs
+            for node in &log_service.nodes {
+                let key = format!("{}:{}", node.host, node.port);
+                if let Some(member) = host_port_to_member.get(&key) {
+                    log_entities.push(TopologyLogEntity {
+                        cluster_name: cluster_name.clone(),
+                        node_group_count: log_count,
+                        node_group_id: member.group_id as u32, // Use the actual group ID from the grouping algorithm
+                        node_id: member.node_id as u32,
+                        host: node.host.clone(),
+                        port: node.port,
+                        data_dirs: Some(node.data_dir.join(",")),
+                        create_timestamp: now,
+                        update_timestamp: now,
+                    });
+                }
             }
         }
         log_entities

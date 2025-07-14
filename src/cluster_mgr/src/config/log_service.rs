@@ -194,21 +194,36 @@ impl LogService {
             let merge_cells = if hole_count > 0 {
                 let next_row = row_id + 1;
                 if next_row == cells_count {
-                    break;
-                }
-                let next_row = cells_table.get(next_row).unwrap();
-                let next_cells = next_row.iter().take(hole_count).cloned().collect_vec();
-                let mut cells_copy = cells.clone();
-                cells_copy.extend(next_cells.into_iter());
-                let filter_cells = cells_copy
-                    .iter()
-                    .filter(|cell| !cell.disk.eq("_NONE_"))
-                    .cloned()
-                    .collect_vec();
-                if filter_cells.len() == replica {
-                    filter_cells
+                    // If we're at the last row, just process the current row without merging
+                    let filter_cells = cells
+                        .iter()
+                        .filter(|cell| !cell.disk.eq("_NONE_"))
+                        .cloned()
+                        .collect_vec();
+
+                    // If we have enough valid cells for at least one replica, use them
+                    if filter_cells.len() >= replica {
+                        // Take only the first 'replica' number of cells to form a complete group
+                        filter_cells.into_iter().take(replica).collect_vec()
+                    } else {
+                        // If we don't have enough cells for a complete group, skip this row
+                        vec![]
+                    }
                 } else {
-                    vec![]
+                    let next_row = cells_table.get(next_row).unwrap();
+                    let next_cells = next_row.iter().take(hole_count).cloned().collect_vec();
+                    let mut cells_copy = cells.clone();
+                    cells_copy.extend(next_cells.into_iter());
+                    let filter_cells = cells_copy
+                        .iter()
+                        .filter(|cell| !cell.disk.eq("_NONE_"))
+                        .cloned()
+                        .collect_vec();
+                    if filter_cells.len() == replica {
+                        filter_cells
+                    } else {
+                        vec![]
+                    }
                 }
             } else {
                 cells.clone()
@@ -219,7 +234,7 @@ impl LogService {
             let members = merge_cells
                 .iter()
                 .enumerate()
-                .map(|(node_id, cell)| {
+                .map(|(local_idx, cell)| {
                     let host_id = cell.host_idx;
                     let node = sorted_nodes.get(host_id as usize).unwrap();
                     let disk = cell.disk.clone();
@@ -228,13 +243,23 @@ impl LogService {
                         node.port
                     } else {
                         // below produce port+1,port+2,...; i think it is out of use by the current design.
-                        // *port_usage.get(&node.host).unwrap() + (group_id + node_id) as u16
+                        // *port_usage.get(&node.host).unwrap() + (group_id + local_idx) as u16
 
                         node.port
                     };
                     let node_host = &node.host;
+
+                    // Find the global index of this node in the original nodes list
+                    let global_node_id = self
+                        .nodes
+                        .iter()
+                        .position(|original_node| {
+                            original_node.host == *node_host && original_node.port == port
+                        })
+                        .unwrap_or(local_idx); // fallback to local index if not found
+
                     LogGroupMember {
-                        node_id,
+                        node_id: global_node_id,
                         group_id,
                         member_host: node_host.to_string(),
                         port,
@@ -247,6 +272,36 @@ impl LogService {
             group_members.insert(group_id, members);
             group_id += 1;
         }
+
+        // BUGFIX: Correct the node_id to be the index in the final txlog_service_list
+        // The node_id should be the index of the host:port pair in the ordered list
+        // that gets written to the EloqKV configuration as txlog_service_list
+        let mut all_members = Vec::new();
+
+        // Collect all members in the order they appear in txlog_service_list
+        for group_id in 0..group_members.len() {
+            if let Some(members) = group_members.get(&group_id) {
+                all_members.extend(members.clone());
+            }
+        }
+
+        // Create a mapping from host:port to the correct node_id index
+        let mut host_port_to_node_id = HashMap::new();
+        for (idx, member) in all_members.iter().enumerate() {
+            let host_port = format!("{}:{}", member.member_host, member.port);
+            host_port_to_node_id.insert(host_port, idx);
+        }
+
+        // Update all members with the correct node_id
+        for members in group_members.values_mut() {
+            for member in members {
+                let host_port = format!("{}:{}", member.member_host, member.port);
+                if let Some(&correct_node_id) = host_port_to_node_id.get(&host_port) {
+                    member.node_id = correct_node_id;
+                }
+            }
+        }
+
         group_members
         //self.try_set_leader(Some(group_members))
     }
@@ -277,6 +332,7 @@ impl LogService {
                 };
             });
         }
+
         table
     }
 
@@ -286,9 +342,11 @@ impl LogService {
         let mut pre_remain_cell = 0_usize;
         let mut group_id = 0_usize;
         let mut result = vec![];
+
         for (row_id, row) in node_host_table.iter().enumerate() {
             let cols_len = row.len();
             let row_slice = row.as_slice();
+
             let (t_member, outer_from) = if pre_remain_cell == 0 {
                 (vec![], 0)
             } else {
@@ -307,15 +365,16 @@ impl LogService {
             let curr_group = curr_col_len / member_count;
             let curr_remain = curr_col_len % member_count;
             pre_remain_cell = curr_remain;
+
             (0..curr_group).for_each(|inner_group_id| {
-                let inner_from = inner_group_id + outer_from;
+                let inner_from = inner_group_id * member_count + outer_from;
                 let to = inner_from + member_count;
                 group_id += 1;
                 let inner_members = &row_slice[inner_from..to];
-                inner_members.to_vec();
                 result.push(inner_members.to_vec());
             });
         }
+
         result
     }
 
@@ -361,8 +420,19 @@ impl LogService {
     pub fn log_start_cmd(&self) -> HashMap<String, Vec<LogCmdItems>> {
         let all_member_vec = self.group_member_as_vec(); //self.group_members();
         let all_member_as_slice = all_member_vec.as_slice();
-        let group_member_config = self.group_member_config(all_member_as_slice);
         let host_members_lookup = self.host_members(all_member_as_slice);
+
+        // BUGFIX: GROUP_MEMBERS should contain all log service nodes in sorted order
+        // This matches what gets written to txlog_service_list in EloqKV configuration
+        // Always include ALL nodes from the configuration, not just the grouped ones
+        let mut all_nodes_sorted = self.nodes.clone();
+        all_nodes_sorted.sort_by_key(|node| node.host.clone());
+
+        let all_members_config = all_nodes_sorted
+            .iter()
+            .map(|node| format!("{}:{}", node.host, node.port))
+            .collect::<Vec<String>>()
+            .join(",");
 
         host_members_lookup
             .iter()
@@ -370,10 +440,9 @@ impl LogService {
                 let cmds = members
                     .iter()
                     .map(|log_member| {
-                        let group_id = log_member.group_id;
-                        let member_config = group_member_config.get(&group_id).unwrap().clone();
+                        // Use the full list of all log service nodes instead of just the group members
                         LogCmdItems {
-                            group_members_config: member_config,
+                            group_members_config: all_members_config.clone(),
                             log_member: log_member.clone(),
                         }
                     })
