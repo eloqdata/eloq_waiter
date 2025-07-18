@@ -263,7 +263,6 @@ impl LogService {
                         group_id,
                         member_host: node_host.to_string(),
                         port,
-                        // for the same log service, after scale-log op finished, the node_id may change, so we do not append g{group_id}n{node_id} to storage_path.
                         storage_path: disk.to_string(),
                         check_health_url: format!("http://{node_host}:{port}/healthz"),
                     }

@@ -4,6 +4,7 @@ use crate::cli::task::group::{Config, ScaleLogTaskGroup, TaskGroup};
 use crate::cli::task::monograph_log_ctl_task::{LogCtlCmd, MonographLogCtlTask};
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
+use crate::cli::task::scale_log_cleanup_task::ScaleLogCleanupTask;
 use crate::cli::task::scale_log_op_task::ScaleLogOpTask;
 use crate::cli::task::task_base::{
     TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
@@ -13,7 +14,7 @@ use crate::cli::task::topology_display_task::TopologyDisplayTask;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{build_task_instance, get_source_host};
 use crate::cli::SubCommand;
-use crate::config::config_base::UploadFile;
+use crate::config::config_base::{UploadFile, LOG_SERVICE_HOME};
 use crate::config::log_service::{LogProcessKey, LogServiceNode};
 use crate::config::DownloadUrl;
 use crate::config::{config_template, SSH_PYTHON_SCRIPT};
@@ -172,6 +173,7 @@ impl TaskGroup for ScaleLogTaskGroup {
 
                                 // Add to the log service
                                 temp_log_service.nodes.push(new_member);
+                                temp_log_service.replica += 1;
                                 current_node_count += 1;
 
                                 info!(
@@ -468,6 +470,9 @@ impl TaskGroup for ScaleLogTaskGroup {
                         host: "_local".to_string(),
                     };
 
+                    // Create channel for passing scale operation result to cleanup task
+                    let (scale_result_tx, scale_result_rx) = watch::channel(false); // false = failed by default
+
                     info!(
                         "Setting up RPC task to {} log nodes {} cluster",
                         match operation_type {
@@ -487,6 +492,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         log_ng_id,
                         deploy_cfg.clone(),
                         operation_type.clone(),
+                        scale_result_tx,
                     );
 
                     let scale_instance = TaskInstance {
@@ -496,6 +502,28 @@ impl TaskGroup for ScaleLogTaskGroup {
                     };
                     barrier.push(1);
                     executable.insert(scale_task_id, scale_instance);
+
+                    // Step 8.5: Add cleanup task that will be executed if the scale operation fails
+                    let cleanup_task_id = TaskId {
+                        cmd: "scalelog".to_string(),
+                        task: "cleanup-on-failure".to_string(),
+                        host: "_local".to_string(),
+                    };
+
+                    let cleanup_task = ScaleLogCleanupTask::new(
+                        cleanup_task_id.clone(),
+                        scale_node_list.clone(),
+                        deploy_cfg.clone(),
+                        scale_result_rx,
+                    );
+
+                    let cleanup_instance = TaskInstance {
+                        task_input: HashMap::new(),
+                        task: Box::new(cleanup_task),
+                        task_host: TaskHost::Local,
+                    };
+                    barrier.push(1);
+                    executable.insert(cleanup_task_id, cleanup_instance);
                 }
                 ScaleOperationType::RemoveNodes => {
                     // Step 2: Send RPC to remove nodes from the cluster (before stopping nodes)
@@ -510,6 +538,9 @@ impl TaskGroup for ScaleLogTaskGroup {
                         host: "_local".to_string(),
                     };
 
+                    // Create a dummy channel for RemoveNodes (not used for cleanup)
+                    let (dummy_tx, _dummy_rx) = watch::channel(false);
+
                     info!(
                         "Setting up RPC task to {} log nodes {} cluster",
                         match operation_type {
@@ -529,6 +560,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         log_ng_id,
                         deploy_cfg.clone(),
                         operation_type.clone(),
+                        dummy_tx,
                     );
 
                     let scale_instance = TaskInstance {
@@ -687,8 +719,8 @@ impl TaskGroup for ScaleLogTaskGroup {
                         let cleanup_cmd = if is_last_node {
                             // If this is the last log node on the host, remove all log-related directories
                             format!(
-                                "rm -rf {}/wal_eloqkv {}/LogServer",
-                                install_dir, install_dir
+                                "rm -rf {}/wal_eloqkv {}/{}",
+                                install_dir, install_dir, LOG_SERVICE_HOME
                             )
                         } else {
                             // Otherwise, only remove directories specific to the removed ports
@@ -727,6 +759,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                         let node_addr = format!("{}:{}", node.host, node.port);
                         if scale_node_list.contains(&node_addr) {
                             info!("Removing log node: {}", node_addr);
+                            temp_log_service.replica -= 1;
                             removed_count += 1;
                         } else {
                             nodes_to_keep.push(node.clone());

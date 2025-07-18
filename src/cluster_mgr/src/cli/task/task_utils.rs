@@ -104,12 +104,28 @@ where
     let mut cmd_exec_rs = ssh_session
         .command(find_ps_cmd.as_str(), CollectOutput)
         .await?;
-    let cmd_status = cmd_exec_rs.get(CMD_STATUS).unwrap();
+    let cmd_status = cmd_exec_rs.get(CMD_STATUS).unwrap_or_else(|| {
+        panic!(
+            "check_pid failed: CMD_STATUS key missing from command result. \
+            find_ps_cmd={:?}, available_keys={:?}, cmd_exec_rs={:?}",
+            find_ps_cmd,
+            cmd_exec_rs.keys().collect::<Vec<_>>(),
+            cmd_exec_rs
+        )
+    });
     if 0 != TaskArgValue::into_inner_value::<i32>(cmd_status.clone()) {
         error!("check_process_pid fails status={:?}", cmd_status);
         return Err(anyhow!("Cmd {} execution fails", find_ps_cmd));
     }
-    let cmd_output_value = cmd_exec_rs.get(CMD_OUTPUT).unwrap();
+    let cmd_output_value = cmd_exec_rs.get(CMD_OUTPUT).unwrap_or_else(|| {
+        panic!(
+            "check_pid failed: CMD_OUTPUT key missing from command result. \
+            find_ps_cmd={:?}, available_keys={:?}, cmd_exec_rs={:?}",
+            find_ps_cmd,
+            cmd_exec_rs.keys().collect::<Vec<_>>(),
+            cmd_exec_rs
+        )
+    });
     let pid_output_string = TaskArgValue::into_inner_value::<String>(cmd_output_value.clone())
         .trim()
         .to_owned();
@@ -213,7 +229,15 @@ where
             return Err(anyhow!(err_msg));
         }
         let exec_rs = rs.as_ref().unwrap();
-        let output_value = exec_rs.get(CMD_OUTPUT).unwrap();
+        let output_value = exec_rs.get(CMD_OUTPUT).unwrap_or_else(|| {
+            panic!(
+                "wait_process_complete failed: CMD_OUTPUT key missing from command result. \
+                check_status_cmd={:?}, available_keys={:?}, exec_rs={:?}",
+                check_status_cmd,
+                exec_rs.keys().collect::<Vec<_>>(),
+                exec_rs
+            )
+        });
         let output_string = TaskArgValue::into_inner_value::<String>(output_value.clone());
         process_ready = parser_output(output_string.clone());
         if process_ready {
