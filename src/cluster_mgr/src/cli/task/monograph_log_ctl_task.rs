@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::future::Future;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
 const FIND_LOG_PROCESS_CMD: &str = r"ps uxwe -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' | grep -v grep | awk '{print _COLUMN}'";
@@ -232,7 +232,7 @@ impl MonographLogCtlTask {
         &self,
         input_execution_value: HashMap<LogProcessKey, ExecutionValue>,
     ) -> ExecutionValue {
-        input_execution_value
+        let result = input_execution_value
             .iter()
             .flat_map(|(_key, cmd_result)| {
                 cmd_result
@@ -262,7 +262,20 @@ impl MonographLogCtlTask {
                 };
                 (key.to_string(), merged_task_value)
             })
-            .collect::<ExecutionValue>()
+            .collect::<ExecutionValue>();
+
+        // Log debug information if CMD_STATUS is missing
+        if !result.contains_key(CMD_STATUS) {
+            warn!(
+                "merge_execution_value: CMD_STATUS missing from result. \
+                input_execution_value_keys={:?}, result_keys={:?}, input_execution_value={:?}",
+                input_execution_value.keys().collect::<Vec<_>>(),
+                result.keys().collect::<Vec<_>>(),
+                input_execution_value
+            );
+        }
+
+        result
     }
 
     async fn join_all_command_result<Fut>(
@@ -272,14 +285,34 @@ impl MonographLogCtlTask {
         Fut: Future<Output = (LogProcessKey, anyhow::Result<ExecutionValue>)> + Sized,
     {
         let join_result = future::join_all(cmd_result).await;
-        join_result
-            .iter()
-            .filter(|(_, rs)| rs.is_ok())
-            .map(|(key, rs)| {
-                let value = rs.as_ref().unwrap();
-                (key.clone(), value.clone())
-            })
-            .collect::<HashMap<LogProcessKey, ExecutionValue>>()
+        let mut successful_results = HashMap::new();
+        let mut failed_results = Vec::new();
+
+        for (key, result) in join_result.iter() {
+            match result {
+                Ok(value) => {
+                    successful_results.insert(key.clone(), value.clone());
+                }
+                Err(err) => {
+                    failed_results.push((key.clone(), err.clone()));
+                    warn!(
+                        "join_all_command_result: Task failed for key={:?}, error={:?}",
+                        key, err
+                    );
+                }
+            }
+        }
+
+        if !failed_results.is_empty() {
+            warn!(
+                "join_all_command_result: {} tasks failed, {} tasks succeeded. Failed tasks: {:?}",
+                failed_results.len(),
+                successful_results.len(),
+                failed_results
+            );
+        }
+
+        successful_results
     }
 
     async fn log_service_pid(
@@ -307,6 +340,12 @@ impl MonographLogCtlTask {
                 )
             })
             .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
+
+        debug!(
+            "log_service_pid: check_status_cmd_by_key keys={:?}, log_cmd keys={:?}",
+            check_status_cmd_by_key.keys().collect::<Vec<_>>(),
+            self.log_cmd.keys().collect::<Vec<_>>()
+        );
 
         let cmd_result = check_status_cmd_by_key
             .iter()
@@ -340,20 +379,46 @@ impl TaskExecutor for MonographLogCtlTask {
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
                 .await?;
         let mut pid_cmd_value = self.log_service_pid(&ssh_session).await?;
+        debug!(
+            "MonographLogCtlTask: pid_cmd_value keys={:?}, log_cmd keys={:?}",
+            pid_cmd_value.keys().collect::<Vec<_>>(),
+            self.log_cmd.keys().collect::<Vec<_>>()
+        );
         let cmd_execution_result = if cmd_string.eq("status") {
             self.log_cmd.iter().for_each(|(key, _ctrl_cmd)| {
-                // Q? called `Option::unwrap()` on a `None` value
-                let execution_value = pid_cmd_value.get_mut(key).unwrap();
-                let pid = TaskArgValue::into_inner_value::<String>(
-                    execution_value.get(PROCESS_PID).unwrap().clone(),
-                );
-                if pid == PID_NOT_FOUND {
-                    let output = "\nlog service is down.".to_string();
-                    execution_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                // Handle case where key might not exist in pid_cmd_value due to SSH failures
+                if let Some(execution_value) = pid_cmd_value.get_mut(key) {
+                    if let Some(pid_value) = execution_value.get(PROCESS_PID) {
+                        let pid = TaskArgValue::into_inner_value::<String>(pid_value.clone());
+                        if pid == PID_NOT_FOUND {
+                            let output = "\nlog service is down.".to_string();
+                            execution_value
+                                .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                        } else {
+                            let output = format!("\nlog service is running, pid: {}.", pid);
+                            execution_value
+                                .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                        };
+                    } else {
+                        // If PROCESS_PID is missing, assume service is down
+                        let output = "\nlog service status unknown (missing PID).".to_string();
+                        execution_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                    }
                 } else {
-                    let output = format!("\nlog service is running, pid: {}.", pid);
-                    execution_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
-                };
+                    // If key is missing from pid_cmd_value, create a default entry
+                    let mut default_value = HashMap::new();
+                    default_value.insert(
+                        PROCESS_PID.to_string(),
+                        TaskArgValue::Str(PID_NOT_FOUND.to_string()),
+                    );
+                    default_value.insert(
+                        CMD_OUTPUT.to_string(),
+                        TaskArgValue::Str(
+                            "\nlog service status unknown (SSH failure).".to_string(),
+                        ),
+                    );
+                    pid_cmd_value.insert(key.clone(), default_value);
+                }
             });
 
             self.merge_execution_value(pid_cmd_value)
@@ -361,27 +426,82 @@ impl TaskExecutor for MonographLogCtlTask {
             let execution_cmd_vec = self
                 .log_cmd
                 .iter()
-                .filter(|(key, _ctrl_cmd)| {
-                    let execution_value = pid_cmd_value.get(key).unwrap();
-                    let pid = TaskArgValue::into_inner_value::<String>(
-                        execution_value.get(PROCESS_PID).unwrap().clone(),
-                    );
-                    debug!("MonographLogCtlTask found pid={pid}, command={cmd_string} {key:#?}");
-                    if cmd_string.eq("stop") || cmd_string.eq("remove") {
-                        //stop and There are still log process alive
-                        !pid.eq(PID_NOT_FOUND)
-                    } else if cmd_string.eq("start") {
-                        //start and There are still unstarted log processes
-                        pid.eq(PID_NOT_FOUND)
+                .filter_map(|(key, _ctrl_cmd)| {
+                    // Handle case where key might not exist in pid_cmd_value due to SSH failures
+                    if let Some(execution_value) = pid_cmd_value.get(key) {
+                        if let Some(pid_value) = execution_value.get(PROCESS_PID) {
+                            let pid = TaskArgValue::into_inner_value::<String>(pid_value.clone());
+                            debug!("MonographLogCtlTask found pid={pid}, command={cmd_string} {key:#?}");
+                            let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove") {
+                                //stop and There are still log process alive
+                                !pid.eq(PID_NOT_FOUND)
+                            } else if cmd_string.eq("start") {
+                                //start and There are still unstarted log processes
+                                pid.eq(PID_NOT_FOUND)
+                            } else {
+                                unreachable!()
+                            };
+                            if should_execute {
+                                if let Some(ctl_cmd) = self.log_cmd.get(key) {
+                                    Some((key.clone(), ctl_cmd.clone()))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            // If PROCESS_PID is missing, assume service is down for stop/remove, up for start
+                            let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove") {
+                                false // Assume no process to stop
+                            } else if cmd_string.eq("start") {
+                                true // Assume process needs to be started
+                            } else {
+                                unreachable!()
+                            };
+                            if should_execute {
+                                if let Some(ctl_cmd) = self.log_cmd.get(key) {
+                                    Some((key.clone(), ctl_cmd.clone()))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
                     } else {
-                        unreachable!()
+                        // If key is missing from pid_cmd_value, assume service is down for stop/remove, up for start
+                        let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove") {
+                            false // Assume no process to stop
+                        } else if cmd_string.eq("start") {
+                            true // Assume process needs to be started
+                        } else {
+                            unreachable!()
+                        };
+                        if should_execute {
+                            if let Some(ctl_cmd) = self.log_cmd.get(key) {
+                                Some((key.clone(), ctl_cmd.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     }
                 })
-                .map(|(key, ctl_cmd)| (key.clone(), ctl_cmd.clone()))
                 .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
 
             if execution_cmd_vec.is_empty() {
-                self.merge_execution_value(pid_cmd_value)
+                // If no commands to execute, create a default result with CMD_STATUS
+                let mut default_result = self.merge_execution_value(pid_cmd_value);
+                if !default_result.contains_key(CMD_STATUS) {
+                    default_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
+                    default_result.insert(
+                        CMD_OUTPUT.to_string(),
+                        TaskArgValue::Str("No processes to execute".to_string()),
+                    );
+                }
+                default_result
             } else {
                 let cmd_result = execution_cmd_vec
                     .iter()
@@ -396,7 +516,12 @@ impl TaskExecutor for MonographLogCtlTask {
                     })
                     .collect_vec();
                 let all_cmd_result = MonographLogCtlTask::join_all_command_result(cmd_result).await;
-                self.merge_execution_value(all_cmd_result)
+                let mut merged_result = self.merge_execution_value(all_cmd_result);
+                // Ensure CMD_STATUS is always present
+                if !merged_result.contains_key(CMD_STATUS) {
+                    merged_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
+                }
+                merged_result
             }
         };
         ssh_session.close().await?;

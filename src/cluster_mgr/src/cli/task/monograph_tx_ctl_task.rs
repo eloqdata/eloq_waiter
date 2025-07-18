@@ -215,7 +215,19 @@ impl MySQLProbe {
         cmd.push_str(" --execute 'SHOW DATABASES'");
         loop {
             let ret = ssh_sess.command(&cmd, CollectOutput).await?;
-            let code = TaskArgValue::into_inner_value::<i32>(ret.get(CMD_STATUS).unwrap().clone());
+            let code = TaskArgValue::into_inner_value::<i32>(
+                ret.get(CMD_STATUS)
+                    .unwrap_or_else(|| {
+                        panic!(
+                        "MySQLProbe::ssh_probe failed: CMD_STATUS key missing from command result. \
+                        cmd={:?}, available_keys={:?}, ret={:?}",
+                        cmd,
+                        ret.keys().collect::<Vec<_>>(),
+                        ret
+                    )
+                    })
+                    .clone(),
+            );
             if code != 0 {
                 maybe_continue_probe!(wait_secs);
             }

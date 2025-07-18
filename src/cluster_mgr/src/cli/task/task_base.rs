@@ -115,7 +115,15 @@ macro_rules! task_return_value {
         use tracing::info;
         use $crate::cli::CMD_STATUS;
         let task_rs = $task_result.clone();
-        let task_status = task_rs.get(CMD_STATUS).unwrap();
+        let task_status = task_rs.get(CMD_STATUS).unwrap_or_else(|| {
+            panic!(
+                "task_return_value! macro failed: CMD_STATUS key missing from task result. \
+                task_name={:?}, available_keys={:?}, task_result={:?}",
+                $task_name,
+                task_rs.keys().collect::<Vec<_>>(),
+                task_rs
+            )
+        });
         let status_code = TaskArgValue::into_inner_value::<i32>(task_status.clone());
         if status_code != 0 {
             let invoke_closure = $task_err_closure;

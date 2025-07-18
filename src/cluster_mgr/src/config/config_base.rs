@@ -446,8 +446,11 @@ impl DeployConfig {
                             let cmd_script = log_start_template
                                 .replace("${LOG_INSTALL_DIR}", log_home_dir.as_str())
                                 .replace("${GROUP_MEMBERS}", &cmd_items.group_members_config)
-                                .replace("${GROUP_ID}", curr_member.group_id.to_string().as_str())
                                 .replace("${NODE_ID}", curr_member.node_id.to_string().as_str())
+                                .replace(
+                                    "${LOG_SERVER_PORT}",
+                                    curr_member.port.to_string().as_str(),
+                                )
                                 .replace("${STORAGE_DIR}", curr_member.storage_path.as_str())
                                 .replace("${ASAN_OPTS}", ASAN_OPTIONS)
                                 .replace("${VERSION}", version)
