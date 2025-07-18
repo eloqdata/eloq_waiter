@@ -326,10 +326,34 @@ impl SSHSession {
         let ret = self
             .command(command, SSHCommandOption::CollectOutput)
             .await?;
-        let code = TaskArgValue::into_inner_value::<i32>(ret.get(CMD_STATUS).unwrap().clone());
-        let output = TaskArgValue::into_inner_value::<String>(ret.get(CMD_OUTPUT).unwrap().clone())
-            .trim()
-            .to_owned();
+        let code = TaskArgValue::into_inner_value::<i32>(
+            ret.get(CMD_STATUS)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "SSHSession::execute failed: CMD_STATUS key missing from command result. \
+                    command={:?}, available_keys={:?}, ret={:?}",
+                        command,
+                        ret.keys().collect::<Vec<_>>(),
+                        ret
+                    )
+                })
+                .clone(),
+        );
+        let output = TaskArgValue::into_inner_value::<String>(
+            ret.get(CMD_OUTPUT)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "SSHSession::execute failed: CMD_OUTPUT key missing from command result. \
+                    command={:?}, available_keys={:?}, ret={:?}",
+                        command,
+                        ret.keys().collect::<Vec<_>>(),
+                        ret
+                    )
+                })
+                .clone(),
+        )
+        .trim()
+        .to_owned();
         Ok((code, output))
     }
 

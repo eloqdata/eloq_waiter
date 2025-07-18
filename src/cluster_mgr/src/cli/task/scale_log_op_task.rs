@@ -11,6 +11,7 @@ use crate::task_return_value;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 #[derive(Clone, Debug)]
@@ -21,6 +22,7 @@ pub struct ScaleLogOpTask {
     log_group_id: Option<u32>,
     config: DeployConfig,
     operation_type: ScaleOperationType,
+    scale_result_tx: watch::Sender<bool>,
 }
 
 impl ScaleLogOpTask {
@@ -31,6 +33,7 @@ impl ScaleLogOpTask {
         log_group_id: Option<u32>,
         config: DeployConfig,
         operation_type: ScaleOperationType,
+        scale_result_tx: watch::Sender<bool>,
     ) -> Self {
         Self {
             task_id,
@@ -39,6 +42,7 @@ impl ScaleLogOpTask {
             log_group_id,
             config,
             operation_type,
+            scale_result_tx,
         }
     }
 
@@ -127,8 +131,9 @@ impl TaskExecutor for ScaleLogOpTask {
 
                 info!("Sending add_peer request with {} nodes", hosts.len());
 
-                // Keep sending RPC until success
+                // Keep sending RPC until success or max retries reached
                 let mut retry_count = 0;
+                const MAX_RETRIES: u32 = 10;
                 loop {
                     match add_log_peer(&url, request.clone()).await {
                         Ok(response) => {
@@ -141,6 +146,28 @@ impl TaskExecutor for ScaleLogOpTask {
                                 "AddPeer operation not successful, retrying (attempt {})",
                                 retry_count
                             );
+
+                            // Check if we've exceeded max retries for unsuccessful responses
+                            if retry_count >= MAX_RETRIES {
+                                let error_msg = format!(
+                                    "AddPeer operation failed after {} attempts - response success: {}",
+                                    retry_count, response.success
+                                );
+                                error!("{}", error_msg);
+
+                                // Send failure result through the channel
+                                if let Err(e) = self.scale_result_tx.send(false) {
+                                    warn!("Failed to send scale result through channel: {}", e);
+                                }
+
+                                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                                task_result.insert(
+                                    CMD_OUTPUT.to_string(),
+                                    TaskArgValue::Str(error_msg.clone()),
+                                );
+                                return Ok(Some(task_result));
+                            }
+
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         }
                         Err(e) => {
@@ -149,24 +176,24 @@ impl TaskExecutor for ScaleLogOpTask {
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                             // After many retries, give up
-                            if retry_count >= 10 {
+                            if retry_count >= MAX_RETRIES {
                                 let error_msg = format!(
                                     "Failed to add log peers after {} attempts: {}",
                                     retry_count, e
                                 );
                                 error!("{}", error_msg);
+
+                                // Send failure result through the channel
+                                if let Err(e) = self.scale_result_tx.send(false) {
+                                    warn!("Failed to send scale result through channel: {}", e);
+                                }
+
                                 task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
                                 task_result.insert(
                                     CMD_OUTPUT.to_string(),
                                     TaskArgValue::Str(error_msg.clone()),
                                 );
-                                task_return_value!(
-                                    task_result,
-                                    |status_code: i32| -> CmdErr {
-                                        CmdErr::ScaleOpErr(error_msg, status_code.to_string())
-                                    },
-                                    "ScaleLogOpTask"
-                                )
+                                return Ok(Some(task_result));
                             }
                         }
                     }
@@ -186,8 +213,9 @@ impl TaskExecutor for ScaleLogOpTask {
 
                 info!("Sending remove_peer request with {} nodes", hosts.len());
 
-                // Keep sending RPC until success
+                // Keep sending RPC until success or max retries reached
                 let mut retry_count = 0;
+                const MAX_RETRIES: u32 = 10;
                 loop {
                     match remove_log_peer(&url, request.clone()).await {
                         Ok(response) => {
@@ -211,7 +239,7 @@ impl TaskExecutor for ScaleLogOpTask {
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                             // After many retries, give up
-                            if retry_count >= 10 {
+                            if retry_count >= MAX_RETRIES {
                                 let error_msg = format!(
                                     "Failed to remove log peers after {} attempts: {}",
                                     retry_count, e
@@ -246,6 +274,12 @@ impl TaskExecutor for ScaleLogOpTask {
             "Log node {} operation completed with success: {}",
             operation_name, response.success
         );
+
+        // Send the result through the channel
+        if let Err(e) = self.scale_result_tx.send(response.success) {
+            warn!("Failed to send scale result through channel: {}", e);
+        }
+
         task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
         task_result.insert(
             CMD_OUTPUT.to_string(),

@@ -1,6 +1,6 @@
 #!/bin/bash
 function log_start() {
-  log_dir=${LOG_INSTALL_DIR}/logs/g${GROUP_ID}n${NODE_ID}
+  log_dir=${LOG_INSTALL_DIR}/logs/port-${LOG_SERVER_PORT}
   mkdir -p ${STORAGE_DIR} && mkdir -p ${log_dir}
   export GLOG_log_dir=${log_dir}
   export GLOG_max_log_size=1024

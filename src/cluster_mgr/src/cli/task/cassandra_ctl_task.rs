@@ -297,7 +297,15 @@ impl CassandraCtlTask {
                 .execute(TaskHost::Local, HashMap::default())
                 .await?
                 .unwrap();
-            let status_value = op_status.get(CMD_STATUS).unwrap();
+            let status_value = op_status.get(CMD_STATUS).unwrap_or_else(|| {
+                panic!(
+                    "CassandraCtlTask::cassandra_start failed: CMD_STATUS key missing from operation status. \
+                    host={:?}, available_keys={:?}, op_status={:?}",
+                    host,
+                    op_status.keys().collect::<Vec<_>>(),
+                    op_status
+                )
+            });
             let status_code = TaskArgValue::into_inner_value::<i32>(status_value.clone());
             if status_code == 0 {
                 info!("Cassandra instance={host} UP now");

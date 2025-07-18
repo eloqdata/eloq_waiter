@@ -24,6 +24,7 @@ pub mod monograph_log_probe_task;
 pub mod monograph_tx_ctl_task;
 mod proxy_ctl_task;
 mod redis_op_task;
+pub mod scale_log_cleanup_task;
 pub mod scale_log_op_task;
 pub mod scale_op_task;
 pub mod task_base;
