@@ -75,8 +75,20 @@ if [[ "$TAG" != "main" ]]; then
 else
     echo "TAG is 'main', no checkout performed."
 fi
+
+# Ensure cargo environment and a writable target dir (avoid workspace permission issues)
+export RUSTUP_HOME="${HOME}/.rustup"
+export CARGO_HOME="${HOME}/.cargo"
+export PATH="${CARGO_HOME}/bin:${PATH}"
+export CARGO_TARGET_DIR="${HOME}/.cargo-target"
+mkdir -p "${CARGO_TARGET_DIR}"
+
+# Package dir in a writable location
+export ELOQCTL_PKG_DIR="${HOME}/eloqctl"
+mkdir -p "${ELOQCTL_PKG_DIR}"
+
 cargo make --no-workspace --makefile Makefile.toml rest_api_pkg
-tar -czvf ../output/"${TX_TARBALL}" eloqctl
+tar -czvf ../output/"${TX_TARBALL}" -C "${ELOQCTL_PKG_DIR}" .
 
 # Upload to S3
 aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/${ARCH}/${TAG}/${TX_TARBALL}
