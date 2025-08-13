@@ -1,6 +1,36 @@
 #!/bin/bash
 set -exo pipefail
 
+# Ensure cargo is installed (supports CentOS7/Rocky and Ubuntu 20/22/24)
+if ! command -v cargo >/dev/null 2>&1; then
+	echo "cargo not found, installing via rustup..."
+	# Determine OS family and install prerequisites
+	if [ -f /etc/os-release ]; then
+		source /etc/os-release
+	fi
+	if [[ "${ID}" == "ubuntu" || "${ID_LIKE}" =~ debian ]]; then
+		apt-get update
+		DEBIAN_FRONTEND=noninteractive apt-get install -y curl build-essential pkg-config libssl-dev
+	elif [[ "${ID}" == "centos" ]]; then
+		yum install -y curl gcc gcc-c++ make pkgconfig openssl-devel
+	elif [[ "${ID}" == "rocky" || "${ID_LIKE}" =~ rhel ]]; then
+		dnf install -y curl gcc gcc-c++ make pkgconfig openssl-devel
+	else
+		echo "Unknown distro (${ID:-unknown}). Attempting to install curl..."
+		(command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y curl) \
+			|| (command -v yum >/dev/null 2>&1 && yum install -y curl) \
+			|| (command -v dnf >/dev/null 2>&1 && dnf install -y curl) || true
+	fi
+	# Install rustup (non-interactive) and setup environment
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+	# shellcheck disable=SC1090
+	[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+fi
+
+# Make sure rustup env is loaded if present
+# shellcheck disable=SC1090
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+
 cargo install cargo-make
 cd monograph_waiter
 
