@@ -8,21 +8,28 @@ if ! command -v cargo >/dev/null 2>&1; then
 	if [ -f /etc/os-release ]; then
 		source /etc/os-release
 	fi
-	if [[ "${ID}" == "ubuntu" || "${ID_LIKE}" =~ debian ]]; then
-		apt-get update
-		DEBIAN_FRONTEND=noninteractive apt-get install -y curl build-essential pkg-config libssl-dev
-	elif [[ "${ID}" == "centos" ]]; then
-		yum install -y curl gcc gcc-c++ make pkgconfig openssl-devel
-	elif [[ "${ID}" == "rocky" || "${ID_LIKE}" =~ rhel ]]; then
-		dnf install -y curl gcc gcc-c++ make pkgconfig openssl-devel
-	else
-		echo "Unknown distro (${ID:-unknown}). Attempting to install curl..."
-		(command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y curl) \
-			|| (command -v yum >/dev/null 2>&1 && yum install -y curl) \
-			|| (command -v dnf >/dev/null 2>&1 && dnf install -y curl) || true
+	# Ensure we have a downloader (curl or wget). Try to install only if neither is available.
+	if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+		if command -v sudo >/dev/null 2>&1; then SUDO="sudo -n"; else SUDO=""; fi
+		if command -v apt-get >/dev/null 2>&1; then
+			$SUDO apt-get update || true
+			DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y curl || true
+		elif command -v yum >/dev/null 2>&1; then
+			$SUDO yum install -y curl || true
+		elif command -v dnf >/dev/null 2>&1; then
+			$SUDO dnf install -y curl || true
+		fi
 	fi
-	# Install rustup (non-interactive) and setup environment
-	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+
+	# Install rustup (non-interactive) and setup environment using curl or wget
+	if command -v curl >/dev/null 2>&1; then
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+	elif command -v wget >/dev/null 2>&1; then
+		wget -qO- https://sh.rustup.rs | sh -s -- -y --profile minimal
+	else
+		echo "Neither curl nor wget available, and installation not permitted. Please ensure curl/wget is available."
+		exit 1
+	fi
 	# shellcheck disable=SC1090
 	[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 fi
@@ -73,3 +80,6 @@ tar -czvf ../output/"${TX_TARBALL}" eloqctl
 
 # Upload to S3
 aws s3 cp ../output/"${TX_TARBALL}" s3://eloq-release/eloqctl/${ARCH}/${TAG}/${TX_TARBALL}
+if [ -n "${CLOUDFRONT_DIST}" ]; then
+    aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqctl/${ARCH}/${TAG}/${TX_TARBALL}"
+fi
