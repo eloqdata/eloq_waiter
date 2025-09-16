@@ -1,0 +1,34 @@
+connection:
+  username: "${USER}"
+  auth_type: "keypair"
+  auth:
+    keypair: "/home/${USER}/.ssh/id_rsa"
+deployment:
+  cluster_name: "eloqkv-cluster"
+  product: "EloqKV"
+  version: "debug"
+  install_dir: "/home/${USER}"
+  enable_wal: true
+  enable_io_uring: false
+  checkpoint_interval: 120
+  tx_service:
+    tx_host_ports: [127.0.0.1:6389]
+    # client_port: 6389
+  log_service:
+    nodes:
+      - host: 127.0.0.1
+        port: 9000
+        data_dir:
+          - "/home/${USER}/eloqkv-cluster/wal_eloqkv"
+    replica: 1
+    bthread_concurrency: 6
+  storage_service:
+    rocksdb: !ELOQDSS_ROCKSDB
+      peer_host_ports: [127.0.0.1:9100]
+      # aws_id: ""
+      # aws_secret: ""
+      # region: "us-east-1"
+      # bucket_name: ""
+      # bucket_prefix: "eloqkv"
+      # target_file_size_base: "64MB"
+      # sst_file_cache_size: "1GB"

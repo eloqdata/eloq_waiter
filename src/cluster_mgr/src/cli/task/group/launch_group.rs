@@ -144,7 +144,7 @@ impl TaskGroup for LaunchTaskGroup {
         let redis_op_task = RedisOpTask::new(
             redis_op_task_id.clone(),
             cluster_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx),
-            "cluster nodes".to_string(),
+            "cluster topology".to_string(),
             redis_op_tx.clone(),
             None, // No password
             true, // Skip checkpoint

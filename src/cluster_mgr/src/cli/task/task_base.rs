@@ -372,20 +372,23 @@ impl TaskMgr {
                     }
                     let start = "=> ";
                     let end = "---------------------------";
-                    let cmd = TaskArgValue::into_inner_value::<String>(
-                        execution_value.get(CMD).unwrap().clone(),
-                    );
-                    let status = if TaskArgValue::into_inner_value::<i32>(
-                        execution_value.get(CMD_STATUS).unwrap().clone(),
-                    ) == 0
-                    {
+                    let cmd = execution_value
+                        .get(CMD)
+                        .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
+                        .unwrap_or_else(|| "".to_string());
+                    let status_code = execution_value
+                        .get(CMD_STATUS)
+                        .map(|v| TaskArgValue::into_inner_value::<i32>(v.clone()))
+                        .unwrap_or(0);
+                    let status = if status_code == 0 {
                         "Success".green().to_string()
                     } else {
                         "Failure".red().to_string()
                     };
-                    let cmd_out = TaskArgValue::into_inner_value::<String>(
-                        execution_value.get(CMD_OUTPUT).unwrap().clone(),
-                    );
+                    let cmd_out = execution_value
+                        .get(CMD_OUTPUT)
+                        .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
+                        .unwrap_or_else(|| "".to_string());
                     let s = format!("{start}{task_id}\n{cmd}\n{status}; {cmd_out}\n{end}\n");
                     match writer {
                         Some(ref mut w) => w.write_all(s.as_bytes())?,

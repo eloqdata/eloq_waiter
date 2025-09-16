@@ -10,10 +10,10 @@ use crate::config::ConfigErr::GenCassandraConfigErr;
 use crate::config::{
     cluster_config_template, config_template, load_yaml_config_template, DeploymentPackage,
     DownloadUrl, StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION,
-    CASSANDRA_JVM_TEMPLATE, CDN, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQKV_NODE_INI,
-    ELOQKV_TEMPLATE_INI, ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI, ELOQSQL_TEMPLATE_INI,
-    JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC,
-    SECTION_STORE,
+    CASSANDRA_JVM_TEMPLATE, CDN, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQDSS_TEMPLATE_INI,
+    ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI, ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI,
+    ELOQSQL_TEMPLATE_INI, JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB,
+    SECTION_METRIC, SECTION_STORE,
 };
 use anyhow::{anyhow, Result};
 use chrono::Local;
@@ -332,6 +332,11 @@ impl Deployment {
             Product::EloqSQL => format!("{home}/{ELOQSQL_TEMPLATE_INI}"),
             Product::EloqKV => format!("{}/{}-{}.ini", &self.tx_srv_home(), ELOQKV_NODE_INI, port),
         }
+    }
+
+    pub fn dss_srv_ini(&self, port: &str) -> String {
+        let home = self.tx_srv_home();
+        format!("{home}/EloqDss-{}.ini", port)
     }
 
     pub fn asan_logs(&self) -> String {
@@ -740,6 +745,9 @@ impl Deployment {
                             Some(s3.sst_file_cache_size),
                         );
                     }
+                    RocksDB::EloqDssRocksdb(_eloq_dss) => {
+                        // DSS-specific RocksDB config is managed by DSS ini; no KV store fields here
+                    }
                     RocksDB::MINIO(minio) => {
                         // MINIO uses S3-compatible API with endpoint and combined bucket name
                         ini.set(SECTION_STORE, "aws_access_key_id", Some(minio.aws_id));
@@ -973,25 +981,18 @@ impl Deployment {
 
             // If storage is MINIO, add txlog cloud settings to [local]
             if let Some(storage) = self.storage_service.as_ref() {
-                if let Some(provider) = storage.provider() {
-                    if matches!(provider, StorageProvider::Rocksdb) {
-                        if let Some(rocks) = storage.rocksdb.as_ref() {
-                            if let RocksDB::MINIO(minio) = rocks {
-                                let bucket =
-                                    format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
-                                ini.set(
-                                    SECTION_LOCAL,
-                                    "txlog_rocksdb_cloud_endpoint_url",
-                                    Some(minio.endpoint.clone()),
-                                );
-                                ini.set(
-                                    SECTION_LOCAL,
-                                    "txlog_rocksdb_cloud_bucket_name",
-                                    Some(bucket),
-                                );
-                            }
-                        }
-                    }
+                if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
+                    let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
+                    ini.set(
+                        SECTION_LOCAL,
+                        "txlog_rocksdb_cloud_endpoint_url",
+                        Some(minio.endpoint.clone()),
+                    );
+                    ini.set(
+                        SECTION_LOCAL,
+                        "txlog_rocksdb_cloud_bucket_name",
+                        Some(bucket),
+                    );
                 }
             }
 
@@ -1068,25 +1069,18 @@ impl Deployment {
 
             // If storage is MINIO, add txlog cloud settings to [local] for local ini as well
             if let Some(storage) = self.storage_service.as_ref() {
-                if let Some(provider) = storage.provider() {
-                    if matches!(provider, StorageProvider::Rocksdb) {
-                        if let Some(rocks) = storage.rocksdb.as_ref() {
-                            if let RocksDB::MINIO(minio) = rocks {
-                                let bucket =
-                                    format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
-                                ini.set(
-                                    SECTION_LOCAL,
-                                    "txlog_rocksdb_cloud_endpoint_url",
-                                    Some(minio.endpoint.clone()),
-                                );
-                                ini.set(
-                                    SECTION_LOCAL,
-                                    "txlog_rocksdb_cloud_bucket_name",
-                                    Some(bucket),
-                                );
-                            }
-                        }
-                    }
+                if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
+                    let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
+                    ini.set(
+                        SECTION_LOCAL,
+                        "txlog_rocksdb_cloud_endpoint_url",
+                        Some(minio.endpoint.clone()),
+                    );
+                    ini.set(
+                        SECTION_LOCAL,
+                        "txlog_rocksdb_cloud_bucket_name",
+                        Some(bucket),
+                    );
                 }
             }
         }
@@ -1099,6 +1093,76 @@ impl Deployment {
 
         ini.write(cnf_path.as_path())?;
         Ok(cnf_path)
+    }
+
+    pub fn build_dss_config(&self, host: String, port: String) -> anyhow::Result<Ini> {
+        let mut ini = Ini::new();
+        ini.load(cluster_config_template(
+            &self.cluster_name,
+            ELOQDSS_TEMPLATE_INI,
+        )?)
+        .unwrap();
+
+        ini.set("local", "ip", Some(host));
+        ini.set("local", "port", Some(port.clone()));
+        ini.set(
+            "local",
+            "log_dir",
+            Some(format!("{}/logs/dss", self.tx_srv_home())),
+        );
+        ini.set(
+            "local",
+            "data_path",
+            Some(format!("{}/data/dss-{}", self.tx_srv_home(), port)),
+        );
+
+        // Track whether any [store] fields are actually provided by launch yaml
+        let mut store_fields_set = false;
+        if let Some(storage) = &self.storage_service {
+            if let Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(s)) =
+                &storage.rocksdb
+            {
+                if let Some(v) = &s.aws_id {
+                    ini.set("store", "aws_access_key_id", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.aws_secret {
+                    ini.set("store", "aws_secret_key", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.bucket_name {
+                    ini.set("store", "rocksdb_cloud_bucket_name", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.bucket_prefix {
+                    ini.set("store", "rocksdb_cloud_bucket_prefix", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.region {
+                    ini.set("store", "rocksdb_cloud_region", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.target_file_size_base {
+                    ini.set("store", "rocksdb_target_file_size_base", Some(v.clone()));
+                    store_fields_set = true;
+                }
+                if let Some(v) = &s.sst_file_cache_size {
+                    ini.set(
+                        "store",
+                        "rocksdb_cloud_sst_file_cache_size",
+                        Some(v.clone()),
+                    );
+                    store_fields_set = true;
+                }
+            }
+        }
+
+        // If no store-related fields were set from yaml, drop the [store] section from the ini
+        if !store_fields_set {
+            ini.remove_section("store");
+        }
+
+        Ok(ini)
     }
 
     // generate proxy config file
