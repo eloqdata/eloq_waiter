@@ -322,7 +322,7 @@ impl super::TaskGroup for ScaleTaskGroup {
             let redis_op_task = RedisOpTask::new(
                 redis_op_task_id.clone(),
                 candidate_nodes_that_must_be_valid_in_resume.clone(),
-                "cluster nodes".to_string(),
+                "cluster topology".to_string(),
                 redis_op_tx.clone(),
                 password.clone(),
                 true, // Skip checkpoint
@@ -409,7 +409,7 @@ impl super::TaskGroup for ScaleTaskGroup {
             let redis_op_task = RedisOpTask::new(
                 redis_op_task_id.clone(),
                 candidate_nodes_before_scale.clone(),
-                "cluster nodes".to_string(),
+                "cluster topology".to_string(),
                 redis_op_tx.clone(),
                 password.clone(),
                 true, // Skip checkpoint
@@ -808,7 +808,7 @@ impl super::TaskGroup for ScaleTaskGroup {
             let verify_task = RedisOpTask::new(
                 verify_task_id.clone(),
                 candidate_nodes_after_scale.clone(),
-                "cluster nodes".to_string(),
+                "cluster topology".to_string(),
                 redis_op_scaled_tx.clone(),
                 password.clone(),
                 true, // Skip checkpoint
@@ -917,7 +917,7 @@ impl super::TaskGroup for ScaleTaskGroup {
         let final_topology_task = RedisOpTask::new(
             final_topology_task_id.clone(),
             candidate_nodes_after_scale,
-            "cluster nodes".to_string(),
+            "cluster topology".to_string(),
             final_topology_tx.clone(),
             password.clone(),
             true, // Skip checkpoint

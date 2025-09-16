@@ -141,6 +141,8 @@ pub enum RocksDB {
     S3(RocksS3),
     GCS(RocksGCP),
     MINIO(RocksMinio),
+    #[serde(rename = "ELOQDSS_ROCKSDB")]
+    EloqDssRocksdb(EloqDss),
 }
 
 impl StorageService {
@@ -165,6 +167,8 @@ impl StorageService {
                 RocksDB::GCS(_) => "rocks_gcs".to_owned(),
                 // Treat MINIO as S3 for naming/downloading purposes
                 RocksDB::MINIO(_) => "rocks_s3".to_owned(),
+                // DSS RocksDB tarball path key
+                RocksDB::EloqDssRocksdb(_) => "eloqdss_rocksdb".to_owned(),
             }
         }
         name
@@ -197,4 +201,19 @@ impl StorageService {
             .map(|cass| cass.internal())
             .unwrap_or(None)
     }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct EloqDss {
+    /// List of peer host:port entries where `dss_server` should be started.
+    /// Example: ["127.0.0.1:9100", "10.0.0.2:9100"]
+    pub peer_host_ports: Vec<String>,
+    /// Optional S3-like configuration for DSS RocksDBCloud
+    pub aws_id: Option<String>,
+    pub aws_secret: Option<String>,
+    pub region: Option<String>,
+    pub bucket_name: Option<String>,
+    pub bucket_prefix: Option<String>,
+    pub target_file_size_base: Option<String>,
+    pub sst_file_cache_size: Option<String>,
 }

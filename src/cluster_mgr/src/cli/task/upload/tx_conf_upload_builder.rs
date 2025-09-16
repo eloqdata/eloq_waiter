@@ -34,13 +34,16 @@ impl UploadTaskBuilder for TxConfUpload {
 
         let cluster_name = &cluster_config.deployment.cluster_name;
         let mut upload_cnf_files = Vec::new();
+        // Collect DSS ini uploads separately so TX generation decision ignores them
+        let mut dss_upload_files: Vec<UploadFile> = Vec::new();
+        let mut found_any_tx_ini = false;
 
         // Check for existing host-specific configuration files first
         for host in &all_hosts {
             let host_dir = format!("{}/{}", cluster_name, host);
             let host_path = create_upload_cluster_dir(&host_dir);
 
-            // Check if directory exists and has .ini files
+            // Check if directory exists and has relevant .ini files (EloqKv-* only)
             if host_path.exists() {
                 let host_files: Vec<PathBuf> = fs::read_dir(&host_path)
                     .map(|entries| {
@@ -48,7 +51,13 @@ impl UploadTaskBuilder for TxConfUpload {
                             .filter_map(Result::ok)
                             .filter(|entry| {
                                 let path = entry.path();
-                                path.is_file() && path.extension().map_or(false, |ext| ext == "ini")
+                                path.is_file()
+                                    && path.extension().map_or(false, |ext| ext == "ini")
+                                    && path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|name| name.starts_with("EloqKv-"))
+                                        .unwrap_or(false)
                             })
                             .map(|entry| entry.path())
                             .collect()
@@ -56,12 +65,13 @@ impl UploadTaskBuilder for TxConfUpload {
                     .unwrap_or_default();
 
                 if !host_files.is_empty() {
+                    found_any_tx_ini = true;
                     info!(
                         "Found existing configuration files for host {}: {:?}",
                         host, host_files
                     );
 
-                    // Use existing host-specific configuration files
+                    // Use existing host-specific configuration files (tx ini only)
                     for file_path in host_files {
                         let file_name = file_path
                             .file_name()
@@ -88,6 +98,40 @@ impl UploadTaskBuilder for TxConfUpload {
                             copy_dir: false,
                         });
                     }
+
+                    // Also collect DSS ini if present for this host (does not affect TX generation logic)
+                    let dss_files: Vec<PathBuf> = fs::read_dir(&host_path)
+                        .map(|entries| {
+                            entries
+                                .filter_map(Result::ok)
+                                .filter(|entry| {
+                                    let path = entry.path();
+                                    path.is_file()
+                                        && path.extension().map_or(false, |ext| ext == "ini")
+                                        && path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .map(|name| name.starts_with("EloqDss-"))
+                                            .unwrap_or(false)
+                                })
+                                .map(|entry| entry.path())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    for file_path in dss_files {
+                        let file_name = file_path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        dss_upload_files.push(UploadFile {
+                            source: file_path.to_string_lossy().to_string(),
+                            dest: format!("{}/{}", remote_dest, file_name),
+                            extension: "ini".to_string(),
+                            host: host.to_string(),
+                            copy_dir: false,
+                        });
+                    }
                     continue;
                 } else {
                     warn!(
@@ -104,13 +148,49 @@ impl UploadTaskBuilder for TxConfUpload {
                 );
             }
 
-            // If no host-specific files exist, fall back to the template generation
+            // If no host-specific tx files exist, fall back to the template generation
             // This code will only execute for hosts that don't have custom configs
             warn!("Generating new configuration for host: {}", host);
+
+            // Still collect DSS ini if present
+            if host_path.exists() {
+                let dss_files: Vec<PathBuf> = fs::read_dir(&host_path)
+                    .map(|entries| {
+                        entries
+                            .filter_map(Result::ok)
+                            .filter(|entry| {
+                                let path = entry.path();
+                                path.is_file()
+                                    && path.extension().map_or(false, |ext| ext == "ini")
+                                    && path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|name| name.starts_with("EloqDss-"))
+                                        .unwrap_or(false)
+                            })
+                            .map(|entry| entry.path())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for file_path in dss_files {
+                    let file_name = file_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    dss_upload_files.push(UploadFile {
+                        source: file_path.to_string_lossy().to_string(),
+                        dest: format!("{}/{}", remote_dest, file_name),
+                        extension: "ini".to_string(),
+                        host: host.to_string(),
+                        copy_dir: false,
+                    });
+                }
+            }
         }
 
-        // If no host-specific files were found, generate all configs from templates
-        if upload_cnf_files.is_empty() {
+        // If no host-specific TX files were found, generate all TX configs from templates
+        if !found_any_tx_ini {
             info!("No custom host configurations found, generating from templates");
             let all_conf_path = cluster_config
                 .gen_all_monograph_configs()
@@ -135,6 +215,9 @@ impl UploadTaskBuilder for TxConfUpload {
                 })
                 .collect_vec();
         }
+
+        // Append any collected DSS uploads
+        upload_cnf_files.extend(dss_upload_files);
 
         let source_host = get_source_host(None);
         upload_cnf_files
@@ -217,7 +300,7 @@ impl TxConfUpload {
             let host_dir = format!("{}/{}", cluster_name, host);
             let host_path = create_upload_cluster_dir(&host_dir);
 
-            // Check if directory exists and has .ini files
+            // Check if directory exists and has relevant .ini files (EloqKv-* only)
             if host_path.exists() {
                 let host_files: Vec<PathBuf> = fs::read_dir(&host_path)
                     .map(|entries| {
@@ -225,7 +308,13 @@ impl TxConfUpload {
                             .filter_map(Result::ok)
                             .filter(|entry| {
                                 let path = entry.path();
-                                path.is_file() && path.extension().map_or(false, |ext| ext == "ini")
+                                path.is_file()
+                                    && path.extension().map_or(false, |ext| ext == "ini")
+                                    && path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|name| name.starts_with("EloqKv-"))
+                                        .unwrap_or(false)
                             })
                             .map(|entry| entry.path())
                             .collect()

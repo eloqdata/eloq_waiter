@@ -19,6 +19,7 @@ mod install_dep_pkg;
 mod local_copy_task;
 mod monitor_ctl_task;
 mod monograph_bootstrap_task;
+pub mod monograph_dss_ctl_task;
 pub mod monograph_log_ctl_task;
 pub mod monograph_log_probe_task;
 pub mod monograph_tx_ctl_task;

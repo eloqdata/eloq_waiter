@@ -634,7 +634,7 @@ impl TaskExecutor for MonographTxCtlTask {
                     let redis_cmd_result = HashMap::from([
                         (
                             CMD.to_string(),
-                            TaskArgValue::Str("cluster nodes".to_string()),
+                            TaskArgValue::Str("cluster topology".to_string()),
                         ),
                         (CMD_STATUS.to_string(), TaskArgValue::Number(1)),
                         (

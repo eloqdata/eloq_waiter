@@ -3,6 +3,7 @@ use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId
 use crate::cli::task::task_utils::NodeGroupId;
 use crate::cli::SubCommand;
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::storage_service_config::RocksDB;
 use crate::state::state_mgr::STATE_MGR;
 use crate::state::topology_tx_operation::TopologyTxEntity;
 use anyhow::Result;
@@ -199,6 +200,33 @@ impl TaskExecutor for TopologyDisplayTask {
                     "\n\nLog Service Topology for {}:\n{}",
                     self.cluster_name, log_table
                 ));
+            }
+        }
+
+        // Append DSS (RocksDBCloud) service host/port if configured
+        if let Ok(Some(deploy_cfg)) = STATE_MGR
+            .load_deployment_from_state(self.cluster_name.as_str())
+            .await
+        {
+            if let Some(storage) = &deploy_cfg.deployment.storage_service {
+                if let Some(RocksDB::EloqDssRocksdb(dss_cfg)) = &storage.rocksdb {
+                    if !dss_cfg.peer_host_ports.is_empty() {
+                        let mut dss_table = Table::new();
+                        dss_table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+                        dss_table.set_titles(row!["Host", "Port"]);
+
+                        for hp in &dss_cfg.peer_host_ports {
+                            if let Some((h, p)) = hp.split_once(':') {
+                                dss_table.add_row(Row::new(vec![Cell::new(h), Cell::new(p)]));
+                            }
+                        }
+
+                        output.push_str(&format!(
+                            "\n\nDSS Service for {}:\n{}",
+                            self.cluster_name, dss_table
+                        ));
+                    }
+                }
             }
         }
 

@@ -74,7 +74,7 @@ fn failover_task_group(
     let pre_failover_task = RedisOpTask::new(
         pre_failover_task_id.clone(),
         redis_host_ports.clone(),
-        "cluster nodes".to_string(),
+        "cluster topology".to_string(),
         pre_failover_tx,
         password.clone(),
         true, // Skip checkpoint
@@ -125,7 +125,7 @@ fn failover_task_group(
     let post_failover_task = RedisOpTask::new(
         post_failover_task_id.clone(),
         redis_host_ports,
-        "cluster nodes".to_string(),
+        "cluster topology".to_string(),
         post_failover_tx,
         password,
         true, // Skip checkpoint

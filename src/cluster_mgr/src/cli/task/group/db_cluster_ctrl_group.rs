@@ -1,6 +1,7 @@
 use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::codis_task::{self, CodisTask};
 use crate::cli::task::group::{Config, CtrlDBTaskGroup, MonitorCtlTaskGroup, TaskGroup};
+use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
 use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
 use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
@@ -134,7 +135,7 @@ impl TaskGroup for CtrlDBTaskGroup {
                     let redis_task = RedisOpTask::new(
                         redis_task_id.clone(),
                         cluster_config.deployment.tx_service.tx_host_ports.clone(),
-                        "cluster nodes".to_string(),
+                        "cluster topology".to_string(),
                         redis_tx.clone(),
                         None,
                         true,
@@ -257,6 +258,19 @@ impl CtrlDBTaskGroup {
         }
         if store {
             if let Some(storage) = &deployment.storage_service {
+                // Stop DSS if using EloqDssRocksdb
+                if matches!(
+                    storage.rocksdb,
+                    Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
+                ) {
+                    let stop_dss = MonographDssCtlTask::from_config(cmd.clone(), config);
+                    if !stop_dss.is_empty() {
+                        barrier.push(stop_dss.len());
+                        executable.extend(stop_dss);
+                    }
+                }
+
+                // Stop Cassandra if configured
                 if storage.inner_cass().is_some() {
                     let tasks = CassandraCtlTask::from_config(cmd, config);
                     barrier.push(tasks.len());
@@ -285,12 +299,16 @@ impl CtrlDBTaskGroup {
                 barrier.push(start_nodes.len());
                 executable.extend(start_nodes);
             } else {
-                // Start order: cassandra -> log-server -> tx-server
+                // Start DSS only when rocksdb is ELOQDSS_ROCKSDB
                 if let Some(storage) = &deployment.storage_service {
-                    if storage.inner_cass().is_some() {
-                        let tasks = CassandraCtlTask::from_config(start_cmd.clone(), config);
-                        barrier.extend(CassandraCtlTask::start_barrier(tasks.len()));
-                        executable.extend(tasks);
+                    if matches!(
+                        storage.rocksdb,
+                        Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
+                    ) {
+                        use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
+                        let start_dss = MonographDssCtlTask::from_config(start_cmd.clone(), config);
+                        barrier.push(start_dss.len());
+                        executable.extend(start_dss);
                     }
                 }
 
@@ -363,6 +381,19 @@ impl CtrlDBTaskGroup {
     ) -> IndexMap<TaskId, TaskInstance> {
         let deployment = &config.deployment;
         let mut executable = IndexMap::new();
+
+        // DSS status (when rocksdb is EloqDssRocksdb)
+        if let Some(storage) = &deployment.storage_service {
+            if matches!(
+                storage.rocksdb,
+                Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
+            ) {
+                let dss_tasks = MonographDssCtlTask::from_config(cmd.clone(), config);
+                if !dss_tasks.is_empty() {
+                    executable.extend(dss_tasks);
+                }
+            }
+        }
 
         if deployment.log_service.is_some() {
             let tasks = MonographLogCtlTask::from_config(cmd.clone(), config);
