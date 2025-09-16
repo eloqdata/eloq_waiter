@@ -11,7 +11,10 @@ use crate::config::config_base::{
 };
 use crate::config::deployment::{Deployment, Product};
 use crate::config::storage_service_config::CassKind;
-use crate::config::{config_template, DeploymentPackage, DownloadUrl, ELOQKV_TEMPLATE_INI};
+use crate::config::storage_service_config::RocksDB;
+use crate::config::{
+    config_template, DeploymentPackage, DownloadUrl, ELOQDSS_TEMPLATE_INI, ELOQKV_TEMPLATE_INI,
+};
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -114,6 +117,32 @@ impl MonographUploadBuilder {
             all_hosts_cloned.extend(log_host.clone());
         }
         let dest_file = config.install_dir();
+
+        // Include DSS ini files if generated
+        if let Some(storage) = &config.deployment.storage_service {
+            if matches!(storage.rocksdb, Some(RocksDB::EloqDssRocksdb(_))) {
+                // For each tx host, scan its upload dir for EloqDss-*.ini
+                for host in &all_hosts_cloned {
+                    let host_dir = create_upload_cluster_dir(&format!(
+                        "{}/{}",
+                        config.deployment.cluster_name, host
+                    ));
+                    if let Ok(entries) = std::fs::read_dir(&host_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.is_file() {
+                                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                    if name.starts_with("EloqDss-") && name.ends_with(".ini") {
+                                        all_files_path.push(path.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         all_hosts_cloned
             .into_iter()
             .map(|host| {
@@ -149,6 +178,50 @@ impl UploadTaskBuilder for MonographUploadBuilder {
         create_upload_cluster_dir(&cluster_config.deployment.cluster_name);
         fs::copy(&config_template_source, &config_template_dest)
             .expect("copy config template error");
+
+        // If DSS is enabled, ensure EloqDss.ini template is present under upload/{cluster}
+        // and then generate per-host DSS ini files from template and values.
+        if let Some(storage) = &cluster_config.deployment.storage_service {
+            if matches!(storage.rocksdb, Some(RocksDB::EloqDssRocksdb(_))) {
+                let dss_template_src =
+                    config_template(ELOQDSS_TEMPLATE_INI).expect("get DSS template error");
+                let dss_template_dest = upload_dir()
+                    .join(cluster_config.deployment.cluster_name.clone())
+                    .join(ELOQDSS_TEMPLATE_INI);
+                // Best-effort copy; ignore error if already exists
+                let _ = fs::copy(&dss_template_src, &dss_template_dest);
+
+                let dss_hosts = cluster_config
+                    .deployment
+                    .storage_service
+                    .as_ref()
+                    .and_then(|s| s.rocksdb.as_ref())
+                    .and_then(|r| match r {
+                        RocksDB::EloqDssRocksdb(s) => Some(s.peer_host_ports.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+
+                for hp in dss_hosts {
+                    let parts: Vec<&str> = hp.split(':').collect();
+                    if parts.len() != 2 {
+                        continue;
+                    }
+                    let host = parts[0].to_string();
+                    let port = parts[1].to_string();
+                    // Build DSS ini content using deployment helper
+                    let ini = cluster_config
+                        .deployment
+                        .build_dss_config(host.clone(), port.clone())
+                        .expect("build dss ini failed");
+                    // Write into ~/.eloqctl/upload/{cluster}/{host}/EloqDss-<port>.ini
+                    let dir = format!("{}/{}", cluster_config.deployment.cluster_name, host);
+                    let dest_path =
+                        create_upload_cluster_dir(&dir).join(format!("EloqDss-{}.ini", port));
+                    let _ = ini.write(dest_path.as_path());
+                }
+            }
+        }
 
         let mut upload_files = self.build_monograph_misc_upload_file(cluster_config);
         let upload_tar_files = self.monograph_tar_upload_file(cluster_config);

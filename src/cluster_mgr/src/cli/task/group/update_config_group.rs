@@ -77,7 +77,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
             let redis_task = RedisOpTask::new(
                 redis_task_id.clone(),
                 candidate_nodes,
-                "cluster nodes".to_string(),
+                "cluster topology".to_string(),
                 redis_op_tx,
                 password.clone(), // Pass the password here
                 true,             // Skip checkpoint

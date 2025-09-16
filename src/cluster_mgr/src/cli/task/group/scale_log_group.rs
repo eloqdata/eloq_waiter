@@ -912,7 +912,7 @@ impl TaskGroup for ScaleLogTaskGroup {
             let final_topology_task = RedisOpTask::new(
                 final_topology_task_id.clone(),
                 tx_nodes,
-                "cluster nodes".to_string(),
+                "cluster topology".to_string(),
                 final_topology_tx.clone(),
                 None, // No password needed
                 true, // Skip checkpoint

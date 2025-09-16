@@ -11,7 +11,7 @@ use anyhow::{anyhow, Error, Result};
 use async_trait::async_trait;
 use futures::future::join_all;
 use redis::cluster::ClusterClient;
-use redis::{ErrorKind, RedisError, RedisResult, Value};
+use redis::{Client, ErrorKind, RedisError, RedisResult, Value};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -233,6 +233,50 @@ pub fn parse_cluster_nodes(value: Value) -> RedisResult<Vec<ClusterNodes>> {
     Ok(cluster_nodes_list)
 }
 
+/// Parse INFO SERVER output for single-node deployments.
+/// Treats the node as master and extracts tcp_port; IP is derived from host:port string.
+pub fn parse_cluster_nodes_single(value: Value, default_host: &str) -> RedisResult<ClusterNodes> {
+    let info_str = match value {
+        Value::Data(bytes) => String::from_utf8_lossy(&bytes).to_string(),
+        Value::Status(s) => s,
+        _ => {
+            return Err(RedisError::from((
+                ErrorKind::TypeError,
+                "Unexpected format for INFO SERVER",
+                format!("{:?}", value),
+            )))
+        }
+    };
+
+    let mut host_parts = default_host.split(':');
+    let ip = host_parts.next().unwrap_or(default_host).to_string();
+    let fallback_port = host_parts.next().and_then(|p| p.parse::<u16>().ok());
+
+    let mut port: Option<u16> = None;
+    for line in info_str.lines() {
+        if let Some(rest) = line.strip_prefix("tcp_port:") {
+            port = rest.trim().parse::<u16>().ok();
+            break;
+        }
+    }
+
+    let port = match (port, fallback_port) {
+        (Some(p), _) => p,
+        (None, Some(p)) => p,
+        (None, None) => {
+            return Err(RedisError::from((
+                ErrorKind::TypeError,
+                "Could not determine tcp_port from INFO SERVER or host",
+            )))
+        }
+    };
+
+    Ok(ClusterNodes {
+        masters: vec![NodeInfo { ip, port }],
+        replicas: vec![],
+    })
+}
+
 #[async_trait]
 impl TaskExecutor for RedisOpTask {
     fn identifier(&self) -> TaskId {
@@ -280,62 +324,104 @@ impl TaskExecutor for RedisOpTask {
             nodes_info
         );
 
-        let client = match ClusterClient::new(nodes) {
-            Ok(client) => client,
-            Err(err) => {
-                error!(
-                    "RedisOpTask: Failed to create Redis cluster client. Attempted nodes: [{}]. Error: {}",
-                    nodes_info, err
-                );
-                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
-                task_return_value!(
-                    task_result,
-                    |status_code: i32| -> CmdErr {
-                        CmdErr::RedisOpErr(
-                            "Failed to create Redis cluster client".to_string(),
-                            status_code.to_string(),
-                        )
-                    },
-                    "RedisOpTask"
-                )
-            }
-        };
-
-        // Use synchronous connection
-        let mut con = match client.get_connection() {
-            Ok(connection) => {
-                info!("RedisOpTask: Successfully connected to Redis cluster");
-                connection
-            }
-            Err(err) => {
-                error!(
-                    "RedisOpTask: Can not connect to the cluster. Attempted nodes: [{}]. Error: {}",
-                    nodes_info, err
-                );
-                task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
-                task_return_value!(
-                    task_result,
-                    |status_code: i32| -> CmdErr {
-                        CmdErr::RedisOpErr(
-                            "Can not connect to the cluster".to_string(),
-                            status_code.to_string(),
-                        )
-                    },
-                    "RedisOpTask"
-                )
-            }
-        };
+        let is_single_node = expanded_nodes.len() == 1;
 
         // Use the command provided in redis_cmd
         let cmd_lower = self.task_id.cmd.to_lowercase();
-        let result = match cmd_lower.as_str() {
-            "topology" => {
-                let query_result = redis::cmd("CLUSTER").arg("NODES").query::<Value>(&mut con);
+        let result = match (cmd_lower.as_str(), is_single_node) {
+            ("topology", true) => {
+                // Single-node: INFO SERVER via non-cluster client
+                let single_url = if let Some(password) = &self.password {
+                    format!("redis://:{}@{}", password, expanded_nodes[0])
+                } else {
+                    format!("redis://{}", expanded_nodes[0])
+                };
 
-                // Closing connection explicitly if successful or failed
-                drop(con); // Manually close connection
+                let single_client = match Client::open(single_url.clone()) {
+                    Ok(c) => c,
+                    Err(err) => {
+                        error!(
+                            "RedisOpTask: Failed to create single-node client for {}: {}",
+                            single_url, err
+                        );
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
+                        return Ok(Some(task_result));
+                    }
+                };
+
+                let mut con = match single_client.get_connection() {
+                    Ok(c) => c,
+                    Err(err) => {
+                        error!(
+                            "RedisOpTask: Cannot connect to single node {}: {}",
+                            single_url, err
+                        );
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
+                        return Ok(Some(task_result));
+                    }
+                };
+
+                let query_result = redis::cmd("INFO").arg("SERVER").query::<Value>(&mut con);
+                drop(con);
+                query_result
+            }
+            ("topology", false) => {
+                // Multi-node: CLUSTER NODES via cluster client
+                let client = match ClusterClient::new(nodes) {
+                    Ok(client) => client,
+                    Err(err) => {
+                        error!(
+                            "RedisOpTask: Failed to create Redis cluster client. Attempted nodes: [{}]. Error: {}",
+                            nodes_info, err
+                        );
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
+                        task_return_value!(
+                            task_result,
+                            |status_code: i32| -> CmdErr {
+                                CmdErr::RedisOpErr(
+                                    "Failed to create Redis cluster client".to_string(),
+                                    status_code.to_string(),
+                                )
+                            },
+                            "RedisOpTask"
+                        )
+                    }
+                };
+
+                let mut con = match client.get_connection() {
+                    Ok(connection) => {
+                        info!("RedisOpTask: Successfully connected to Redis cluster");
+                        connection
+                    }
+                    Err(err) => {
+                        error!(
+                            "RedisOpTask: Can not connect to the cluster. Attempted nodes: [{}]. Error: {}",
+                            nodes_info, err
+                        );
+                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                        task_result
+                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
+                        task_return_value!(
+                            task_result,
+                            |status_code: i32| -> CmdErr {
+                                CmdErr::RedisOpErr(
+                                    "Can not connect to the cluster".to_string(),
+                                    status_code.to_string(),
+                                )
+                            },
+                            "RedisOpTask"
+                        )
+                    }
+                };
+
+                let query_result = redis::cmd("CLUSTER").arg("NODES").query::<Value>(&mut con);
+                drop(con);
                 query_result
             }
             _ => {
@@ -352,7 +438,11 @@ impl TaskExecutor for RedisOpTask {
         // Processing the result
         match result {
             Ok(value) => {
-                let cluster_nodes = parse_cluster_nodes(value)?;
+                let cluster_nodes = if is_single_node {
+                    vec![parse_cluster_nodes_single(value, &expanded_nodes[0])?]
+                } else {
+                    parse_cluster_nodes(value)?
+                };
                 let mut unique_masters = HashSet::new();
                 let mut unique_replicas = HashSet::new();
 
