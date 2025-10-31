@@ -435,7 +435,7 @@ impl CmdExecutor {
 
     pub async fn run(
         &'static self,
-        cmd: SubCommand,
+        mut cmd: SubCommand,
         option_config: Option<Config>,
         quiet: bool,
     ) -> Result<()> {
@@ -474,8 +474,9 @@ impl CmdExecutor {
         };
 
         match config {
-            Config::Cluster(deploy_config) => {
-                match cmd.clone() {
+            Config::Cluster(mut deploy_config) => {
+                let cmd_for_match = cmd.clone();
+                match cmd_for_match {
                     SubCommand::Connect { .. } => {
                         println!("{}", deploy_config.client_conn());
                     }
@@ -487,6 +488,42 @@ impl CmdExecutor {
                         None => println!("{:#?}", deploy_config),
                     },
                     _ => {
+                        if let SubCommand::Scale {
+                            version: requested_version,
+                            add_nodes,
+                            remove_nodes,
+                            ..
+                        } = &mut cmd
+                        {
+                            if let Some(version_value) = requested_version.clone() {
+                                if add_nodes.is_empty() {
+                                    bail!("--version requires at least one entry in --add-nodes");
+                                }
+                                if !remove_nodes.is_empty() {
+                                    bail!("--version cannot be combined with --remove-nodes");
+                                }
+
+                                let mut version_config = deploy_config.clone();
+                                version_config.deployment.version = Some(version_value.clone());
+                                version_config.deployment.tx_service.image = None;
+                                if let Some(logsrv) = version_config.deployment.log_service.as_mut()
+                                {
+                                    logsrv.image = None;
+                                }
+
+                                self.resolve_version(&mut version_config.deployment).await?;
+                                let resolved_version =
+                                    version_config.deployment.version.clone().unwrap();
+                                let resolved_image =
+                                    version_config.deployment.tx_service.image.clone().unwrap();
+
+                                deploy_config.tx_version_override = Some(resolved_version.clone());
+                                deploy_config.tx_image_override = Some(resolved_image);
+
+                                *requested_version = Some(resolved_version);
+                            }
+                        }
+
                         let task_mgr = self.task_mgr.clone();
                         let outfile = if quiet {
                             let f = fs::OpenOptions::new()
