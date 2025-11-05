@@ -202,11 +202,12 @@ impl TaskGroup for BackupTaskGroup {
 
                                         for snapshot in &cloud_backups {
                                             let manifest_filename = snapshot.snapshot_path.clone();
-                                            // Construct correct S3 path: eloqkv-{prefix}-{bucket_name}/CLOUDMANIFEST-{manifest_filename}
+                                            // Construct correct S3 path: eloqkv-{prefix}-{bucket_name}/rocksdb_cloud/CLOUDMANIFEST-{manifest_filename}
                                             let s3_bucket = format!("{}", bucket);
-
-                                            let s3_key =
-                                                format!("CLOUDMANIFEST-{}", manifest_filename);
+                                            let s3_key = format!(
+                                                "rocksdb_cloud/CLOUDMANIFEST-{}",
+                                                manifest_filename
+                                            );
                                             let cluster_name_clone = cluster.clone();
                                             let snapshot_ts_clone = snapshot.snapshot_ts;
                                             let aws_id_clone = aws_id.clone();
