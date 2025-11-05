@@ -1,5 +1,6 @@
 use crate::cli::task::check_tx_cluster_scale_status_task::CheckTxClusterScaleStatusTask;
 use crate::cli::task::db_update_task::DbDeploymentUpdateTask;
+use crate::cli::task::download_task::DownloadTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
@@ -55,7 +56,7 @@ impl super::TaskGroup for ScaleTaskGroup {
         let mut barrier = Vec::new();
         let mut executable = IndexMap::new();
 
-        let (add_nodes, remove_nodes, is_candidate, cluster_name, ng_id, resume, password) =
+        let (add_nodes, remove_nodes, is_candidate, cluster_name, ng_id, resume, password, version) =
             if let SubCommand::Scale {
                 add_nodes: add,
                 remove_nodes: remove,
@@ -64,6 +65,7 @@ impl super::TaskGroup for ScaleTaskGroup {
                 ng_id,
                 resume,
                 password,
+                version,
                 ..
             } = &cmd
             {
@@ -75,6 +77,7 @@ impl super::TaskGroup for ScaleTaskGroup {
                     *ng_id,
                     resume.clone(),
                     password.clone(),
+                    version.clone(),
                 )
             } else {
                 return Err(anyhow!("Invalid command for scale task group"));
@@ -85,11 +88,22 @@ impl super::TaskGroup for ScaleTaskGroup {
                 || !remove_nodes.is_empty()
                 || is_candidate.is_some()
                 || ng_id.is_some()
+                || version.is_some()
             {
                 return Err(anyhow!("When using --resume, no other flags (--add-nodes, --remove-nodes, --is-candidate, --ng-id) should be provided"));
             }
             info!("Resuming scale operation with event_id: {}", resume_id);
         } else {
+            if version.is_some() && add_nodes.is_empty() {
+                return Err(anyhow!(
+                    "--version requires --add-nodes with at least one node"
+                ));
+            }
+
+            if version.is_some() && !remove_nodes.is_empty() {
+                return Err(anyhow!("--version cannot be combined with --remove-nodes"));
+            }
+
             // If not resuming, validate normal operation flags
             if add_nodes.is_empty() && remove_nodes.is_empty() {
                 return Err(anyhow!("Must specify either --add-nodes or --remove-nodes with at least one node; or use --resume with an event_id"));
@@ -121,6 +135,26 @@ impl super::TaskGroup for ScaleTaskGroup {
             nodes: empty_cluster_nodes.clone(),
             cluster_config: None,
         };
+
+        let effective_tx_image_url = deploy_config
+            .tx_image_override
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| deploy_config.deployment.tx_image().to_string());
+        let tx_image_filename = effective_tx_image_url
+            .split('/')
+            .last()
+            .unwrap_or("")
+            .to_string();
+        let effective_version = deploy_config
+            .tx_version_override
+            .as_ref()
+            .or(deploy_config.deployment.version.as_ref())
+            .cloned();
+
+        if let Some(ver) = effective_version.as_ref() {
+            info!("Using Monograph version {} for new nodes", ver);
+        }
 
         // Channel for getting candidate nodes, RedisOpTask to ScaleOpTask
         let (redis_op_tx, redis_op_rx) = watch::channel(empty_cluster_nodes.clone());
@@ -276,6 +310,16 @@ impl super::TaskGroup for ScaleTaskGroup {
                     )
                 }
             };
+
+        if version.is_some() {
+            let download_tasks = DownloadTask::instances(DownloadTask::from_urls(vec![
+                effective_tx_image_url.clone(),
+            ]));
+            if !download_tasks.is_empty() {
+                barrier.push(download_tasks.len());
+                executable.extend(download_tasks);
+            }
+        }
 
         let candidate_nodes_after_scale = match operation_type {
             ScaleOperationType::AddNodes => {
@@ -621,81 +665,93 @@ impl super::TaskGroup for ScaleTaskGroup {
         // Upload the tx-service tarball to new hosts
         if let ScaleOperationType::AddNodes = operation_type {
             if !new_nodes_to_upload_tarball.is_empty() {
-                if let Some(tx_image) = deploy_config.deployment.tx_image().split('/').last() {
-                    info!(
-                        "Preparing to upload TX service tarball to {} new hosts",
-                        new_nodes_to_upload_tarball.len()
+                if tx_image_filename.is_empty() {
+                    bail!(
+                        "Unable to determine TX service image filename from {}",
+                        effective_tx_image_url
                     );
+                }
 
-                    let download_dir = download_dir();
-                    let product_dir = match deploy_config.deployment.product() {
-                        Product::EloqSQL => "eloqsql",
-                        Product::EloqKV => "eloqkv",
-                    };
-                    let store = deploy_config
-                        .deployment
-                        .storage_service
-                        .as_ref()
-                        .map_or("rocksdb".to_string(), |s| s.pretty_name());
-                    let tarball_path = download_dir.join(product_dir).join(store).join(tx_image);
+                info!(
+                    "Preparing to upload TX service tarball '{}' to {} new hosts",
+                    tx_image_filename,
+                    new_nodes_to_upload_tarball.len()
+                );
 
-                    if tarball_path.exists() {
-                        // Upload TX service tarball to new hosts
-                        for host in &new_hosts_to_upload_tarball {
-                            let source_host = get_source_host(None);
-                            let upload_file = UploadFile {
-                                source: tarball_path.to_string_lossy().to_string(),
-                                dest: deploy_config.install_dir(),
-                                extension: "gz".to_string(),
-                                host: host.clone(),
-                                copy_dir: false,
-                            };
+                let download_dir = download_dir();
+                let product_dir = match deploy_config.deployment.product() {
+                    Product::EloqSQL => "eloqsql",
+                    Product::EloqKV => "eloqkv",
+                };
+                let store = deploy_config
+                    .deployment
+                    .storage_service
+                    .as_ref()
+                    .map_or("rocksdb".to_string(), |s| s.pretty_name());
+                let tarball_path = download_dir
+                    .join(product_dir)
+                    .join(&store)
+                    .join(&tx_image_filename);
 
-                            let (id, instance) = build_task_instance(
-                                source_host,
-                                upload_file,
-                                config,
-                                "deploy",
-                                "tx_service_upload",
-                            );
-                            barrier.push(1);
-                            executable.insert(id, instance);
-                            info!("Added upload task for TX service tarball to host {}", host);
-                        }
+                if tarball_path.exists() {
+                    // Upload TX service tarball to new hosts
+                    for host in &new_hosts_to_upload_tarball {
+                        let source_host = get_source_host(None);
+                        let upload_file = UploadFile {
+                            source: tarball_path.to_string_lossy().to_string(),
+                            dest: deploy_config.install_dir(),
+                            extension: "gz".to_string(),
+                            host: host.clone(),
+                            copy_dir: false,
+                        };
 
-                        // Unpack TX service tarballs on new hosts
-                        let mut temp_config = deploy_config.clone();
-                        let mut temp_tx_hosts = Vec::new();
-
-                        // Extract just the needed hosts for the unpack
-                        for node in &new_nodes_to_upload_tarball {
-                            temp_tx_hosts.push(node.clone());
-                        }
-
-                        // Check the operation type and set appropriate host lists
-                        if operation_type == ScaleOperationType::AddNodes {
-                            // For add operation, set only the new nodes
-                            temp_config.deployment.tx_service.tx_host_ports = temp_tx_hosts;
-                            temp_config.deployment.tx_service.standby_host_ports = None;
-                            temp_config.deployment.tx_service.voter_host_ports = None;
-                            temp_config.deployment.log_service = None;
-                        }
-
-                        // Generate unpack tasks using the public unpack_eloqservers method
-                        let tx_unpack_tasks = UnpackFileTask::unpack_eloqservers(&temp_config);
-
-                        // Add the tasks to executable
-                        for (task_id, instance) in tx_unpack_tasks {
-                            info!("Added unpack task for TX service on host {}", task_id.host);
-                            barrier.push(1);
-                            executable.insert(task_id, instance);
-                        }
-                    } else {
-                        bail!(
-                            "TX service tarball not found at expected path: {}",
-                            tarball_path.display()
+                        let (id, instance) = build_task_instance(
+                            source_host,
+                            upload_file,
+                            config,
+                            "deploy",
+                            "tx_service_upload",
                         );
+                        barrier.push(1);
+                        executable.insert(id, instance);
+                        info!("Added upload task for TX service tarball to host {}", host);
                     }
+
+                    // Unpack TX service tarballs on new hosts
+                    let mut temp_config = deploy_config.clone();
+                    let mut temp_tx_hosts = Vec::new();
+
+                    // Extract just the needed hosts for the unpack
+                    for node in &new_nodes_to_upload_tarball {
+                        temp_tx_hosts.push(node.clone());
+                    }
+
+                    // Check the operation type and set appropriate host lists
+                    if operation_type == ScaleOperationType::AddNodes {
+                        // For add operation, set only the new nodes
+                        temp_config.deployment.tx_service.tx_host_ports = temp_tx_hosts;
+                        temp_config.deployment.tx_service.standby_host_ports = None;
+                        temp_config.deployment.tx_service.voter_host_ports = None;
+                        temp_config.deployment.log_service = None;
+                    }
+
+                    temp_config.deployment.tx_service.image = Some(effective_tx_image_url.clone());
+                    temp_config.tx_image_override = Some(effective_tx_image_url.clone());
+
+                    // Generate unpack tasks using the public unpack_eloqservers method
+                    let tx_unpack_tasks = UnpackFileTask::unpack_eloqservers(&temp_config);
+
+                    // Add the tasks to executable
+                    for (task_id, instance) in tx_unpack_tasks {
+                        info!("Added unpack task for TX service on host {}", task_id.host);
+                        barrier.push(1);
+                        executable.insert(task_id, instance);
+                    }
+                } else {
+                    bail!(
+                        "TX service tarball not found at expected path: {}",
+                        tarball_path.display()
+                    );
                 }
             }
         }

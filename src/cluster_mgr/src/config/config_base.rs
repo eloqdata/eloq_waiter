@@ -61,6 +61,10 @@ pub struct DeployConfig {
     pub connection: Connection,
     pub deployment: Deployment,
     pub conf_opts: Option<HashMap<String, bool>>,
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub tx_version_override: Option<String>,
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub tx_image_override: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
