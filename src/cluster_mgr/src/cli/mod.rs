@@ -365,6 +365,12 @@ pub enum BackupCommand {
             value_parser = parse_datetime
         )]
         before: Option<chrono::DateTime<chrono::Utc>>,
+
+        #[arg(
+            long,
+            help = "Force deletion: Delete records from meta data table regardless of S3/file deletion result"
+        )]
+        force: bool,
     },
     #[strum(serialize = "dump-aof")]
     DumpAOF {

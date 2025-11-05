@@ -201,6 +201,60 @@ impl StorageService {
             .map(|cass| cass.internal())
             .unwrap_or(None)
     }
+
+    /// Returns true if RocksDB storage is cloud-based (S3, GCS, MINIO)
+    /// Note: EloqDssRocksdb is NOT cloud-based
+    pub fn is_rocksdb_cloud(&self) -> bool {
+        if let Some(rocksdb) = &self.rocksdb {
+            match rocksdb {
+                RocksDB::LOCAL(_) | RocksDB::EloqDssRocksdb(_) => false,
+                RocksDB::S3(_) | RocksDB::GCS(_) | RocksDB::MINIO(_) => true,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if RocksDB storage is S3 (including MINIO)
+    pub fn is_rocksdb_s3(&self) -> bool {
+        if let Some(rocksdb) = &self.rocksdb {
+            matches!(rocksdb, RocksDB::S3(_) | RocksDB::MINIO(_))
+        } else {
+            false
+        }
+    }
+
+    /// Get S3 bucket name and credentials for S3 storage
+    /// Returns (bucket_name, aws_id, aws_secret, region, endpoint)
+    pub fn get_s3_config(&self) -> Option<(String, String, String, String, Option<String>)> {
+        if let Some(rocksdb) = &self.rocksdb {
+            match rocksdb {
+                RocksDB::S3(s3) => {
+                    let bucket = format!("eloqkv-{}-{}", s3.bucket_prefix, s3.bucket_name);
+                    Some((
+                        bucket,
+                        s3.aws_id.clone(),
+                        s3.aws_secret.clone(),
+                        s3.region.clone(),
+                        None,
+                    ))
+                }
+                RocksDB::MINIO(minio) => {
+                    let bucket = format!("eloqkv-{}-{}", minio.bucket_prefix, minio.bucket_name);
+                    Some((
+                        bucket,
+                        minio.aws_id.clone(),
+                        minio.aws_secret.clone(),
+                        "us-east-1".to_string(),
+                        Some(minio.endpoint.clone()),
+                    ))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

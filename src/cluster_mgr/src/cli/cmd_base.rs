@@ -630,12 +630,21 @@ impl CmdExecutor {
                                 let snapshot_path = &snapshot_info_entity.snapshot_path;
                                 let dest_host = &snapshot_info_entity.dest_host;
                                 let dest_user = &snapshot_info_entity.dest_user;
+
+                                // Determine storage type
+                                let storage_type = if dest_host.is_empty() {
+                                    "cloud (S3)"
+                                } else {
+                                    "local"
+                                };
+
                                 (
                                     cluster_name,
                                     create_timestamp,
                                     snapshot_path,
                                     dest_host,
                                     dest_user,
+                                    storage_type,
                                 )
                             })
                             .collect_vec();

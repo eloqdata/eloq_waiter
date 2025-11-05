@@ -6,7 +6,7 @@ pub(crate) const SNAPSHOT_INFO_SELECT: &str = r#"select cluster_name,snapshot_ts
 
 pub(crate) const SNAPSHOT_INFO_UPSERT: [&str; 2] = [
     r#"insert into t_snapshot_info(cluster_name,snapshot_ts,snapshot_status,snapshot_path,dest_host,dest_user) values( "#,
-    r#" )on CONFLICT (cluster_name,snapshot_ts) DO UPDATE SET snapshot_status = excluded.snapshot_status"#,
+    r#" )on CONFLICT (cluster_name,snapshot_ts) DO UPDATE SET snapshot_status = excluded.snapshot_status, snapshot_path = excluded.snapshot_path, dest_host = excluded.dest_host, dest_user = excluded.dest_user"#,
 ];
 
 pub(crate) const SNAPSHOT_INFO_DELETE: &str = r#"delete from t_snapshot_info"#;

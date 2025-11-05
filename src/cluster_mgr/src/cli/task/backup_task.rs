@@ -1,3 +1,4 @@
+use crate::cli::task::grpc::cc_request::ClusterBackupResponse;
 use crate::cli::task::grpc::GrpcClient;
 use crate::cli::task::redis_op_task::parse_cluster_nodes;
 use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
@@ -61,6 +62,7 @@ impl BackupTask {
         status: i64,
         dest_host: String,
         dest_user: String,
+        snapshot_path: String,
     ) {
         // Get the snapshot operation for state management
         let snapshot_operation =
@@ -71,12 +73,7 @@ impl BackupTask {
                 cluster_name: self.cluster_name.clone(),
                 snapshot_ts: current_date_time,
                 snapshot_status: status,
-                snapshot_path: format!(
-                    "{}/{}/{}",
-                    self.back_up_config.path.clone(),
-                    self.cluster_name.clone(),
-                    Self::format_string(current_date_time)
-                ),
+                snapshot_path,
                 dest_host,
                 dest_user,
             })
@@ -179,7 +176,10 @@ impl TaskExecutor for BackupTask {
                 // Collect tasks for concurrent execution
                 let mut tasks = Vec::new();
 
-                let (dest_host, dest_user) = if let (Some(dest_host), Some(dest_user)) = (
+                let (dest_host, dest_user) = if self.back_up_config.path.is_empty() {
+                    // Cloud storage - use empty strings
+                    (String::new(), String::new())
+                } else if let (Some(dest_host), Some(dest_user)) = (
                     &self.back_up_config.dest_host,
                     &self.back_up_config.dest_user,
                 ) {
@@ -191,11 +191,26 @@ impl TaskExecutor for BackupTask {
                 };
                 println!("dest_host:{dest_host},dest_user:{dest_user}");
 
+                // Construct snapshot path based on storage type
+                let initial_snapshot_path = if self.back_up_config.path.is_empty() {
+                    // Cloud storage - will be updated with manifest filename later
+                    String::new()
+                } else {
+                    // Local storage - construct path
+                    format!(
+                        "{}/{}/{}",
+                        self.back_up_config.path.clone(),
+                        self.cluster_name.clone(),
+                        Self::format_string(self.back_up_config.snapshot_ts)
+                    )
+                };
+
                 self.save_snapshot_info(
                     self.back_up_config.snapshot_ts,
                     2,
                     dest_host.clone(),
                     dest_user.clone(),
+                    initial_snapshot_path,
                 )
                 .await;
 
@@ -222,17 +237,23 @@ impl TaskExecutor for BackupTask {
                             anyhow::anyhow!(e)
                         })?;
 
+                        let dest_path = if self.back_up_config.path.is_empty() {
+                            "s3".to_string() // Pass "s3" as dest_path for cloud storage
+                        } else {
+                            format!(
+                                "{}/{}/{}",
+                                self.back_up_config.path.clone(),
+                                self.cluster_name.clone(),
+                                Self::format_string(self.back_up_config.snapshot_ts)
+                            )
+                        };
+
                         let response = grpc_client
                             .trigger_backup(
                                 backup_name.clone(),
                                 dest_host.clone(),
                                 dest_user.clone(),
-                                format!(
-                                    "{}/{}/{}",
-                                    self.back_up_config.path.clone(),
-                                    self.cluster_name.clone(),
-                                    Self::format_string(self.back_up_config.snapshot_ts)
-                                ),
+                                dest_path,
                             )
                             .await
                             .map_err(|e| {
@@ -244,10 +265,10 @@ impl TaskExecutor for BackupTask {
                             "Triggered backup on {}: backup_name={}, result={}",
                             url, backup_name, response.result
                         );
-                        Ok::<(String, String, String), anyhow::Error>((
+                        Ok::<(String, String, ClusterBackupResponse), anyhow::Error>((
                             url,
                             backup_name,
-                            response.result,
+                            response,
                         ))
                     };
 
@@ -268,6 +289,7 @@ impl TaskExecutor for BackupTask {
                 let mut backup_finished = true;
                 let mut task_url = String::new();
                 let mut task_backup_name = String::new();
+                let mut trigger_response: Option<ClusterBackupResponse> = None;
 
                 // Assert that tasks is empty if all nodes failed
                 if tasks.is_empty() {
@@ -276,24 +298,69 @@ impl TaskExecutor for BackupTask {
                 } else {
                     assert!(tasks.len() == 1);
                     // Process the successful result(s)
-                    for (url, backup_name, response_result) in tasks {
+                    for (url, backup_name, response) in tasks {
                         // Your processing logic here
                         // For example:
                         task_url = url;
                         task_backup_name = backup_name;
-                        if response_result.to_lowercase() != "finished" {
+                        trigger_response = Some(response.clone());
+                        if response.result.to_lowercase() != "finished" {
                             backup_finished = false;
                         }
                         // You can collect task_ids or check if all responses are finished
                     }
                 }
 
+                // Helper function to extract manifest filename from response
+                // Only extracts when status is "finished" (should only be called when finished)
+                let extract_manifest_filename = |response: &ClusterBackupResponse| -> String {
+                    // Safety check: only extract manifest filename when backup is finished
+                    if response.result.to_lowercase() != "finished" {
+                        return String::new();
+                    }
+
+                    if dest_host.is_empty() {
+                        // Cloud storage - get manifest filename from response
+                        response
+                            .backup_infos
+                            .first()
+                            .and_then(|info| info.backup_files.first())
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        // Local storage - use existing path construction
+                        format!(
+                            "{}/{}/{}",
+                            self.back_up_config.path.clone(),
+                            self.cluster_name.clone(),
+                            Self::format_string(self.back_up_config.snapshot_ts)
+                        )
+                    }
+                };
+
                 if trigger_backup_succeed && backup_finished {
+                    let snapshot_path = trigger_response
+                        .as_ref()
+                        .map(extract_manifest_filename)
+                        .unwrap_or_else(|| {
+                            if self.back_up_config.path.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    "{}/{}/{}",
+                                    self.back_up_config.path.clone(),
+                                    self.cluster_name.clone(),
+                                    Self::format_string(self.back_up_config.snapshot_ts)
+                                )
+                            }
+                        });
+
                     self.save_snapshot_info(
                         self.back_up_config.snapshot_ts,
                         0,
                         dest_host,
                         dest_user,
+                        snapshot_path,
                     )
                     .await;
 
@@ -303,11 +370,23 @@ impl TaskExecutor for BackupTask {
                         TaskArgValue::Str("All snapshots completed successfully".to_string()),
                     );
                 } else if !trigger_backup_succeed {
+                    let snapshot_path = if self.back_up_config.path.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "{}/{}/{}",
+                            self.back_up_config.path.clone(),
+                            self.cluster_name.clone(),
+                            Self::format_string(self.back_up_config.snapshot_ts)
+                        )
+                    };
+
                     self.save_snapshot_info(
                         self.back_up_config.snapshot_ts,
                         1,
                         dest_host,
                         dest_user,
+                        snapshot_path,
                     )
                     .await;
 
@@ -340,7 +419,7 @@ impl TaskExecutor for BackupTask {
                                 Ok(response) => {
                                     if response.result.to_lowercase() == "finished" {
                                         info!("Snapshot finished for {}: {:#?}", url, response);
-                                        break Ok((url.clone(), true));
+                                        break Ok(Some(response));
                                     } else if response.result.to_lowercase() == "running" {
                                         info!("Snapshot in progress for {}: {:#?}", url, response);
                                         // Wait before checking again
@@ -360,12 +439,38 @@ impl TaskExecutor for BackupTask {
 
                     // Await the task and handle the result
                     match task.await {
-                        Ok(_) => {
+                        Ok(final_response) => {
+                            // Extract manifest filename from response for cloud storage
+                            // final_response is only Some when status is "finished" (from line 414-416)
+                            let snapshot_path = if dest_host.is_empty() {
+                                // Cloud storage - get manifest filename from response
+                                // Only extract when response indicates finished status
+                                final_response
+                                    .as_ref()
+                                    .filter(|r| r.result.to_lowercase() == "finished")
+                                    .and_then(|r| {
+                                        r.backup_infos
+                                            .first()
+                                            .and_then(|info| info.backup_files.first())
+                                            .cloned()
+                                    })
+                                    .unwrap_or_default()
+                            } else {
+                                // Local storage - use existing path construction
+                                format!(
+                                    "{}/{}/{}",
+                                    self.back_up_config.path.clone(),
+                                    self.cluster_name.clone(),
+                                    Self::format_string(self.back_up_config.snapshot_ts)
+                                )
+                            };
+
                             self.save_snapshot_info(
                                 self.back_up_config.snapshot_ts,
                                 0,
                                 dest_host,
                                 dest_user,
+                                snapshot_path,
                             )
                             .await;
 
@@ -379,11 +484,23 @@ impl TaskExecutor for BackupTask {
                         }
                         Err(e) => {
                             error!("Error backup failed");
+                            let snapshot_path = if self.back_up_config.path.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    "{}/{}/{}",
+                                    self.back_up_config.path.clone(),
+                                    self.cluster_name.clone(),
+                                    Self::format_string(self.back_up_config.snapshot_ts)
+                                )
+                            };
+
                             self.save_snapshot_info(
                                 self.back_up_config.snapshot_ts,
                                 1,
                                 dest_host,
                                 dest_user,
+                                snapshot_path,
                             )
                             .await;
 
