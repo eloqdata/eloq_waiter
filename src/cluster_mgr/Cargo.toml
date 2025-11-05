@@ -81,6 +81,8 @@ tokio-postgres = "0.7.10"
 redis = { version = "0.24", features = ["cluster", "cluster-async", "aio", "tokio-comp"] }
 uuid = { version = "1", features = ["v4"] }
 prettytable = "0.10.0"
+aws-sdk-s3 = "1.0"
+aws-config = "1.0"
 
 [build-dependencies]
 tonic-build = "0.9"

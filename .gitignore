@@ -4,6 +4,7 @@
 # Visual Studio Code
 .vscode/
 .devcontainer/
+.cursor
 eloqctl/
 mono_devtools_dist/
 #*.json

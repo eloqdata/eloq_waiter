@@ -142,6 +142,7 @@ impl TaskGroup for RemoveTaskGroup {
                     command: BackupCommand::Remove {
                         until: None,
                         before: None,
+                        force: false,
                     },
                 },
                 config,
