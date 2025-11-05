@@ -240,6 +240,9 @@ pub enum SubCommand {
         /// Optional password for Redis operations
         #[arg(long, value_name = "cluster password")]
         password: Option<String>,
+        /// Version to use for newly added nodes (requires --add-nodes)
+        #[arg(long, value_name = "version")]
+        version: Option<String>,
     },
 
     #[strum(serialize = "scalelog")]
