@@ -250,7 +250,7 @@ impl TaskGroup for BackupTaskGroup {
 
                                             // Create deletion task for each manifest
                                             for manifest_filename in manifest_list {
-                                                // Construct correct S3 path: eloqkv-{prefix}-{bucket_name}/rocksdb_cloud/CLOUDMANIFEST-{manifest_filename}
+                                                // Construct correct S3 path: {prefix}{bucket_name}/rocksdb_cloud/CLOUDMANIFEST-{manifest_filename}
                                                 let s3_bucket = bucket.to_string();
                                                 let s3_key = format!(
                                                     "rocksdb_cloud/CLOUDMANIFEST-{}",
