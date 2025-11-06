@@ -769,8 +769,16 @@ impl Deployment {
                             "rocksdb_cloud_s3_endpoint_url",
                             Some(minio.endpoint),
                         );
-                        let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
-                        ini.set(SECTION_STORE, "rocksdb_cloud_bucket_name", Some(bucket));
+                        ini.set(
+                            SECTION_STORE,
+                            "rocksdb_cloud_bucket_name",
+                            Some(minio.bucket_name),
+                        );
+                        ini.set(
+                            SECTION_STORE,
+                            "rocksdb_cloud_bucket_prefix",
+                            Some(minio.bucket_prefix),
+                        );
                     }
                     RocksDB::GCS(gcs) => {
                         ini.set(SECTION_STORE, "rocksdb_cloud_region", Some(gcs.region));
