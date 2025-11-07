@@ -8,10 +8,7 @@ use tracing::{error, info};
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args
-        .iter()
-        .any(|arg| arg == "-v" || arg == "-V" || arg == "--version")
-    {
+    if args.len() == 2 && matches!(args[1].as_str(), "-v" | "-V" | "--version") {
         println!("eloqctl version output 1.0.0");
         return;
     }
