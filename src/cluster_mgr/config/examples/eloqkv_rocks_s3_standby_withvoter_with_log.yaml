@@ -1,0 +1,61 @@
+connection:
+  username: "${USER}"
+  auth_type: "keypair"
+  auth:
+    keypair: "/home/${USER}/.ssh/id_rsa"
+deployment:
+  cluster_name: "eloqkv-cluster"
+  product: "EloqKV"
+  version: "latest"
+  install_dir: "/home/${USER}"
+  enable_wal: true
+  enable_io_uring: true
+  checkpoint_interval: 120
+  tx_service:
+    tx_host_ports: [10.0.0.1:6379]
+    standby_host_ports: [10.0.0.2:6379]
+    voter_host_ports: [10.0.0.3:6379]
+  log_service:
+    nodes:
+      - host: 10.0.0.3
+        port: 9000
+        data_dir:
+          - "/home/${USER}/eloqkv-cluster/wal_eloqkv"
+    replica: 1
+    aws_access_key_id: "***"
+    aws_secret_key: "***"
+    bucket_name: "***"
+    bucket_prefix: "***"
+    region: "***"
+    sst_file_cache_size: "***"
+  storage_service:
+    rocksdb: !S3
+      aws_access_key_id: "***"
+      aws_secret_key: "***"
+      region: "***"
+      bucket_name: "***"
+      bucket_prefix: "***"
+      target_file_size_base: "***"
+      sst_file_cache_size: "***"
+      rocksdb_max_background_jobs: "16"
+      rocksdb_max_background_flush: "16"
+      rocksdb_max_background_compaction: "16"
+      rocksdb_level0_stop_writes_trigger: "3000"
+      rocksdb_level0_slowdown_writes_trigger: "2000"
+      rocksdb_level0_file_num_compaction_trigger: "10"
+  monitor:
+    data_dir: ""
+    eloq_metrics:
+      path: "/eloq_metrics"
+      port: 18081
+    prometheus:
+      download_url: "https://github.com/prometheus/prometheus/releases/download/v2.42.0/prometheus-2.42.0.linux-amd64.tar.gz"
+      port: 9500
+      host: 10.0.0.3
+    grafana:
+      download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
+      port: 3301
+      host: 10.0.0.3
+    node_exporter:
+      url: "https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz"
+      port: 9200
