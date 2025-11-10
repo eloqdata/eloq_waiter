@@ -117,6 +117,18 @@ pub struct RocksS3 {
     pub bucket_prefix: String,
     pub target_file_size_base: String,
     pub sst_file_cache_size: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_max_background_jobs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_max_background_flush: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_max_background_compaction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_level0_stop_writes_trigger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_level0_slowdown_writes_trigger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_level0_file_num_compaction_trigger: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

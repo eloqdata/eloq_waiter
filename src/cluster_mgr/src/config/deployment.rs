@@ -748,6 +748,48 @@ impl Deployment {
                             "rocksdb_cloud_sst_file_cache_size",
                             Some(s3.sst_file_cache_size),
                         );
+                        if let Some(val) = &s3.rocksdb_max_background_jobs {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_max_background_jobs",
+                                Some(val.clone()),
+                            );
+                        }
+                        if let Some(val) = &s3.rocksdb_max_background_flush {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_max_background_flush",
+                                Some(val.clone()),
+                            );
+                        }
+                        if let Some(val) = &s3.rocksdb_max_background_compaction {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_max_background_compaction",
+                                Some(val.clone()),
+                            );
+                        }
+                        if let Some(val) = &s3.rocksdb_level0_stop_writes_trigger {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_level0_stop_writes_trigger",
+                                Some(val.clone()),
+                            );
+                        }
+                        if let Some(val) = &s3.rocksdb_level0_slowdown_writes_trigger {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_level0_slowdown_writes_trigger",
+                                Some(val.clone()),
+                            );
+                        }
+                        if let Some(val) = &s3.rocksdb_level0_file_num_compaction_trigger {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_level0_file_num_compaction_trigger",
+                                Some(val.clone()),
+                            );
+                        }
                     }
                     RocksDB::EloqDssRocksdb(_eloq_dss) => {
                         // DSS-specific RocksDB config is managed by DSS ini; no KV store fields here
