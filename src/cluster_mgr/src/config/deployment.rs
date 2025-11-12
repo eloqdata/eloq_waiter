@@ -807,11 +807,7 @@ impl Deployment {
                             );
                         }
                         if let Some(val) = &s3.rocksdb_enable_stats {
-                            ini.set(
-                                SECTION_STORE,
-                                "rocksdb_enable_stats",
-                                Some(val.clone()),
-                            );
+                            ini.set(SECTION_STORE, "rocksdb_enable_stats", Some(val.clone()));
                         }
                         if let Some(val) = &s3.rocksdb_stats_dump_period_sec {
                             ini.set(
