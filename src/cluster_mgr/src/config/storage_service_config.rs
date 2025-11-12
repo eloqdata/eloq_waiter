@@ -137,6 +137,8 @@ pub struct RocksS3 {
     pub rocksdb_enable_stats: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rocksdb_stats_dump_period_sec: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rocksdb_storage_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
