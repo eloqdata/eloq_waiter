@@ -11,6 +11,7 @@ deployment:
   enable_wal: true
   enable_io_uring: true
   checkpoint_interval: 120
+  maxclients: 60000
   tx_service:
     tx_host_ports: [10.0.0.1:6379]
     standby_host_ports: [10.0.0.2:6379]
@@ -48,6 +49,7 @@ deployment:
       rocksdb_write_buffer_size: "128MB"
       rocksdb_enable_stats: "true"
       rocksdb_stats_dump_period_sec: "600"
+      rocksdb_storage_path: "/data/rocksdb"
   monitor:
     data_dir: ""
     eloq_metrics:

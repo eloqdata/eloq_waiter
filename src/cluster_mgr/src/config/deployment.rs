@@ -269,6 +269,8 @@ pub struct Deployment {
     pub enable_wal: Option<bool>,
     pub enable_io_uring: Option<bool>,
     pub checkpoint_interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maxclients: Option<u32>,
 }
 
 impl Deployment {
@@ -816,6 +818,9 @@ impl Deployment {
                                 Some(val.clone()),
                             );
                         }
+                        if let Some(val) = &s3.rocksdb_storage_path {
+                            ini.set(SECTION_STORE, "rocksdb_storage_path", Some(val.clone()));
+                        }
                     }
                     RocksDB::EloqDssRocksdb(_eloq_dss) => {
                         // DSS-specific RocksDB config is managed by DSS ini; no KV store fields here
@@ -1119,6 +1124,14 @@ impl Deployment {
             ini.set(SECTION_LOCAL, "ip", Some(host_get.clone()));
             ini.set(SECTION_LOCAL, "port", Some(port_get.clone()));
 
+            // Set maxclients if specified in deployment config
+            if let Some(maxclients) = self.maxclients {
+                let key = "maxclients";
+                if set_by_user!(ini.get(SECTION_LOCAL, key), u32).is_none() {
+                    ini.set(SECTION_LOCAL, key, Some(maxclients.to_string()));
+                }
+            }
+
             if let Some(hw) = self.get_hardware(&host_get) {
                 let key = "core_number";
                 let mut core_tx = 1; // minimal value
@@ -1166,6 +1179,14 @@ impl Deployment {
 
             ini.set(SECTION_LOCAL, "ip", Some("127.0.0.1".to_owned()));
             ini.set(SECTION_LOCAL, "port", Some("6379".to_owned()));
+
+            // Set maxclients if specified in deployment config
+            if let Some(maxclients) = self.maxclients {
+                let key = "maxclients";
+                if set_by_user!(ini.get(SECTION_LOCAL, key), u32).is_none() {
+                    ini.set(SECTION_LOCAL, key, Some(maxclients.to_string()));
+                }
+            }
 
             // If storage is MINIO, add txlog cloud settings to [local] for local ini as well
             if let Some(storage) = self.storage_service.as_ref() {
