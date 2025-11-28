@@ -310,6 +310,15 @@ pub struct EloqDss {
 
 // DataStoreService related types
 
+/// Mode for DataStoreService: whether DSS server is managed by eloqctl or external
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum DataStoreServiceMode {
+    #[serde(rename = "internal")]
+    Internal, // eloqctl manages dss_server process
+    #[serde(rename = "external")]
+    External, // external dss_server exists, not managed
+}
+
 /// Backend for DataStoreService: currently supports EloqStore, future can extend to BigTable, etc.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum DataStoreServiceBackend {
@@ -339,6 +348,14 @@ pub struct DataStoreService {
     pub backend: DataStoreServiceBackend,
     /// Peer host:port entries for Remote mode (required for Remote, ignored for Local)
     pub peer_host_ports: Option<Vec<String>>,
+    /// Whether DSS server is managed by eloqctl (Internal) or external (External)
+    /// Only relevant for Remote mode. Default is Internal.
+    #[serde(default = "default_dss_mode")]
+    pub mode: DataStoreServiceMode,
+}
+
+fn default_dss_mode() -> DataStoreServiceMode {
+    DataStoreServiceMode::Internal // Default: eloqctl manages dss_server
 }
 
 impl DataStoreService {
@@ -364,5 +381,15 @@ impl DataStoreService {
     /// Callers should match on the returned enum to handle different backend types
     pub fn backend_config(&self) -> &DataStoreServiceBackend {
         &self.backend
+    }
+
+    /// Returns true if DSS server is external (not managed by eloqctl)
+    /// Only relevant for Remote mode
+    pub fn is_external(&self) -> bool {
+        if self.is_remote_mode() {
+            matches!(self.mode, DataStoreServiceMode::External)
+        } else {
+            false // Local mode doesn't need DSS process
+        }
     }
 }

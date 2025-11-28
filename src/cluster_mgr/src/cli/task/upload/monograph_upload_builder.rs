@@ -141,6 +141,30 @@ impl MonographUploadBuilder {
                     }
                 }
             }
+            // For DataStoreService Remote mode: only include ini files if not external
+            if let Some(dss) = &storage.eloqdss {
+                if dss.is_remote_mode() && !dss.is_external() {
+                    // For each tx host, scan its upload dir for EloqDss-*.ini
+                    for host in &all_hosts_cloned {
+                        let host_dir = create_upload_cluster_dir(&format!(
+                            "{}/{}",
+                            config.deployment.cluster_name, host
+                        ));
+                        if let Ok(entries) = std::fs::read_dir(&host_dir) {
+                            for entry in entries.flatten() {
+                                let path = entry.path();
+                                if path.is_file() {
+                                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                        if name.starts_with("EloqDss-") && name.ends_with(".ini") {
+                                            all_files_path.push(path.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         all_hosts_cloned
@@ -190,9 +214,9 @@ impl UploadTaskBuilder for MonographUploadBuilder {
                 dss_hosts.extend(dss_cfg.peer_host_ports.clone());
             }
 
-            // Get hosts from DataStoreService Remote mode
+            // Get hosts from DataStoreService Remote mode (only if not external)
             if let Some(dss) = &storage.eloqdss {
-                if dss.is_remote_mode() {
+                if dss.is_remote_mode() && !dss.is_external() {
                     if let Some(peer_ports) = dss.peer_host_ports.clone() {
                         dss_hosts.extend(peer_ports);
                     }

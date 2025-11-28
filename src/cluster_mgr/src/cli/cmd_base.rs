@@ -8,7 +8,8 @@ use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::storage_service_config::{
-    CassConnect, CassDeploy, CassKind, Cassandra, RocksDB, RocksLocal, StorageService,
+    CassConnect, CassDeploy, CassKind, Cassandra, DataStoreService, DataStoreServiceBackend,
+    DataStoreServiceMode, EloqStoreConfig, RocksDB, RocksLocal, StorageService,
 };
 use crate::config::{StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
@@ -1010,6 +1011,7 @@ impl CmdExecutor {
                                 eloq_store_cloud_worker_count: None,
                             }),
                             peer_host_ports: None,
+                            mode: DataStoreServiceMode::Internal, // Default: eloqctl manages dss_server
                         };
                         if deploy.storage_service.is_none() {
                             deploy.storage_service = Some(StorageService {

@@ -1333,8 +1333,9 @@ impl Deployment {
                 }
             }
             // Handle DataStoreService Remote mode (EloqStore backend)
+            // Only generate config for internal (managed) mode, not external
             if let Some(dss) = &storage.eloqdss {
-                if dss.is_remote_mode() {
+                if dss.is_remote_mode() && !dss.is_external() {
                     match dss.backend_config() {
                         crate::config::storage_service_config::DataStoreServiceBackend::EloqStore(config) => {
                             if let Some(worker_num) = config.eloq_store_worker_num {
