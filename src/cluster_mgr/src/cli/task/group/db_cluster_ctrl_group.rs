@@ -56,11 +56,21 @@ impl TaskGroup for CtrlDBTaskGroup {
                 (barrier, tasks)
             }
             SubCommand::Restart { cluster } => {
+                // Determine if we should stop DSS based on DataStoreService internal mode
+                let mut should_stop_store = false;
+                if let Some(storage) = &cluster_config.deployment.storage_service {
+                    if let Some(dss) = &storage.eloqdss {
+                        if dss.is_remote_mode() && !dss.is_external() {
+                            should_stop_store = true;
+                        }
+                    }
+                }
+
                 let stop_cmd = SubCommand::Stop {
                     cluster: cluster.clone(),
                     tx: Some(true),
                     log: true,
-                    store: false,
+                    store: should_stop_store,
                     monitor: false,
                     force: false,
                     all: false,
@@ -68,7 +78,14 @@ impl TaskGroup for CtrlDBTaskGroup {
                     nodes: Vec::new(),
                 };
                 let (mut barrier, mut executable) = self
-                    .stop_tasks(true, true, false, stop_cmd, cluster_config, false)
+                    .stop_tasks(
+                        true,
+                        true,
+                        should_stop_store,
+                        stop_cmd,
+                        cluster_config,
+                        false,
+                    )
                     .await;
                 let start_cmd = SubCommand::Start {
                     cluster,
@@ -93,7 +110,19 @@ impl TaskGroup for CtrlDBTaskGroup {
                 let (cluster, tx, log, store, monitor) = if all {
                     (cluster, true, true, true, true)
                 } else {
-                    (cluster, tx.unwrap_or(true), log, store, monitor)
+                    let mut final_store = store;
+                    // If DataStoreService is in internal remote mode (managed by eloqctl),
+                    // automatically set store to true to stop DSS
+                    if !final_store {
+                        if let Some(storage) = &cluster_config.deployment.storage_service {
+                            if let Some(dss) = &storage.eloqdss {
+                                if dss.is_remote_mode() && !dss.is_external() {
+                                    final_store = true;
+                                }
+                            }
+                        }
+                    }
+                    (cluster, tx.unwrap_or(true), log, final_store, monitor)
                 };
                 let (mut barrier, mut tasks) = self
                     .stop_tasks(tx, log, store, cmd, cluster_config, false)
@@ -258,11 +287,15 @@ impl CtrlDBTaskGroup {
         }
         if store {
             if let Some(storage) = &deployment.storage_service {
-                // Stop DSS if using EloqDssRocksdb
+                // Stop DSS if using EloqDssRocksdb or DataStoreService Remote mode (only if not external)
                 if matches!(
                     storage.rocksdb,
                     Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
-                ) {
+                ) || storage
+                    .eloqdss
+                    .as_ref()
+                    .map_or(false, |ds| ds.is_remote_mode() && !ds.is_external())
+                {
                     let stop_dss = MonographDssCtlTask::from_config(cmd.clone(), config);
                     if !stop_dss.is_empty() {
                         barrier.push(stop_dss.len());
@@ -299,12 +332,16 @@ impl CtrlDBTaskGroup {
                 barrier.push(start_nodes.len());
                 executable.extend(start_nodes);
             } else {
-                // Start DSS only when rocksdb is ELOQDSS_ROCKSDB
+                // Start DSS only when rocksdb is ELOQDSS_ROCKSDB or DataStoreService Remote mode (only if not external)
                 if let Some(storage) = &deployment.storage_service {
                     if matches!(
                         storage.rocksdb,
                         Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
-                    ) {
+                    ) || storage
+                        .eloqdss
+                        .as_ref()
+                        .map_or(false, |ds| ds.is_remote_mode() && !ds.is_external())
+                    {
                         use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
                         let start_dss = MonographDssCtlTask::from_config(start_cmd.clone(), config);
                         barrier.push(start_dss.len());
@@ -382,12 +419,16 @@ impl CtrlDBTaskGroup {
         let deployment = &config.deployment;
         let mut executable = IndexMap::new();
 
-        // DSS status (when rocksdb is EloqDssRocksdb)
+        // DSS status (when rocksdb is EloqDssRocksdb or DataStoreService Remote mode, only if not external)
         if let Some(storage) = &deployment.storage_service {
             if matches!(
                 storage.rocksdb,
                 Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
-            ) {
+            ) || storage
+                .eloqdss
+                .as_ref()
+                .map_or(false, |ds| ds.is_remote_mode() && !ds.is_external())
+            {
                 let dss_tasks = MonographDssCtlTask::from_config(cmd.clone(), config);
                 if !dss_tasks.is_empty() {
                     executable.extend(dss_tasks);

@@ -45,17 +45,35 @@ impl DssCtlCmd {
         let Some(storage_service) = &config.deployment.storage_service else {
             return vec![];
         };
-        let Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(eloq_dss)) =
-            &storage_service.rocksdb
-        else {
+
+        // Get peer_host_ports from either EloqDssRocksdb or DataStoreService Remote mode
+        let peer_host_ports =
+            if let Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(eloq_dss)) =
+                &storage_service.rocksdb
+            {
+                eloq_dss.peer_host_ports.clone()
+            } else if let Some(dss) = &storage_service.eloqdss {
+                if dss.is_remote_mode() {
+                    // For DataStoreService Remote mode, only generate tasks if not external (i.e., managed by eloqctl)
+                    if dss.is_external() {
+                        return vec![];
+                    }
+                    dss.peer_host_ports.clone().unwrap_or_default()
+                } else {
+                    return vec![];
+                }
+            } else {
+                return vec![];
+            };
+
+        if peer_host_ports.is_empty() {
             return vec![];
-        };
+        }
 
         let tx_home = config.deployment.tx_srv_home();
         let dss_bin = format!("{}/bin/dss_server", tx_home);
 
-        eloq_dss
-            .peer_host_ports
+        peer_host_ports
             .iter()
             .map(|peer| {
                 let (host, port) = parse_host_port(peer).expect("invalid dss host:port");
@@ -67,7 +85,7 @@ impl DssCtlCmd {
                     &config.connection.username, tx_home, ini_file
                 );
                 let ctl = match &cmd_arg {
-                    SubCommand::Start { .. } | SubCommand::Launch { .. } => {
+                    SubCommand::Start { .. } | SubCommand::Launch { .. } | SubCommand::Install { .. } => {
                         // Ensure dirs exist, then start with the uploaded config
                         let start_cmd = format!(
                             "cd {tx_home}; mkdir -p {logs_dir}; {dss_bin} --config={ini_file} \
@@ -293,7 +311,17 @@ impl TaskExecutor for MonographDssCtlTask {
         if self.task_id.task == "status" {
             let mut result = pid_exec_value.unwrap_or_default();
             let output = if any_pid_running {
-                "\ndss_server is running.".to_string()
+                // Extract PID from result if available
+                if let Some(pid_value) = result.get(crate::cli::task::task_utils::PROCESS_PID) {
+                    let pid = TaskArgValue::into_inner_value::<String>(pid_value.clone());
+                    if pid != crate::cli::task::task_utils::PID_NOT_FOUND && !pid.is_empty() {
+                        format!("\ndss_server is running, pid: {}.", pid)
+                    } else {
+                        "\ndss_server is down.".to_string()
+                    }
+                } else {
+                    "\ndss_server is running.".to_string()
+                }
             } else {
                 "\ndss_server is down.".to_string()
             };
@@ -324,7 +352,7 @@ impl TaskExecutor for MonographDssCtlTask {
                     }
                 }
             }
-            "start" | "launch" => {
+            "start" | "launch" | "install" => {
                 for (entry, rs) in pid_values.iter() {
                     if entry.kind == "start" && entry.exec_cmd.is_some() {
                         let pid = rs

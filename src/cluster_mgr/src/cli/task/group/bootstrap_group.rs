@@ -62,6 +62,16 @@ impl TaskGroup for InstallDBTaskGroup {
                     barrier.extend(CassandraCtlTask::start_barrier(cassandra_start.len()));
                     executable.extend(cassandra_start);
                 }
+            } else if let Some(dss) = &storage_service.eloqdss {
+                // Start DSS server first if using managed remote mode DataStoreService (i.e., not external)
+                if dss.is_remote_mode() && !dss.is_external() {
+                    use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
+                    let start_dss = MonographDssCtlTask::from_config(install_cmd, cluster_config);
+                    if !start_dss.is_empty() {
+                        barrier.push(start_dss.len());
+                        executable.extend(start_dss);
+                    }
+                }
             }
         }
 
