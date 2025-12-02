@@ -17,6 +17,8 @@ pub struct StorageService {
     pub cassandra: Option<Cassandra>,
     pub dynamodb: Option<Dynamodb>,
     pub rocksdb: Option<RocksDB>,
+    #[serde(rename = "eloqdss")]
+    pub eloqdss: Option<DataStoreService>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -179,13 +181,19 @@ impl StorageService {
             Some(StorageProvider::Dynamodb)
         } else if self.rocksdb.is_some() {
             Some(StorageProvider::Rocksdb)
+        } else if self.eloqdss.is_some() {
+            Some(StorageProvider::EloqDSS)
         } else {
             None
         }
     }
 
     pub fn pretty_name(&self) -> String {
-        let mut name = self.provider().unwrap().to_string();
+        let provider = self.provider().unwrap();
+        if provider == StorageProvider::EloqDSS {
+            return "eloqdss".to_owned();
+        }
+        let mut name = provider.to_string();
         if let Some(rocks) = &self.rocksdb {
             name = match rocks {
                 RocksDB::LOCAL(_) => name,
@@ -298,4 +306,90 @@ pub struct EloqDss {
     pub bucket_prefix: Option<String>,
     pub target_file_size_base: Option<String>,
     pub sst_file_cache_size: Option<String>,
+}
+
+// DataStoreService related types
+
+/// Mode for DataStoreService: whether DSS server is managed by eloqctl or external
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum DataStoreServiceMode {
+    #[serde(rename = "internal")]
+    Internal, // eloqctl manages dss_server process
+    #[serde(rename = "external")]
+    External, // external dss_server exists, not managed
+}
+
+/// Backend for DataStoreService: currently supports EloqStore, future can extend to BigTable, etc.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub enum DataStoreServiceBackend {
+    #[serde(rename = "eloqstore")]
+    EloqStore(EloqStoreConfig),
+    // Future backends can be added here, e.g.:
+    // #[serde(rename = "bigtable")]
+    // BigTable(BigTableBackendConfig),
+}
+
+/// Configuration for EloqStore backend
+#[serde_with::skip_serializing_none]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct EloqStoreConfig {
+    pub eloq_store_worker_num: Option<u32>,
+    pub eloq_store_data_path_list: Option<String>,
+    /// Cloud store path for cloud mode (empty or None means local mode)
+    pub eloq_store_cloud_store_path: Option<String>,
+    /// Cloud worker count for cloud mode
+    pub eloq_store_cloud_worker_count: Option<u32>,
+}
+
+/// DataStoreService configuration
+#[serde_with::skip_serializing_none]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct DataStoreService {
+    pub backend: DataStoreServiceBackend,
+    /// Peer host:port entries for Remote mode (required for Remote, ignored for Local)
+    pub peer_host_ports: Option<Vec<String>>,
+    /// Whether DSS server is managed by eloqctl (Internal) or external (External)
+    /// Only relevant for Remote mode. Default is Internal.
+    #[serde(default = "default_dss_mode")]
+    pub mode: DataStoreServiceMode,
+}
+
+fn default_dss_mode() -> DataStoreServiceMode {
+    DataStoreServiceMode::Internal // Default: eloqctl manages dss_server
+}
+
+impl DataStoreService {
+    /// Returns true if this DataStoreService is in Local mode
+    pub fn is_local_mode(&self) -> bool {
+        !self.is_remote_mode()
+    }
+
+    /// Returns true if this DataStoreService is in Remote mode
+    pub fn is_remote_mode(&self) -> bool {
+        self.peer_host_ports
+            .as_ref()
+            .map(|ports| !ports.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Returns true if this DataStoreService requires separate DSS process
+    pub fn requires_dss(&self) -> bool {
+        self.is_remote_mode()
+    }
+
+    /// Get backend configuration (generic method for all backends)
+    /// Callers should match on the returned enum to handle different backend types
+    pub fn backend_config(&self) -> &DataStoreServiceBackend {
+        &self.backend
+    }
+
+    /// Returns true if DSS server is external (not managed by eloqctl)
+    /// Only relevant for Remote mode
+    pub fn is_external(&self) -> bool {
+        if self.is_remote_mode() {
+            matches!(self.mode, DataStoreServiceMode::External)
+        } else {
+            false // Local mode doesn't need DSS process
+        }
+    }
 }
