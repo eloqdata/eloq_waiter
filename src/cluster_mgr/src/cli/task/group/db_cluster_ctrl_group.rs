@@ -17,6 +17,7 @@ use anyhow::Result;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tokio::sync::watch;
+use tracing::{info, warn};
 
 #[async_trait::async_trait]
 impl TaskGroup for CtrlDBTaskGroup {
@@ -415,14 +416,48 @@ impl CtrlDBTaskGroup {
                     }
                 }
 
-                if deployment.log_service.is_some() {
+                // Check log service configuration and log decision
+                if let Some(log_svc) = &deployment.log_service {
+                    let log_nodes_count = log_svc.nodes.len();
+                    let log_hosts: Vec<String> = log_svc
+                        .nodes
+                        .iter()
+                        .map(|n| format!("{}:{}", n.host, n.port))
+                        .collect();
+                    info!(
+                        "Log service is configured with {} node(s): {:?}. Starting log service...",
+                        log_nodes_count, log_hosts
+                    );
                     let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), config);
-                    barrier.push(start_log.len());
-                    executable.extend(start_log);
+                    if start_log.is_empty() {
+                        warn!(
+                            "Log service is configured but no start tasks were generated. \
+                             This may indicate a configuration error."
+                        );
+                    } else {
+                        barrier.push(start_log.len());
+                        executable.extend(start_log);
+                        info!(
+                            "Added {} log service start task(s) to execution plan",
+                            start_log.len()
+                        );
+                    }
 
                     let probe = MonographLogProbeTask::from_config(config);
-                    barrier.push(probe.len());
-                    executable.extend(probe);
+                    if !probe.is_empty() {
+                        barrier.push(probe.len());
+                        executable.extend(probe);
+                        info!(
+                            "Added {} log service probe task(s) to execution plan",
+                            probe.len()
+                        );
+                    }
+                } else {
+                    warn!(
+                        "Log service is not configured in deployment. \
+                         Log service will not be started. \
+                         To start log service, add 'log_service' configuration to your deployment YAML."
+                    );
                 }
 
                 let start_tx =

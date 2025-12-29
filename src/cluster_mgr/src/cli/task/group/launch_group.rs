@@ -16,6 +16,7 @@ use crate::config::{config_template, CONFIG_PATH_DIR, SSH_PYTHON_SCRIPT};
 use std::collections::HashMap;
 use std::env;
 use tokio::sync::watch;
+use tracing::info;
 
 #[async_trait::async_trait]
 impl TaskGroup for LaunchTaskGroup {
@@ -73,6 +74,26 @@ impl TaskGroup for LaunchTaskGroup {
             };
             InstallDepPkgTaskGroup.tasks(cmd, config).await?
         };
+
+        // Log log service configuration status
+        if let Some(log_svc) = &cluster_config.deployment.log_service {
+            let log_nodes_count = log_svc.nodes.len();
+            let log_hosts: Vec<String> = log_svc
+                .nodes
+                .iter()
+                .map(|n| format!("{}:{}", n.host, n.port))
+                .collect();
+            info!(
+                "Launch: Log service is configured with {} node(s): {:?}",
+                log_nodes_count, log_hosts
+            );
+        } else {
+            info!(
+                "Launch: Log service is not configured. \
+                 Log service will not be started during launch. \
+                 To enable log service, add 'log_service' configuration to your deployment YAML."
+            );
+        }
 
         let exe_ctx = vec![
             dep_tasks,
