@@ -905,8 +905,8 @@ impl Deployment {
                         // Only embed DataStoreService config in EloqKv.ini for Local mode
                         // Remote mode config will be written to EloqDss.ini via build_dss_config()
                         if dss.is_local_mode() {
-                                match dss.backend_config() {
-                                    DataStoreServiceBackend::EloqStore(config) => {
+                            match dss.backend_config() {
+                                DataStoreServiceBackend::EloqStore(config) => {
                                     if let Some(worker_num) = config.eloq_store_worker_num {
                                         ini.set(
                                             SECTION_STORE,
@@ -914,7 +914,8 @@ impl Deployment {
                                             Some(worker_num.to_string()),
                                         );
                                     }
-                                    if let Some(data_path_list) = &config.eloq_store_data_path_list {
+                                    if let Some(data_path_list) = &config.eloq_store_data_path_list
+                                    {
                                         ini.set(
                                             SECTION_STORE,
                                             "eloq_store_data_path_list",
@@ -995,8 +996,7 @@ impl Deployment {
                                             Some(data_append_mode.to_string()),
                                         );
                                     }
-                                }
-                                // For future backends, add appropriate handling here
+                                } // For future backends, add appropriate handling here
                             }
                         } else {
                             // For Remote mode, only write the eloq_dss_peer_node to the [store] section
@@ -1426,11 +1426,7 @@ impl Deployment {
                     store_fields_set = true;
                 }
                 if let Some(v) = &s.object_path {
-                    ini.set(
-                        "store",
-                        "rocksdb_cloud_object_path",
-                        Some(v.clone()),
-                    );
+                    ini.set("store", "rocksdb_cloud_object_path", Some(v.clone()));
                     store_fields_set = true;
                 }
             }
@@ -1459,8 +1455,12 @@ impl Deployment {
                                 // Only write to ini file, don't modify memory
                                 // In Remote mode, use DSS port as EloqKV port to compute default path
                                 use crate::config::storage_service_config::EloqStoreConfig;
-                                let eloq_data_path = format!("{}/data/port-{}", self.tx_srv_home(), port);
-                                let default_data_path = EloqStoreConfig::compute_default_eloq_store_data_path(&eloq_data_path);
+                                let eloq_data_path =
+                                    format!("{}/data/port-{}", self.tx_srv_home(), port);
+                                let default_data_path =
+                                    EloqStoreConfig::compute_default_eloq_store_data_path(
+                                        &eloq_data_path,
+                                    );
                                 ini.set(
                                     "store",
                                     "eloq_store_data_path_list",
@@ -1481,9 +1481,7 @@ impl Deployment {
                                     store_fields_set = true;
                                 }
                             }
-                            if let Some(cloud_worker_count) =
-                                config.eloq_store_cloud_worker_count
-                            {
+                            if let Some(cloud_worker_count) = config.eloq_store_cloud_worker_count {
                                 ini.set(
                                     "store",
                                     "eloq_store_cloud_worker_count",
@@ -1520,9 +1518,7 @@ impl Deployment {
                                 );
                                 store_fields_set = true;
                             }
-                            if let Some(data_append_mode) =
-                                config.eloq_store_data_append_mode
-                            {
+                            if let Some(data_append_mode) = config.eloq_store_data_append_mode {
                                 ini.set(
                                     "store",
                                     "eloq_store_data_append_mode",
@@ -1530,8 +1526,7 @@ impl Deployment {
                                 );
                                 store_fields_set = true;
                             }
-                        }
-                        // For future backends, add appropriate handling here
+                        } // For future backends, add appropriate handling here
                     }
                 }
             }
