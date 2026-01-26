@@ -1451,15 +1451,19 @@ impl Deployment {
                         DataStoreServiceBackend::EloqStore(eloq_store_config) => {
                             if eloq_store_config.is_cloud_mode() {
                                 if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
-                                    // Set object store service URL: {endpoint}/txlog-eloqkv/txlogs
-                                    let object_store_url = format!(
-                                        "{}/txlog-eloqkv/txlogs",
-                                        cloud_config.eloq_store_cloud_endpoint
-                                    );
                                     ini.set(
                                         SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_object_store_service_url",
-                                        Some(object_store_url),
+                                        "txlog_rocksdb_cloud_s3_endpoint_url",
+                                        Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                                    );
+                                    let bucket_name = eloq_store_config
+                                        .eloq_store_cloud_store_path
+                                        .clone()
+                                        .unwrap_or_else(|| "txlog-eloqkv".to_string());
+                                    ini.set(
+                                        SECTION_LOCAL,
+                                        "txlog_rocksdb_cloud_bucket_name",
+                                        Some(bucket_name),
                                     );
                                 }
                             }
@@ -1588,15 +1592,19 @@ impl Deployment {
                         DataStoreServiceBackend::EloqStore(eloq_store_config) => {
                             if eloq_store_config.is_cloud_mode() {
                                 if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
-                                    // Set object store service URL: {endpoint}/txlog-eloqkv/txlogs
-                                    let object_store_url = format!(
-                                        "{}/txlog-eloqkv/txlogs",
-                                        cloud_config.eloq_store_cloud_endpoint
-                                    );
                                     ini.set(
                                         SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_object_store_service_url",
-                                        Some(object_store_url),
+                                        "txlog_rocksdb_cloud_s3_endpoint_url",
+                                        Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                                    );
+                                    let bucket_name = eloq_store_config
+                                        .eloq_store_cloud_store_path
+                                        .clone()
+                                        .unwrap_or_else(|| "txlog-eloqkv".to_string());
+                                    ini.set(
+                                        SECTION_LOCAL,
+                                        "txlog_rocksdb_cloud_bucket_name",
+                                        Some(bucket_name),
                                     );
                                 }
                             }
