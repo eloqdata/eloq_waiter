@@ -907,6 +907,21 @@ impl Deployment {
                         if dss.is_local_mode() {
                             match dss.backend_config() {
                                 DataStoreServiceBackend::EloqStore(config) => {
+                                    // Cloud access key and secret key
+                                    if let Some(cloud_config) = &config.eloq_store_cloud_config {
+                                        ini.set(
+                                            SECTION_STORE,
+                                            "aws_secret_key",
+                                            Some(cloud_config.eloq_store_cloud_access_key.clone()),
+                                        );
+                                    }
+                                    if let Some(cloud_config) = &config.eloq_store_cloud_config {
+                                        ini.set(
+                                            SECTION_STORE,
+                                            "aws_access_key_id",
+                                            Some(cloud_config.eloq_store_cloud_secret_key.clone()),
+                                        );
+                                    }
                                     if let Some(worker_num) = config.eloq_store_worker_num {
                                         ini.set(
                                             SECTION_STORE,
@@ -1416,7 +1431,7 @@ impl Deployment {
 
             ini = self.build_eloqkv_config(true, port_get.clone())?;
 
-            // If storage is MINIO, add txlog cloud settings to [local].
+            // If storage is MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local].
             if let Some(storage) = self.storage_service.as_ref() {
                 if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
                     let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
@@ -1430,6 +1445,26 @@ impl Deployment {
                         "txlog_rocksdb_cloud_bucket_name",
                         Some(bucket),
                     );
+                } else if let Some(dss) = storage.eloqdss.as_ref() {
+                    use crate::config::storage_service_config::DataStoreServiceBackend;
+                    match dss.backend_config() {
+                        DataStoreServiceBackend::EloqStore(eloq_store_config) => {
+                            if eloq_store_config.is_cloud_mode() {
+                                if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
+                                    // Set object store service URL: {endpoint}/txlog-eloqkv/txlogs
+                                    let object_store_url = format!(
+                                        "{}/txlog-eloqkv/txlogs",
+                                        cloud_config.eloq_store_cloud_endpoint
+                                    );
+                                    ini.set(
+                                        SECTION_LOCAL,
+                                        "txlog_rocksdb_cloud_object_store_service_url",
+                                        Some(object_store_url),
+                                    );
+                                }
+                            }
+                        } // Future backends can be handled here
+                    }
                 }
             }
 
@@ -1533,7 +1568,7 @@ impl Deployment {
                 }
             }
 
-            // If storage is MINIO, add txlog cloud settings to [local] for local ini as well
+            // If storage is MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local] for local ini as well
             if let Some(storage) = self.storage_service.as_ref() {
                 if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
                     let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
@@ -1547,6 +1582,26 @@ impl Deployment {
                         "txlog_rocksdb_cloud_bucket_name",
                         Some(bucket),
                     );
+                } else if let Some(dss) = storage.eloqdss.as_ref() {
+                    use crate::config::storage_service_config::DataStoreServiceBackend;
+                    match dss.backend_config() {
+                        DataStoreServiceBackend::EloqStore(eloq_store_config) => {
+                            if eloq_store_config.is_cloud_mode() {
+                                if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
+                                    // Set object store service URL: {endpoint}/txlog-eloqkv/txlogs
+                                    let object_store_url = format!(
+                                        "{}/txlog-eloqkv/txlogs",
+                                        cloud_config.eloq_store_cloud_endpoint
+                                    );
+                                    ini.set(
+                                        SECTION_LOCAL,
+                                        "txlog_rocksdb_cloud_object_store_service_url",
+                                        Some(object_store_url),
+                                    );
+                                }
+                            }
+                        } // Future backends can be handled here
+                    }
                 }
             }
         }
