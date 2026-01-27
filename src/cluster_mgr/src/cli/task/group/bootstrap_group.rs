@@ -108,7 +108,21 @@ impl TaskGroup for InstallDBTaskGroup {
         let mut skip_bootstrap = false;
         if cluster_config.product() == Product::EloqKV {
             if let Some(storage_service) = &cluster_config.deployment.storage_service {
-                skip_bootstrap = storage_service.eloqdss.is_some() && host_ports.len() == 1
+                // Skip bootstrap only if:
+                // 1. Using eloqds storage service
+                // 2. Single node (host_ports.len() == 1)
+                // 3. NOT in standby mode (standby_host_ports is None or empty)
+                let has_standby = cluster_config
+                    .deployment
+                    .tx_service
+                    .standby_host_ports
+                    .as_ref()
+                    .map(|ports| !ports.is_empty())
+                    .unwrap_or(false);
+
+                skip_bootstrap = storage_service.eloqdss.is_some()
+                    && host_ports.len() == 1
+                    && !has_standby;
             }
         }
 
