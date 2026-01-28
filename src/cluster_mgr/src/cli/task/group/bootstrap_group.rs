@@ -99,7 +99,14 @@ impl TaskGroup for InstallDBTaskGroup {
 
         let process_only_first_host_port =
             if let Some(storage_service) = &cluster_config.deployment.storage_service {
-                storage_service.cassandra.is_some() || storage_service.dynamodb.is_some()
+                use crate::config::storage_service_config::DataStoreServiceBackend;
+                storage_service.cassandra.is_some()
+                    || storage_service.dynamodb.is_some()
+                    || (storage_service.eloqdss.is_some()
+                        && matches!(
+                            storage_service.eloqdss.as_ref().unwrap().backend_config(),
+                            DataStoreServiceBackend::EloqStore(_)
+                        ))
             } else {
                 false
             };
