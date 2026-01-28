@@ -99,7 +99,14 @@ impl TaskGroup for InstallDBTaskGroup {
 
         let process_only_first_host_port =
             if let Some(storage_service) = &cluster_config.deployment.storage_service {
-                storage_service.cassandra.is_some() || storage_service.dynamodb.is_some()
+                use crate::config::storage_service_config::DataStoreServiceBackend;
+                storage_service.cassandra.is_some()
+                    || storage_service.dynamodb.is_some()
+                    || (storage_service.eloqdss.is_some()
+                        && matches!(
+                            storage_service.eloqdss.as_ref().unwrap().backend_config(),
+                            DataStoreServiceBackend::EloqStore(_)
+                        ))
             } else {
                 false
             };
@@ -152,6 +159,38 @@ impl TaskGroup for InstallDBTaskGroup {
 
             barrier.push(bootstrap_tasks.len());
             executable.extend(bootstrap_tasks);
+
+            // Clean up local data directory on bootstrap nodes after bootstrap completes
+            // Only for EloqKV with EloqStore Cloud mode
+            if cluster_config.product() == Product::EloqKV {
+                if let Some(storage_service) = &cluster_config.deployment.storage_service {
+                    if let Some(dss) = storage_service.eloqdss.as_ref() {
+                        use crate::config::storage_service_config::DataStoreServiceBackend;
+                        if matches!(dss.backend_config(), DataStoreServiceBackend::EloqStore(_)) {
+                            use crate::cli::task::eloq_store_data_clean_task::EloqStoreDataCleanTask;
+
+                            // Get bootstrap hosts
+                            let bootstrap_hosts: Vec<String> = host_ports
+                                .iter()
+                                .take(num_hosts_to_process)
+                                .filter_map(|hp| hp.split(':').next().map(|h| h.to_string()))
+                                .collect();
+
+                            // Build cleanup tasks only for bootstrap nodes
+                            let clean_tasks = EloqStoreDataCleanTask::build_tasks(
+                                cmd_args.clone(),
+                                config,
+                                Some(&bootstrap_hosts), // Only clean bootstrap nodes
+                            );
+
+                            if !clean_tasks.is_empty() {
+                                barrier.push(clean_tasks.len());
+                                executable.extend(clean_tasks);
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             info!("InstallDBTaskGroup: Skipping bootstrap for eloqdss single node deployment");
         }

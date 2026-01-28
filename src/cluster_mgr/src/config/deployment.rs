@@ -1465,7 +1465,7 @@ impl Deployment {
                     use crate::config::storage_service_config::DataStoreServiceBackend;
                     match dss.backend_config() {
                         DataStoreServiceBackend::EloqStore(eloq_store_config) => {
-                            if eloq_store_config.is_cloud_mode() {
+                            if eloq_store_config.is_cloud_mode() && !self.log_service.is_some() {
                                 if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
                                     ini.set(
                                         SECTION_LOCAL,
