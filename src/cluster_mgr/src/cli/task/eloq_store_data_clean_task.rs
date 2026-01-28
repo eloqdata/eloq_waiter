@@ -78,7 +78,17 @@ fn compute_default_data_paths(
 impl EloqStoreDataCleanTask {
     /// Build tasks for cleaning EloqStore data directories
     /// Only generates tasks if EloqStore Cloud mode is enabled
-    pub fn build_tasks(cmd_arg: SubCommand, config: &Config) -> IndexMap<TaskId, TaskInstance> {
+    ///
+    /// # Arguments
+    /// * `cmd_arg` - The command argument
+    /// * `config` - The cluster configuration
+    /// * `target_hosts_filter` - Optional filter to only include specific hosts.
+    ///                           If None, includes all hosts based on DataStoreService mode.
+    pub fn build_tasks(
+        cmd_arg: SubCommand,
+        config: &Config,
+        target_hosts_filter: Option<&[String]>,
+    ) -> IndexMap<TaskId, TaskInstance> {
         let mut task_map = IndexMap::new();
 
         let deploy_config = match config {
@@ -126,7 +136,7 @@ impl EloqStoreDataCleanTask {
         }
 
         // Determine target hosts and DSS check info based on DataStoreService mode
-        let (target_hosts, dss_check_info_map) = if dss.is_local_mode() {
+        let (all_target_hosts, dss_check_info_map) = if dss.is_local_mode() {
             // Local mode: use EloqKV nodes (txservice nodes)
             // No DSS process check needed for Local mode
             let hosts = deploy_config
@@ -177,6 +187,16 @@ impl EloqStoreDataCleanTask {
         } else {
             // Remote External mode: don't manage data cleanup
             return task_map;
+        };
+
+        // Apply filter if provided
+        let target_hosts: Vec<String> = if let Some(filter) = target_hosts_filter {
+            all_target_hosts
+                .into_iter()
+                .filter(|host| filter.contains(host))
+                .collect()
+        } else {
+            all_target_hosts
         };
 
         if target_hosts.is_empty() {

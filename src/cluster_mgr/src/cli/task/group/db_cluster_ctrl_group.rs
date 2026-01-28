@@ -398,6 +398,7 @@ impl CtrlDBTaskGroup {
                                         let clean_data_tasks = EloqStoreDataCleanTask::build_tasks(
                                             start_cmd.clone(),
                                             &config_for_clean,
+                                            None, // No filter, clean all nodes
                                         );
                                         if !clean_data_tasks.is_empty() {
                                             barrier.push(clean_data_tasks.len());
