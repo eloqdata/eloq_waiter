@@ -1,5 +1,6 @@
 use crate::cli::task::backup_task::BackupTask;
 use crate::cli::task::backup_utils::{format_snapshots_for_deletion, split_manifests};
+use crate::cli::task::eloqstore_cloud_delete_task::EloqStoreCloudDeleteTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{BackupTaskGroup, Config, TaskGroup};
 use crate::cli::task::local_backup_delete_task::LocalBackupDeleteTask;
@@ -224,7 +225,19 @@ impl TaskGroup for BackupTaskGroup {
 
                         // Display backups to be deleted and ask for confirmation
                         if !filtered_snapshots.is_empty() {
-                            println!("{}", format_snapshots_for_deletion(&filtered_snapshots));
+                            // Load cluster config for display formatting
+                            let cluster_config_for_display = STATE_MGR
+                                .load_deployment_from_state(cluster)
+                                .await?
+                                .ok_or_else(|| anyhow::anyhow!("cluster {} not found", cluster))?;
+
+                            println!(
+                                "{}",
+                                format_snapshots_for_deletion(
+                                    &filtered_snapshots,
+                                    Some(&cluster_config_for_display)
+                                )
+                            );
 
                             // Use blocking I/O for user confirmation
                             // Spawn blocking task to avoid blocking the async runtime
@@ -346,6 +359,61 @@ impl TaskGroup for BackupTaskGroup {
 
                                         barrier.push(s3_delete_tasks.len());
                                         executable.extend(s3_delete_tasks);
+                                    }
+                                }
+                                // Check EloqStore cloud storage
+                                else if is_eloqstore_cloud(storage) {
+                                    if let Some((bucket, aws_id, aws_secret, region, endpoint)) =
+                                        get_eloqstore_s3_config(storage)
+                                    {
+                                        // Create EloqStore deletion tasks
+                                        let mut eloqstore_delete_tasks: IndexMap<
+                                            TaskId,
+                                            TaskInstance,
+                                        > = Default::default();
+
+                                        for snapshot in &cloud_backups {
+                                            // Extract backup_ts from snapshot_path
+                                            let backup_ts = snapshot.snapshot_path.trim();
+                                            if backup_ts.is_empty() {
+                                                tracing::warn!(
+                                                    "No backup timestamp found for EloqStore snapshot: cluster={}, snapshot_ts={}",
+                                                    cluster,
+                                                    snapshot.snapshot_ts
+                                                );
+                                                continue;
+                                            }
+
+                                            let task_id = TaskId {
+                                                cmd: "backup".to_string(),
+                                                task: format!("delete-eloqstore-{}", backup_ts),
+                                                host: "_local".to_string(),
+                                            };
+
+                                            let delete_task = EloqStoreCloudDeleteTask::new(
+                                                task_id.clone(),
+                                                cluster.clone(),
+                                                snapshot.snapshot_ts,
+                                                backup_ts.to_string(),
+                                                bucket.clone(),
+                                                aws_id.clone(),
+                                                aws_secret.clone(),
+                                                region.clone(),
+                                                endpoint.clone(),
+                                                *force,
+                                            );
+
+                                            let task_instance = TaskInstance {
+                                                task_input: HashMap::default(),
+                                                task: Box::new(delete_task),
+                                                task_host: TaskHost::Local,
+                                            };
+
+                                            eloqstore_delete_tasks.insert(task_id, task_instance);
+                                        }
+
+                                        barrier.push(eloqstore_delete_tasks.len());
+                                        executable.extend(eloqstore_delete_tasks);
                                     }
                                 }
                             }

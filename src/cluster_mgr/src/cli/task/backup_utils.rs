@@ -3,6 +3,7 @@ use crate::cli::task::grpc::cc_request::ClusterBackupResponse;
 use crate::cli::task::task_base::TaskHost;
 use crate::cli::task::task_utils::{check_pid, parse_process_pid, PID_NOT_FOUND, PROCESS_PID};
 use crate::config::config_base::DeployConfig;
+use crate::config::storage_service_config::DataStoreServiceBackend;
 use crate::config::DeploymentPackage;
 use crate::state::snapshot_info_operation::SnapshotEntity;
 use anyhow::{Context, Result};
@@ -75,16 +76,47 @@ pub fn extract_backup_ts(response: &ClusterBackupResponse) -> Option<String> {
 }
 
 /// Format snapshots for deletion confirmation display
-pub fn format_snapshots_for_deletion(snapshots: &[&SnapshotEntity]) -> String {
+/// cluster_config: Used to determine storage type (RocksDB vs EloqStore)
+pub fn format_snapshots_for_deletion(
+    snapshots: &[&SnapshotEntity],
+    cluster_config: Option<&DeployConfig>,
+) -> String {
     if snapshots.is_empty() {
         return "No backups to delete.".to_string();
     }
+
+    // Determine if cluster uses EloqStore cloud storage
+    let is_eloqstore_cloud = cluster_config
+        .and_then(|config| config.deployment.storage_service.as_ref())
+        .map(|storage| {
+            storage
+                .eloqdss
+                .as_ref()
+                .map(|dss| {
+                    matches!(
+                        dss.backend_config(),
+                        DataStoreServiceBackend::EloqStore(config) if config.is_cloud_mode()
+                    )
+                })
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    // Use appropriate column header based on storage type
+    let column_header = if is_eloqstore_cloud {
+        "Timestamp(us)"
+    } else {
+        "Manifest(s)"
+    };
 
     let mut output = format!(
         "\nThe following {} backup(s) will be deleted:\n\n",
         snapshots.len()
     );
-    output.push_str("Cluster Name | Snapshot Timestamp | Storage Type | Manifest(s)\n");
+    output.push_str(&format!(
+        "Cluster Name | Snapshot Timestamp | Storage Type | {}\n",
+        column_header
+    ));
     output.push_str("-------------|-------------------|--------------|------------\n");
 
     for snapshot in snapshots {
@@ -95,15 +127,21 @@ pub fn format_snapshots_for_deletion(snapshots: &[&SnapshotEntity]) -> String {
         };
 
         let manifest_display = if snapshot.dest_host.is_empty() {
-            // Cloud: show manifest count and list
-            let manifests = split_manifests(&snapshot.snapshot_path);
-            if manifests.len() == 1 {
-                manifests[0].clone()
+            // Cloud storage
+            if is_eloqstore_cloud {
+                // EloqStore: snapshot_path contains backup_ts (timestamp in microseconds)
+                snapshot.snapshot_path.trim().to_string()
             } else {
-                format!("[{} manifests]: {}", manifests.len(), manifests.join(", "))
+                // RocksDB: snapshot_path contains manifest filenames (comma-separated)
+                let manifests = split_manifests(&snapshot.snapshot_path);
+                if manifests.len() == 1 {
+                    manifests[0].clone()
+                } else {
+                    format!("[{} manifests]: {}", manifests.len(), manifests.join(", "))
+                }
             }
         } else {
-            // Local: show path
+            // Local storage: show path
             snapshot.snapshot_path.clone()
         };
 
