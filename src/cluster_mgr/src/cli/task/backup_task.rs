@@ -336,6 +336,21 @@ impl TaskExecutor for BackupTask {
                 };
 
                 if trigger_backup_succeed && backup_finished {
+                    // Print full response message content
+                    if let Some(ref response) = trigger_response {
+                        println!("Backup finished. Response details:");
+                        println!("  backup_name: {}", response.backup_name);
+                        println!("  result: {}", response.result);
+                        println!("  backup_infos count: {}", response.backup_infos.len());
+                        for (idx, info) in response.backup_infos.iter().enumerate() {
+                            println!(
+                                "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
+                                idx, info.ng_id, info.backup_files, info.backup_ts, info.status
+                            );
+                        }
+                        info!("Backup finished. Full response: {:#?}", response);
+                    }
+
                     let snapshot_path = trigger_response
                         .as_ref()
                         .map(extract_manifest_filename)
@@ -437,6 +452,21 @@ impl TaskExecutor for BackupTask {
                     // Await the task and handle the result
                     match task.await {
                         Ok(final_response) => {
+                            // Print full response message content
+                            if let Some(ref response) = final_response {
+                                println!("Backup finished. Response details:");
+                                println!("  backup_name: {}", response.backup_name);
+                                println!("  result: {}", response.result);
+                                println!("  backup_infos count: {}", response.backup_infos.len());
+                                for (idx, info) in response.backup_infos.iter().enumerate() {
+                                    println!(
+                                        "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
+                                        idx, info.ng_id, info.backup_files, info.backup_ts, info.status
+                                    );
+                                }
+                                info!("Backup finished. Full response: {:#?}", response);
+                            }
+
                             // Extract manifest filename from response for cloud storage
                             // final_response is only Some when status is "finished" (from line 414-416)
                             let snapshot_path = if dest_host.is_empty() {

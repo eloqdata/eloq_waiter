@@ -7,11 +7,26 @@ use crate::cli::task::s3_delete_task::S3DeleteTask;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::util::confirm_action;
 use crate::cli::{BackupCommand, SubCommand};
+use crate::config::storage_service_config::{DataStoreServiceBackend, StorageService};
 use crate::config::DeploymentPackage;
 use crate::state::state_mgr::STATE_MGR;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
 use std::collections::HashMap;
+
+/// Check if EloqStore is configured in cloud mode
+fn is_eloqstore_cloud(storage_service: &StorageService) -> bool {
+    storage_service
+        .eloqdss
+        .as_ref()
+        .map(|dss| {
+            matches!(
+                dss.backend_config(),
+                DataStoreServiceBackend::EloqStore(config) if config.is_cloud_mode()
+            )
+        })
+        .unwrap_or(false)
+}
 
 #[async_trait::async_trait]
 impl TaskGroup for BackupTaskGroup {
@@ -43,13 +58,22 @@ impl TaskGroup for BackupTaskGroup {
                     } => {
                         let snapshot_ts = Utc::now();
 
-                        // Check if storage is cloud-based
-                        let is_cloud = cluster_config
+                        // Check if storage is cloud-based (RocksDB or EloqStore)
+                        let is_rocksdb_cloud = cluster_config
                             .deployment
                             .storage_service
                             .as_ref()
                             .map(|s| s.is_rocksdb_cloud())
                             .unwrap_or(false);
+
+                        let is_eloqstore_cloud = cluster_config
+                            .deployment
+                            .storage_service
+                            .as_ref()
+                            .map(is_eloqstore_cloud)
+                            .unwrap_or(false);
+
+                        let is_cloud = is_rocksdb_cloud || is_eloqstore_cloud;
 
                         // Validate path: required for local storage, optional for cloud
                         if !is_cloud {
