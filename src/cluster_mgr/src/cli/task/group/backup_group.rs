@@ -28,6 +28,30 @@ fn is_eloqstore_cloud(storage_service: &StorageService) -> bool {
         .unwrap_or(false)
 }
 
+/// Get EloqStore S3 configuration
+/// Returns (bucket, aws_id, aws_secret, region, endpoint)
+fn get_eloqstore_s3_config(
+    storage_service: &StorageService,
+) -> Option<(String, String, String, String, Option<String>)> {
+    storage_service
+        .eloqdss
+        .as_ref()
+        .and_then(|dss| match dss.backend_config() {
+            DataStoreServiceBackend::EloqStore(config) if config.is_cloud_mode() => {
+                let cloud_config = config.get_cloud_config()?;
+                let bucket = config.parse_cloud_store_path()?;
+                Some((
+                    bucket,
+                    cloud_config.eloq_store_cloud_access_key.clone(),
+                    cloud_config.eloq_store_cloud_secret_key.clone(),
+                    cloud_config.eloq_store_cloud_region.clone(),
+                    Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                ))
+            }
+            _ => None,
+        })
+}
+
 #[async_trait::async_trait]
 impl TaskGroup for BackupTaskGroup {
     async fn tasks(
@@ -380,13 +404,22 @@ impl TaskGroup for BackupTaskGroup {
                         executable.extend(rm_remote_dir);
                     }
                     BackupCommand::Restore { snapshot_ts } => {
-                        // Step 1: Validate storage is cloud-based (S3) - from Phase 1
-                        let is_cloud = cluster_config
+                        // Step 1: Validate storage is cloud-based (S3) - support both RocksDB and EloqStore
+                        let is_rocksdb_cloud = cluster_config
                             .deployment
                             .storage_service
                             .as_ref()
                             .map(|s| s.is_rocksdb_cloud())
                             .unwrap_or(false);
+
+                        let is_eloqstore_cloud = cluster_config
+                            .deployment
+                            .storage_service
+                            .as_ref()
+                            .map(is_eloqstore_cloud)
+                            .unwrap_or(false);
+
+                        let is_cloud = is_rocksdb_cloud || is_eloqstore_cloud;
 
                         if !is_cloud {
                             return Err(anyhow::anyhow!(
@@ -396,13 +429,17 @@ impl TaskGroup for BackupTaskGroup {
                             ));
                         }
 
-                        // Step 2: Validate storage is S3 (not GCS) - from Phase 1
-                        let is_s3 = cluster_config
+                        // Step 2: Validate storage is S3 (not GCS) - support both RocksDB S3 and EloqStore cloud
+                        let is_rocksdb_s3 = cluster_config
                             .deployment
                             .storage_service
                             .as_ref()
                             .map(|s| s.is_rocksdb_s3())
                             .unwrap_or(false);
+
+                        let is_eloqstore_cloud_s3 = is_eloqstore_cloud; // EloqStore cloud always uses S3-compatible API
+
+                        let is_s3 = is_rocksdb_s3 || is_eloqstore_cloud_s3;
 
                         if !is_s3 {
                             return Err(anyhow::anyhow!(
@@ -495,19 +532,30 @@ impl TaskGroup for BackupTaskGroup {
                         );
 
                         // Step 8: Create and execute restore task
-                        use crate::cli::task::s3_restore_task::S3RestoreTask;
-
-                        // Get S3 configuration
-                        let (bucket, aws_id, aws_secret, region, endpoint) = cluster_config
+                        // Determine storage type and get appropriate configuration
+                        let storage_service = cluster_config
                             .deployment
                             .storage_service
                             .as_ref()
-                            .and_then(|s| s.get_s3_config())
                             .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Failed to get S3 configuration for restore operation"
-                                )
+                                anyhow::anyhow!("Storage service configuration not found")
                             })?;
+
+                        let (bucket, aws_id, aws_secret, region, endpoint, is_eloqstore) =
+                            if let Some((b, id, secret, r, e)) = storage_service.get_s3_config() {
+                                // RocksDB S3 configuration
+                                (b, id, secret, r, e, false)
+                            } else if let Some((b, id, secret, r, e)) =
+                                get_eloqstore_s3_config(storage_service)
+                            {
+                                // EloqStore cloud configuration
+                                (b, id, secret, r, e, true)
+                            } else {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to get S3 configuration for restore operation. \
+                                    Neither RocksDB S3 nor EloqStore cloud configuration found."
+                                ));
+                            };
 
                         // Create restore task
                         let task_id = TaskId {
@@ -519,21 +567,42 @@ impl TaskGroup for BackupTaskGroup {
                             host: "_local".to_string(),
                         };
 
-                        let restore_task = S3RestoreTask::new(
-                            task_id.clone(),
-                            cluster.clone(),
-                            snapshot.clone(),
-                            bucket,
-                            aws_id,
-                            aws_secret,
-                            region,
-                            endpoint,
-                        );
-
-                        let task_instance = TaskInstance {
-                            task_input: HashMap::default(),
-                            task: Box::new(restore_task),
-                            task_host: TaskHost::Local,
+                        let task_instance = if is_eloqstore {
+                            // Use EloqStore cloud restore task
+                            use crate::cli::task::eloqstore_cloud_restore_task::EloqStoreCloudRestoreTask;
+                            let restore_task = EloqStoreCloudRestoreTask::new(
+                                task_id.clone(),
+                                cluster.clone(),
+                                snapshot.clone(),
+                                bucket,
+                                aws_id,
+                                aws_secret,
+                                region,
+                                endpoint,
+                            );
+                            TaskInstance {
+                                task_input: HashMap::default(),
+                                task: Box::new(restore_task),
+                                task_host: TaskHost::Local,
+                            }
+                        } else {
+                            // Use RocksDB S3 restore task
+                            use crate::cli::task::s3_restore_task::S3RestoreTask;
+                            let restore_task = S3RestoreTask::new(
+                                task_id.clone(),
+                                cluster.clone(),
+                                snapshot.clone(),
+                                bucket,
+                                aws_id,
+                                aws_secret,
+                                region,
+                                endpoint,
+                            );
+                            TaskInstance {
+                                task_input: HashMap::default(),
+                                task: Box::new(restore_task),
+                                task_host: TaskHost::Local,
+                            }
                         };
 
                         let mut executable = IndexMap::new();
