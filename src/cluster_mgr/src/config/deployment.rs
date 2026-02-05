@@ -329,11 +329,22 @@ impl Deployment {
     }
 
     pub fn uses_eloqstore_storage(&self) -> bool {
-        self.storage_service
-            .as_ref()
-            .and_then(|storage| storage.eloqdss.as_ref())
-            .map(|dss| matches!(dss.backend_config(), DataStoreServiceBackend::EloqStore(_)))
-            .unwrap_or(false)
+        if let Some(storage) = &self.storage_service {
+            if storage
+                .eloqdss
+                .as_ref()
+                .map(|dss| matches!(dss.backend_config(), DataStoreServiceBackend::EloqStore(_)))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+
+            if matches!(storage.rocksdb, Some(RocksDB::EloqDssRocksdb(_))) {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn cassandra_home(&self) -> String {
