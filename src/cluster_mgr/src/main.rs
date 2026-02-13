@@ -9,7 +9,7 @@ use tracing::{error, info};
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 2 && matches!(args[1].as_str(), "-v" | "-V" | "--version") {
-        println!("eloqctl version output 1.0.0 - debug ");
+        println!("eloqctl version output 1.0.0");
         return;
     }
 
