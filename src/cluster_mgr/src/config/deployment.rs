@@ -273,6 +273,8 @@ pub struct Deployment {
     pub checkpoint_interval: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maxclients: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_variables: Option<HashMap<String, String>>,
 }
 
 impl Deployment {
@@ -915,20 +917,30 @@ impl Deployment {
                         if dss.is_local_mode() {
                             match dss.backend_config() {
                                 DataStoreServiceBackend::EloqStore(config) => {
-                                    // Cloud access key and secret key
+                                    // Cloud access key and secret key (only for AWS/MinIO, not for GCS)
                                     if let Some(cloud_config) = &config.eloq_store_cloud_config {
-                                        ini.set(
-                                            SECTION_STORE,
-                                            "aws_secret_key",
-                                            Some(cloud_config.eloq_store_cloud_access_key.clone()),
-                                        );
-                                    }
-                                    if let Some(cloud_config) = &config.eloq_store_cloud_config {
-                                        ini.set(
-                                            SECTION_STORE,
-                                            "aws_access_key_id",
-                                            Some(cloud_config.eloq_store_cloud_secret_key.clone()),
-                                        );
+                                        let provider =
+                                            cloud_config.eloq_store_cloud_provider.as_str();
+                                        if provider == "aws" || provider == "minio" {
+                                            ini.set(
+                                                SECTION_STORE,
+                                                "aws_secret_key",
+                                                Some(
+                                                    cloud_config
+                                                        .eloq_store_cloud_access_key
+                                                        .clone(),
+                                                ),
+                                            );
+                                            ini.set(
+                                                SECTION_STORE,
+                                                "aws_access_key_id",
+                                                Some(
+                                                    cloud_config
+                                                        .eloq_store_cloud_secret_key
+                                                        .clone(),
+                                                ),
+                                            );
+                                        }
                                     }
                                     if let Some(worker_num) = config.eloq_store_worker_num {
                                         ini.set(
@@ -1141,21 +1153,34 @@ impl Deployment {
                                     }
                                     // Write EloqStoreCloudConfig fields if cloud mode is enabled
                                     if let Some(cloud_config) = &config.eloq_store_cloud_config {
+                                        let provider =
+                                            cloud_config.eloq_store_cloud_provider.as_str();
                                         ini.set(
                                             SECTION_STORE,
                                             "eloq_store_cloud_provider",
                                             Some(cloud_config.eloq_store_cloud_provider.clone()),
                                         );
-                                        ini.set(
-                                            SECTION_STORE,
-                                            "eloq_store_cloud_access_key",
-                                            Some(cloud_config.eloq_store_cloud_access_key.clone()),
-                                        );
-                                        ini.set(
-                                            SECTION_STORE,
-                                            "eloq_store_cloud_secret_key",
-                                            Some(cloud_config.eloq_store_cloud_secret_key.clone()),
-                                        );
+                                        // Only set access_key and secret_key for AWS/MinIO, not for GCS
+                                        if provider == "aws" || provider == "minio" {
+                                            ini.set(
+                                                SECTION_STORE,
+                                                "eloq_store_cloud_access_key",
+                                                Some(
+                                                    cloud_config
+                                                        .eloq_store_cloud_access_key
+                                                        .clone(),
+                                                ),
+                                            );
+                                            ini.set(
+                                                SECTION_STORE,
+                                                "eloq_store_cloud_secret_key",
+                                                Some(
+                                                    cloud_config
+                                                        .eloq_store_cloud_secret_key
+                                                        .clone(),
+                                                ),
+                                            );
+                                        }
                                         ini.set(
                                             SECTION_STORE,
                                             "eloq_store_cloud_endpoint",
@@ -1475,20 +1500,42 @@ impl Deployment {
                         DataStoreServiceBackend::EloqStore(eloq_store_config) => {
                             if eloq_store_config.is_cloud_mode() && !self.log_service.is_some() {
                                 if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
-                                    ini.set(
-                                        SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_s3_endpoint_url",
-                                        Some(cloud_config.eloq_store_cloud_endpoint.clone()),
-                                    );
+                                    let provider = cloud_config.eloq_store_cloud_provider.as_str();
                                     let bucket_name = eloq_store_config
                                         .eloq_store_cloud_store_path
                                         .clone()
                                         .unwrap_or_else(|| "txlog-eloqkv".to_string());
-                                    ini.set(
-                                        SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_bucket_name",
-                                        Some(bucket_name),
-                                    );
+
+                                    if provider == "aws" || provider == "minio" {
+                                        // For AWS/MinIO: keep endpoint_url and bucket_name, add region
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_s3_endpoint_url",
+                                            Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_bucket_name",
+                                            Some(bucket_name.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_region",
+                                            Some(cloud_config.eloq_store_cloud_region.clone()),
+                                        );
+                                    } else if provider == "gcs" {
+                                        // For GCS: only bucket_name and region, no endpoint_url
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_bucket_name",
+                                            Some(bucket_name.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_region",
+                                            Some(cloud_config.eloq_store_cloud_region.clone()),
+                                        );
+                                    }
                                 }
                             }
                         } // Future backends can be handled here
@@ -1616,20 +1663,42 @@ impl Deployment {
                         DataStoreServiceBackend::EloqStore(eloq_store_config) => {
                             if eloq_store_config.is_cloud_mode() {
                                 if let Some(cloud_config) = eloq_store_config.get_cloud_config() {
-                                    ini.set(
-                                        SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_s3_endpoint_url",
-                                        Some(cloud_config.eloq_store_cloud_endpoint.clone()),
-                                    );
+                                    let provider = cloud_config.eloq_store_cloud_provider.as_str();
                                     let bucket_name = eloq_store_config
                                         .eloq_store_cloud_store_path
                                         .clone()
                                         .unwrap_or_else(|| "txlog-eloqkv".to_string());
-                                    ini.set(
-                                        SECTION_LOCAL,
-                                        "txlog_rocksdb_cloud_bucket_name",
-                                        Some(bucket_name),
-                                    );
+
+                                    if provider == "aws" || provider == "minio" {
+                                        // For AWS/MinIO: keep endpoint_url and bucket_name, add region
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_s3_endpoint_url",
+                                            Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_bucket_name",
+                                            Some(bucket_name.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_region",
+                                            Some(cloud_config.eloq_store_cloud_region.clone()),
+                                        );
+                                    } else if provider == "gcs" {
+                                        // For GCS: only bucket_name and region, no endpoint_url
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_bucket_name",
+                                            Some(bucket_name.clone()),
+                                        );
+                                        ini.set(
+                                            SECTION_LOCAL,
+                                            "txlog_rocksdb_cloud_region",
+                                            Some(cloud_config.eloq_store_cloud_region.clone()),
+                                        );
+                                    }
                                 }
                             }
                         } // Future backends can be handled here
@@ -1950,21 +2019,25 @@ impl Deployment {
                             }
                             // Write EloqStoreCloudConfig fields if cloud mode is enabled
                             if let Some(cloud_config) = &config.eloq_store_cloud_config {
+                                let provider = cloud_config.eloq_store_cloud_provider.as_str();
                                 ini.set(
                                     "store",
                                     "eloq_store_cloud_provider",
                                     Some(cloud_config.eloq_store_cloud_provider.clone()),
                                 );
-                                ini.set(
-                                    "store",
-                                    "eloq_store_cloud_access_key",
-                                    Some(cloud_config.eloq_store_cloud_access_key.clone()),
-                                );
-                                ini.set(
-                                    "store",
-                                    "eloq_store_cloud_secret_key",
-                                    Some(cloud_config.eloq_store_cloud_secret_key.clone()),
-                                );
+                                // Only set access_key and secret_key for AWS/MinIO, not for GCS
+                                if provider == "aws" || provider == "minio" {
+                                    ini.set(
+                                        "store",
+                                        "eloq_store_cloud_access_key",
+                                        Some(cloud_config.eloq_store_cloud_access_key.clone()),
+                                    );
+                                    ini.set(
+                                        "store",
+                                        "eloq_store_cloud_secret_key",
+                                        Some(cloud_config.eloq_store_cloud_secret_key.clone()),
+                                    );
+                                }
                                 ini.set(
                                     "store",
                                     "eloq_store_cloud_endpoint",
@@ -2385,6 +2458,19 @@ impl Deployment {
         Ok(cass_config_vec)
     }
 
+    /// Generate environment variable export statements from configuration
+    fn gen_env_exports(&self) -> String {
+        let mut env_exports = String::new();
+        if let Some(env_vars) = &self.environment_variables {
+            for (key, value) in env_vars {
+                // Escape quotes in value to prevent shell injection
+                let escaped_value = value.replace('"', "\\\"");
+                env_exports.push_str(&format!("export {}=\"{}\"; ", key, escaped_value));
+            }
+        }
+        env_exports
+    }
+
     pub fn srv_start_cmd(&self, port: &str, server_type: ServerType) -> String {
         if server_type == ServerType::Node {
             unreachable!()
@@ -2406,6 +2492,9 @@ impl Deployment {
             "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
         ));
 
+        // Generate environment variable exports from configuration
+        let env_exports = self.gen_env_exports();
+
         // Get the current datetime
         let now = Local::now();
         // Format the datetime as "YYYYMMDD-HHMMSS.microseconds"
@@ -2425,7 +2514,7 @@ impl Deployment {
             }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                    "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
                 )
             }
         }
@@ -2456,6 +2545,9 @@ impl Deployment {
             "; export LD_LIBRARY_PATH={tx_dir}/lib:$LD_LIBRARY_PATH"
         ));
 
+        // Generate environment variable exports from configuration
+        let env_exports = self.gen_env_exports();
+
         // Get the current datetime
         let now = Local::now();
         // Format the datetime as "YYYYMMDD-HHMMSS.microseconds"
@@ -2475,7 +2567,7 @@ impl Deployment {
             }
             Product::EloqKV => {
                 format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+                    "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
                 )
             }
         }
