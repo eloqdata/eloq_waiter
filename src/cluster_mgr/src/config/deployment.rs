@@ -2484,7 +2484,13 @@ impl Deployment {
             "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
         );
         let mut ld_lib = if let Some(Version::Debug) = self.version() {
-            export_asan(&format!("{logs_dir}/asan"), self.uses_eloqstore_storage())
+            let fast_unwind_on_malloc = self.uses_eloqstore_storage();
+            let detect_stack_use_after_return = !self.uses_eloqstore_storage();
+            export_asan(
+                &format!("{logs_dir}/asan"),
+                fast_unwind_on_malloc,
+                detect_stack_use_after_return,
+            )
         } else {
             format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
         };
@@ -2537,7 +2543,13 @@ impl Deployment {
             "mkdir -p {logs_dir} ; export GLOG_log_dir={logs_dir} ; export GLOG_max_log_size=1024"
         );
         let mut ld_lib = if let Some(Version::Debug) = self.version() {
-            export_asan(&format!("{logs_dir}/asan"), self.uses_eloqstore_storage())
+            let fast_unwind_on_malloc = self.uses_eloqstore_storage();
+            let detect_stack_use_after_return = !self.uses_eloqstore_storage();
+            export_asan(
+                &format!("{logs_dir}/asan"),
+                fast_unwind_on_malloc,
+                detect_stack_use_after_return,
+            )
         } else {
             format!("export LD_PRELOAD={tx_dir}/lib/libmimalloc.so.2")
         };
