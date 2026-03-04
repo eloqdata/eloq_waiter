@@ -123,10 +123,14 @@ impl TaskExecutor for MonographInstall {
                 let ini_file = self.config.deployment.tx_srv_ini(&port);
                 // Check if ini_file is not empty before proceeding with bootstrap
                 if !ini_file.is_empty() {
+                    let fast_unwind_on_malloc = self.config.deployment.uses_eloqstore_storage();
+                    let detect_stack_use_after_return =
+                        !self.config.deployment.uses_eloqstore_storage();
                     let head = if let Some(Version::Debug) = self.config.deployment.version() {
                         export_asan(
                             "logs/bootstrap-asan",
-                            self.config.deployment.uses_eloqstore_storage(),
+                            fast_unwind_on_malloc,
+                            detect_stack_use_after_return,
                         )
                     } else {
                         format!("export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2")
