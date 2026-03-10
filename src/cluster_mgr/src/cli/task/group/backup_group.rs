@@ -40,14 +40,23 @@ fn get_eloqstore_s3_config(
         .and_then(|dss| match dss.backend_config() {
             DataStoreServiceBackend::EloqStore(config) if config.is_cloud_mode() => {
                 let cloud_config = config.get_cloud_config()?;
-                let bucket = config.parse_cloud_store_path()?;
-                Some((
-                    bucket,
-                    cloud_config.eloq_store_cloud_access_key.clone(),
-                    cloud_config.eloq_store_cloud_secret_key.clone(),
-                    cloud_config.eloq_store_cloud_region.clone(),
-                    Some(cloud_config.eloq_store_cloud_endpoint.clone()),
-                ))
+                // Only valid for S3/MinIO style providers that require explicit credentials
+                if cloud_config.eloq_store_cloud_provider == "aws"
+                    || cloud_config.eloq_store_cloud_provider == "minio"
+                {
+                    let bucket = config.parse_cloud_store_path()?;
+                    let access_key = cloud_config.eloq_store_cloud_access_key.clone()?;
+                    let secret_key = cloud_config.eloq_store_cloud_secret_key.clone()?;
+                    Some((
+                        bucket,
+                        access_key,
+                        secret_key,
+                        cloud_config.eloq_store_cloud_region.clone(),
+                        Some(cloud_config.eloq_store_cloud_endpoint.clone()),
+                    ))
+                } else {
+                    None
+                }
             }
             _ => None,
         })
