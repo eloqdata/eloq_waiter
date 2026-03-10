@@ -2459,7 +2459,7 @@ impl Deployment {
     }
 
     /// Generate environment variable export statements from configuration
-    fn gen_env_exports(&self) -> String {
+    pub fn gen_env_exports(&self) -> String {
         let mut env_exports = String::new();
         if let Some(env_vars) = &self.environment_variables {
             for (key, value) in env_vars {
