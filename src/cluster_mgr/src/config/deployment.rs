@@ -2025,6 +2025,8 @@ impl Deployment {
                             }
                             // Write EloqStoreCloudConfig fields if cloud mode is enabled
                             if let Some(cloud_config) = &config.eloq_store_cloud_config {
+                                // Enforce credentials for AWS/MINIO providers
+                                cloud_config.validate_credentials()?;
                                 let provider = cloud_config.eloq_store_cloud_provider.as_str();
                                 ini.set(
                                     "store",
@@ -2033,16 +2035,21 @@ impl Deployment {
                                 );
                                 // Only set access_key and secret_key for AWS/MinIO, not for GCS
                                 if provider == "aws" || provider == "minio" {
-                                    ini.set(
-                                        "store",
-                                        "eloq_store_cloud_access_key",
-                                        Some(cloud_config.eloq_store_cloud_access_key.clone()),
-                                    );
-                                    ini.set(
-                                        "store",
-                                        "eloq_store_cloud_secret_key",
-                                        Some(cloud_config.eloq_store_cloud_secret_key.clone()),
-                                    );
+                                    if let (Some(access_key), Some(secret_key)) = (
+                                        cloud_config.eloq_store_cloud_access_key.as_ref(),
+                                        cloud_config.eloq_store_cloud_secret_key.as_ref(),
+                                    ) {
+                                        ini.set(
+                                            "store",
+                                            "eloq_store_cloud_access_key",
+                                            Some(access_key.clone()),
+                                        );
+                                        ini.set(
+                                            "store",
+                                            "eloq_store_cloud_secret_key",
+                                            Some(secret_key.clone()),
+                                        );
+                                    }
                                 }
                                 ini.set(
                                     "store",
