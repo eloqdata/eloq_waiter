@@ -28,8 +28,9 @@ deployment:
         eloq_store_cloud_store_path: "eloqkv-cluster-standby"
         eloq_store_cloud_provider: "gcs"
         eloq_store_cloud_region: "xxxxxxxx"
-        eloq_store_cloud_access_key: "xxxxxxxxx"
-        eloq_store_cloud_secret_key: "xxxxxxxx"
+        # If not use the gcs as the cloud provider, the following two environment variables need to be set.
+        # eloq_store_cloud_access_key: "xxxxxxxxx"
+        # eloq_store_cloud_secret_key: "xxxxxxxx"
         eloq_store_cloud_endpoint: "https://storage.googleapis.com"
         eloq_store_reuse_local_files: true
         eloq_store_prewarm_cloud_cache: true
