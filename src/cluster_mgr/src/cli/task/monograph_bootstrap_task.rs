@@ -135,9 +135,12 @@ impl TaskExecutor for MonographInstall {
                     } else {
                         format!("export LD_PRELOAD={txsv_dir}/lib/libmimalloc.so.2")
                     };
+                    // Reuse the same environment exports used by start commands
+                    let env_exports = self.config.deployment.gen_env_exports();
                     format!(
-                        r#"cd {txsv_dir}; mkdir -p logs/std-output; export LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; \
-                        {head}; bin/eloqkv --config={ini_file} --bootstrap > logs/bootstrap-{port}.log 2>&1 "#
+                        r#"cd {txsv_dir}; mkdir -p logs/std-output; {env_exports}export \
+LD_LIBRARY_PATH={txsv_dir}/lib:$LD_LIBRARY_PATH; {head}; bin/eloqkv --config={ini_file} \
+--bootstrap > logs/bootstrap-{port}.log 2>&1 "#
                     )
                 } else {
                     panic!("Error, cannot find ini file.");

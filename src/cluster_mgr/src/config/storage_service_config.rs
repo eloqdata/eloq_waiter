@@ -370,9 +370,9 @@ pub struct EloqStoreCloudConfig {
     #[serde(default = "default_eloq_store_cloud_provider")]
     pub eloq_store_cloud_provider: String,
     /// Access key ID for object storage (S3/MinIO)
-    pub eloq_store_cloud_access_key: String,
+    pub eloq_store_cloud_access_key: Option<String>,
     /// Secret access key for object storage (S3/MinIO)
-    pub eloq_store_cloud_secret_key: String,
+    pub eloq_store_cloud_secret_key: Option<String>,
     /// Endpoint URL for object storage (e.g., http://127.0.0.1:9900 for MinIO)
     pub eloq_store_cloud_endpoint: String,
     /// Region for object storage (e.g., "us-east-1")
@@ -383,6 +383,29 @@ pub struct EloqStoreCloudConfig {
     pub eloq_store_prewarm_cloud_cache: Option<bool>,
     pub eloq_store_prewarm_task_count: Option<u32>,
     pub eloq_store_reuse_local_files: Option<bool>,
+}
+
+impl EloqStoreCloudConfig {
+    /// Validate that required credentials are present for providers that need them.
+    ///
+    /// For "aws" and "minio", both `eloq_store_cloud_access_key` and
+    /// `eloq_store_cloud_secret_key` must be configured. For other providers
+    /// (e.g. "gcs"), they may be omitted.
+    pub fn validate_credentials(&self) -> Result<()> {
+        let provider = self.eloq_store_cloud_provider.as_str();
+        if provider == "aws" || provider == "minio" {
+            let has_access = self.eloq_store_cloud_access_key.is_some();
+            let has_secret = self.eloq_store_cloud_secret_key.is_some();
+            if !has_access || !has_secret {
+                anyhow::bail!(
+                    "eloq_store_cloud_access_key and eloq_store_cloud_secret_key \
+must be set for provider '{}'",
+                    provider
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 fn default_eloq_store_cloud_provider() -> String {
