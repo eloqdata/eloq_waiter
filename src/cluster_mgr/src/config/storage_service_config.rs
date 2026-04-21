@@ -117,6 +117,8 @@ pub struct RocksS3 {
     pub region: String,
     pub bucket_name: String,
     pub bucket_prefix: String,
+    #[serde(alias = "endpoint_url", skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
     pub target_file_size_base: String,
     pub sst_file_cache_size: String,
     #[serde(skip_serializing_if = "Option::is_none")]

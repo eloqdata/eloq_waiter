@@ -754,6 +754,13 @@ impl Deployment {
                             "rocksdb_cloud_bucket_prefix",
                             Some(s3.bucket_prefix),
                         );
+                        if let Some(endpoint) = &s3.endpoint {
+                            ini.set(
+                                SECTION_STORE,
+                                "rocksdb_cloud_s3_endpoint_url",
+                                Some(endpoint.clone()),
+                            );
+                        }
                         ini.set(
                             SECTION_STORE,
                             "rocksdb_target_file_size_base",
@@ -925,12 +932,8 @@ impl Deployment {
                                             cloud_config.eloq_store_cloud_provider.as_str();
                                         if provider == "aws" || provider == "minio" {
                                             if let (Some(access_key), Some(secret_key)) = (
-                                                cloud_config
-                                                    .eloq_store_cloud_access_key
-                                                    .as_ref(),
-                                                cloud_config
-                                                    .eloq_store_cloud_secret_key
-                                                    .as_ref(),
+                                                cloud_config.eloq_store_cloud_access_key.as_ref(),
+                                                cloud_config.eloq_store_cloud_secret_key.as_ref(),
                                             ) {
                                                 ini.set(
                                                     SECTION_STORE,
@@ -1168,12 +1171,8 @@ impl Deployment {
                                         // Only set access_key and secret_key for AWS/MinIO, not for GCS
                                         if provider == "aws" || provider == "minio" {
                                             if let (Some(access_key), Some(secret_key)) = (
-                                                cloud_config
-                                                    .eloq_store_cloud_access_key
-                                                    .as_ref(),
-                                                cloud_config
-                                                    .eloq_store_cloud_secret_key
-                                                    .as_ref(),
+                                                cloud_config.eloq_store_cloud_access_key.as_ref(),
+                                                cloud_config.eloq_store_cloud_secret_key.as_ref(),
                                             ) {
                                                 ini.set(
                                                     SECTION_STORE,
@@ -1486,20 +1485,45 @@ impl Deployment {
 
             ini = self.build_eloqkv_config(true, port_get.clone())?;
 
-            // If storage is MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local].
+            // If storage is S3/MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local].
             if let Some(storage) = self.storage_service.as_ref() {
-                if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
-                    let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
-                    ini.set(
-                        SECTION_LOCAL,
-                        "txlog_rocksdb_cloud_s3_endpoint_url",
-                        Some(minio.endpoint.clone()),
-                    );
-                    ini.set(
-                        SECTION_LOCAL,
-                        "txlog_rocksdb_cloud_bucket_name",
-                        Some(bucket),
-                    );
+                if let Some(rocksdb) = storage.rocksdb.as_ref() {
+                    match rocksdb {
+                        RocksDB::S3(s3) => {
+                            let bucket = format!("{}-{}", s3.bucket_prefix, s3.bucket_name);
+                            if let Some(endpoint) = &s3.endpoint {
+                                ini.set(
+                                    SECTION_LOCAL,
+                                    "txlog_rocksdb_cloud_s3_endpoint_url",
+                                    Some(endpoint.clone()),
+                                );
+                            }
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_bucket_name",
+                                Some(bucket),
+                            );
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_region",
+                                Some(s3.region.clone()),
+                            );
+                        }
+                        RocksDB::MINIO(minio) => {
+                            let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_s3_endpoint_url",
+                                Some(minio.endpoint.clone()),
+                            );
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_bucket_name",
+                                Some(bucket),
+                            );
+                        }
+                        _ => {}
+                    }
                 } else if let Some(dss) = storage.eloqdss.as_ref() {
                     use crate::config::storage_service_config::DataStoreServiceBackend;
                     match dss.backend_config() {
@@ -1649,20 +1673,45 @@ impl Deployment {
                 }
             }
 
-            // If storage is MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local] for local ini as well
+            // If storage is S3/MINIO or EloqDSS with EloqStore in cloud mode, add txlog cloud settings to [local] for local ini as well
             if let Some(storage) = self.storage_service.as_ref() {
-                if let Some(RocksDB::MINIO(minio)) = storage.rocksdb.as_ref() {
-                    let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
-                    ini.set(
-                        SECTION_LOCAL,
-                        "txlog_rocksdb_cloud_s3_endpoint_url",
-                        Some(minio.endpoint.clone()),
-                    );
-                    ini.set(
-                        SECTION_LOCAL,
-                        "txlog_rocksdb_cloud_bucket_name",
-                        Some(bucket),
-                    );
+                if let Some(rocksdb) = storage.rocksdb.as_ref() {
+                    match rocksdb {
+                        RocksDB::S3(s3) => {
+                            let bucket = format!("{}-{}", s3.bucket_prefix, s3.bucket_name);
+                            if let Some(endpoint) = &s3.endpoint {
+                                ini.set(
+                                    SECTION_LOCAL,
+                                    "txlog_rocksdb_cloud_s3_endpoint_url",
+                                    Some(endpoint.clone()),
+                                );
+                            }
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_bucket_name",
+                                Some(bucket),
+                            );
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_region",
+                                Some(s3.region.clone()),
+                            );
+                        }
+                        RocksDB::MINIO(minio) => {
+                            let bucket = format!("{}-{}", minio.bucket_prefix, minio.bucket_name);
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_s3_endpoint_url",
+                                Some(minio.endpoint.clone()),
+                            );
+                            ini.set(
+                                SECTION_LOCAL,
+                                "txlog_rocksdb_cloud_bucket_name",
+                                Some(bucket),
+                            );
+                        }
+                        _ => {}
+                    }
                 } else if let Some(dss) = storage.eloqdss.as_ref() {
                     use crate::config::storage_service_config::DataStoreServiceBackend;
                     match dss.backend_config() {
@@ -2627,8 +2676,34 @@ pub fn parse_version(v: &str) -> Version {
 #[cfg(test)]
 mod tests {
     use super::{parse_version, Version};
+    use crate::cli::{create_upload_cluster_dir, upload_dir, HOME_DIR};
+    use crate::config::config_base::DeployConfig;
+    use crate::config::{
+        config_template, CONFIG_PATH_DIR, ELOQKV_TEMPLATE_INI, SECTION_LOCAL, SECTION_STORE,
+        UPLOAD_PATH_DIR,
+    };
+    use configparser::ini::Ini;
     use indexmap::IndexMap;
     use itertools::Itertools;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn set_test_env() -> PathBuf {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let config_path = manifest_dir.join("config");
+        std::env::set_var(CONFIG_PATH_DIR, config_path.to_str().unwrap());
+
+        let uniq = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let home = std::env::temp_dir().join(format!("eloqctl-test-{uniq}"));
+        std::env::set_var(HOME_DIR, home.to_str().unwrap());
+        fs::create_dir_all(upload_dir()).unwrap();
+        std::env::set_var(UPLOAD_PATH_DIR, upload_dir().to_str().unwrap());
+        home
+    }
 
     #[test]
     pub fn test_index_value_order() {
@@ -2665,5 +2740,80 @@ mod tests {
         assert!(matches!(Version::Devel("0.4.4.4".to_owned()), _v));
         _v = parse_version("0.4.1-beta");
         assert!(matches!(Version::Devel("0.4.1-beta".to_owned()), _v));
+    }
+
+    #[test]
+    pub fn test_s3_endpoint_written_to_store_and_txlog_ini() {
+        let test_home = set_test_env();
+        let cluster_name = format!(
+            "test-s3-endpoint-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let config_yaml = format!(
+            r#"
+connection:
+  username: "tester"
+  auth_type: "keypair"
+  auth:
+    keypair:
+deployment:
+  cluster_name: "{cluster_name}"
+  product: "EloqKV"
+  version: "debug"
+  install_dir: "/tmp"
+  enable_wal: true
+  enable_io_uring: false
+  checkpoint_interval: 120
+  tx_service:
+    tx_host_ports: [127.0.0.1:6389]
+  storage_service:
+    rocksdb: !S3
+      aws_access_key_id: "ak"
+      aws_secret_key: "sk"
+      region: "ap-northeast-1"
+      bucket_name: "bucket"
+      bucket_prefix: "prefix"
+      endpoint: "http://127.0.0.1:9000"
+      target_file_size_base: "64MB"
+      sst_file_cache_size: "64MB"
+"#
+        );
+
+        let config: DeployConfig = serde_yaml::from_str(&config_yaml).unwrap();
+        let cluster_dir = create_upload_cluster_dir(&cluster_name);
+        fs::copy(
+            config_template(ELOQKV_TEMPLATE_INI).unwrap(),
+            cluster_dir.join(ELOQKV_TEMPLATE_INI),
+        )
+        .unwrap();
+        let ini_path = config
+            .deployment
+            .gen_eloqkv_node_config(Some("127.0.0.1".to_string()), Some("6389".to_string()))
+            .unwrap();
+
+        let mut ini = Ini::new();
+        ini.load(ini_path.to_str().unwrap()).unwrap();
+
+        assert_eq!(
+            ini.get(SECTION_STORE, "rocksdb_cloud_s3_endpoint_url"),
+            Some("http://127.0.0.1:9000".to_string())
+        );
+        assert_eq!(
+            ini.get(SECTION_LOCAL, "txlog_rocksdb_cloud_s3_endpoint_url"),
+            Some("http://127.0.0.1:9000".to_string())
+        );
+        assert_eq!(
+            ini.get(SECTION_LOCAL, "txlog_rocksdb_cloud_region"),
+            Some("ap-northeast-1".to_string())
+        );
+        assert_eq!(
+            ini.get(SECTION_LOCAL, "txlog_rocksdb_cloud_bucket_name"),
+            Some("prefix-bucket".to_string())
+        );
+
+        fs::remove_dir_all(test_home).unwrap();
     }
 }
