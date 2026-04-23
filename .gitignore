@@ -21,6 +21,7 @@ cmake-build-debug/
 *.exe
 *.app
 build/
+dist/
 
 # Rust
 src/**/target

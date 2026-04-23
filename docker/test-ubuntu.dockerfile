@@ -13,9 +13,11 @@ RUN useradd -rm -s /bin/bash -g sudo eloquser && \
 USER eloquser
 WORKDIR /home/eloquser
 
-COPY ssh /home/eloquser/.ssh
 USER root
-RUN chown -R eloquser /home/eloquser/.ssh && chmod 400 /home/eloquser/.ssh/* && \
+RUN mkdir -p /home/eloquser/.ssh && \
+    ssh-keygen -t rsa -N '' -f /home/eloquser/.ssh/id_rsa && \
+    cat /home/eloquser/.ssh/id_rsa.pub > /home/eloquser/.ssh/authorized_keys && \
+    chown -R eloquser /home/eloquser/.ssh && chmod 400 /home/eloquser/.ssh/* && \
     mkdir /run/sshd
 
 USER eloquser
