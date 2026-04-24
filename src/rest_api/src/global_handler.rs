@@ -59,14 +59,14 @@ impl GlobalCommandHandler {
                 "deploy" | "run-deps" | "launch" => {
                     let config = payload.config;
                     if let Err(err) = cmd_executor
-                        .run(cmd, Some(Config::Cluster(config.unwrap())), false)
+                        .run(cmd, Some(Config::Cluster(config.unwrap())), false, false)
                         .await
                     {
                         error!("command {cmd_str} failed: {err}");
                     }
                 }
                 _ => {
-                    if let Err(err) = cmd_executor.run(cmd, None, false).await {
+                    if let Err(err) = cmd_executor.run(cmd, None, false, false).await {
                         error!("command {cmd_str} failed: {err}");
                     }
                 }
