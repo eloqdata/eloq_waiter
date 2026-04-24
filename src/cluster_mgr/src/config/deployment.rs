@@ -28,7 +28,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::process::Command;
 use std::str::FromStr;
 use strum_macros::Display;
 use tracing::warn;
@@ -272,6 +274,8 @@ pub struct Deployment {
     pub enable_io_uring: Option<bool>,
     pub checkpoint_interval: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub maxclients: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_variables: Option<HashMap<String, String>>,
@@ -318,8 +322,172 @@ impl Deployment {
         }
     }
 
+    pub fn tls_enabled(&self) -> bool {
+        self.enable_tls.unwrap_or(false)
+    }
+
+    pub fn tls_cert_install_dir(&self) -> String {
+        format!("{}/ssl", self.install_dir())
+    }
+
+    fn sanitize_file_component(input: &str) -> String {
+        input
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    fn tls_file_names(&self, host: &str, port: &str) -> (String, String) {
+        let host_part = Self::sanitize_file_component(host);
+        (
+            format!("eloqkv-tls-{host_part}-{port}.crt"),
+            format!("eloqkv-tls-{host_part}-{port}.key"),
+        )
+    }
+
+    fn ensure_tls_cert_for_node(&self, host: &str, port: &str) -> anyhow::Result<(String, String)> {
+        let (cert_name, key_name) = self.tls_file_names(host, port);
+        let host_dir = create_upload_cluster_dir(&format!("{}/{}", self.cluster_name, host));
+        let cert_path = host_dir.join(&cert_name);
+        let key_path = host_dir.join(&key_name);
+
+        if cert_path.exists() && key_path.exists() {
+            return Ok((cert_name, key_name));
+        }
+
+        let mut subject_alt_names = vec![format!("DNS:{host}")];
+        if host == "localhost" {
+            subject_alt_names.push("DNS:localhost".to_string());
+            subject_alt_names.push("IP:127.0.0.1".to_string());
+        } else if let Ok(ip) = host.parse::<IpAddr>() {
+            subject_alt_names.push(format!("IP:{ip}"));
+        }
+        let san = subject_alt_names.join(",");
+        let subj = format!("/CN={host}");
+        let cert_path_str = cert_path.to_string_lossy().to_string();
+        let key_path_str = key_path.to_string_lossy().to_string();
+
+        let output = Command::new("openssl")
+            .args([
+                "req",
+                "-x509",
+                "-nodes",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                key_path_str.as_str(),
+                "-out",
+                cert_path_str.as_str(),
+                "-days",
+                "3650",
+                "-subj",
+                subj.as_str(),
+                "-addext",
+                format!("subjectAltName={san}").as_str(),
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            // Fallback for older OpenSSL versions that do not support -addext.
+            let fallback = Command::new("openssl")
+                .args([
+                    "req",
+                    "-x509",
+                    "-nodes",
+                    "-newkey",
+                    "rsa:2048",
+                    "-keyout",
+                    key_path_str.as_str(),
+                    "-out",
+                    cert_path_str.as_str(),
+                    "-days",
+                    "3650",
+                    "-subj",
+                    subj.as_str(),
+                ])
+                .output()?;
+            if !fallback.status.success() {
+                return Err(anyhow!(
+                    "failed to generate TLS cert for {host}:{port}. openssl stderr: {}",
+                    String::from_utf8_lossy(&fallback.stderr)
+                ));
+            }
+        }
+
+        Ok((cert_name, key_name))
+    }
+
+    pub fn ensure_tls_certs_for_all_kv_nodes(&self) -> anyhow::Result<()> {
+        if !self.tls_enabled() || self.product() != Product::EloqKV {
+            return Ok(());
+        }
+
+        let mut seen = HashSet::new();
+        let mut add_host_port = |token: &str| -> anyhow::Result<()> {
+            let token = token.trim();
+            if token.is_empty() {
+                return Ok(());
+            }
+            let mut parts = token.split(':');
+            let host = parts.next().unwrap_or_default().trim();
+            let port = parts.next().unwrap_or_default().trim();
+            if host.is_empty() || port.is_empty() {
+                return Ok(());
+            }
+            let pair = (host.to_string(), port.to_string());
+            if seen.insert(pair.clone()) {
+                self.ensure_tls_cert_for_node(&pair.0, &pair.1)?;
+            }
+            Ok(())
+        };
+
+        for hp_list in &self.tx_service.tx_host_ports {
+            for token in hp_list.split(',') {
+                add_host_port(token)?;
+            }
+        }
+        if let Some(standby_list) = &self.tx_service.standby_host_ports {
+            for hp_list in standby_list {
+                for token in hp_list.split(['|', ',']) {
+                    add_host_port(token)?;
+                }
+            }
+        }
+        if let Some(voter_list) = &self.tx_service.voter_host_ports {
+            for hp_list in voter_list {
+                for token in hp_list.split(['|', ',']) {
+                    add_host_port(token)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn install_dir(&self) -> String {
-        format!("{}/{}", &self.install_dir, self.cluster_name)
+        let base = self.install_dir.trim_end_matches('/');
+        if base.is_empty() {
+            return self.cluster_name.clone();
+        }
+
+        // Backward compatible behavior:
+        // - install_dir as base dir: /home/eloq/eloqkv-cluster-01 => /home/eloq/eloqkv-cluster-01/<cluster>
+        // - install_dir already ends with cluster name: keep as-is to avoid duplicated /<cluster>/<cluster>
+        if base
+            .rsplit('/')
+            .next()
+            .map(|last| last == self.cluster_name)
+            .unwrap_or(false)
+        {
+            base.to_string()
+        } else {
+            format!("{base}/{}", self.cluster_name)
+        }
     }
 
     pub fn tx_srv_home(&self) -> String {
@@ -1595,6 +1763,22 @@ impl Deployment {
 
             ini.set(SECTION_LOCAL, "ip", Some(host_get.clone()));
             ini.set(SECTION_LOCAL, "port", Some(port_get.clone()));
+
+            if self.tls_enabled() {
+                let (cert_name, key_name) = self.ensure_tls_cert_for_node(&host_get, &port_get)?;
+                let cert_dir = self.tls_cert_install_dir();
+                ini.set(SECTION_LOCAL, "enable_tls", Some("true".to_string()));
+                ini.set(
+                    SECTION_LOCAL,
+                    "tls_cert_file",
+                    Some(format!("{}/{}", cert_dir, cert_name)),
+                );
+                ini.set(
+                    SECTION_LOCAL,
+                    "tls_key_file",
+                    Some(format!("{}/{}", cert_dir, key_name)),
+                );
+            }
 
             // Set maxclients if specified in deployment config
             if let Some(maxclients) = self.maxclients {

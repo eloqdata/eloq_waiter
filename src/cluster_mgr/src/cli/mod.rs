@@ -24,6 +24,12 @@ pub struct Command {
     pub home: Option<PathBuf>,
     #[arg(short, long, default_value_t = false)]
     pub quiet: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Show verbose task execution logs"
+    )]
+    pub verbose: bool,
     #[command(subcommand)]
     pub subcmd: Option<SubCommand>,
 }
@@ -159,7 +165,11 @@ pub enum SubCommand {
 
     #[command(long_about = "Remove cluster")]
     #[strum(serialize = "remove")]
-    Remove { cluster: String },
+    Remove {
+        cluster: String,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
 
     #[command(long_about = "Inspect cluster configuration")]
     #[strum(serialize = "inspect")]
@@ -282,6 +292,32 @@ pub enum SubCommand {
         #[arg(long, value_name = "cluster password")]
         password: Option<String>,
     },
+
+    #[command(long_about = "Generate shell completion scripts")]
+    #[strum(serialize = "completion")]
+    Completion {
+        #[arg(value_enum)]
+        shell: CompletionShell,
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, clap::ValueEnum)]
+pub enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+}
+
+impl CompletionShell {
+    pub fn as_clap_shell(&self) -> clap_complete::Shell {
+        match self {
+            Self::Bash => clap_complete::Shell::Bash,
+            Self::Zsh => clap_complete::Shell::Zsh,
+            Self::Fish => clap_complete::Shell::Fish,
+        }
+    }
 }
 
 fn parse_duration(s: &str) -> Result<Duration, String> {

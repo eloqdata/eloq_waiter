@@ -1,7 +1,9 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use cluster_mgr::cli::cmd_base::CmdExecutor;
-use cluster_mgr::cli::{Command, HOME_DIR};
+use cluster_mgr::cli::{Command, SubCommand, HOME_DIR};
 use owo_colors::OwoColorize;
+use std::io;
 use std::process::exit;
 use tracing::{error, info};
 
@@ -14,6 +16,19 @@ async fn main() {
     }
 
     let cmd = Command::parse_from(&args);
+    if let Some(SubCommand::Completion { shell, output }) = &cmd.subcmd {
+        let mut app = Command::command();
+        let mut writer: Box<dyn io::Write> =
+            match output {
+                Some(path) => Box::new(std::fs::File::create(path).unwrap_or_else(|e| {
+                    panic!("failed to create completion file {:?}: {}", path, e)
+                })),
+                None => Box::new(io::stdout()),
+            };
+        generate(shell.as_clap_shell(), &mut app, "eloqctl", &mut writer);
+        return;
+    }
+
     let home = CmdExecutor::home_init(cmd.home).expect("home dir init failed");
     if let Some(sub) = cmd.subcmd {
         let log_path = home.join("logs").join(format!("last-{}.log", sub.as_ref()));
@@ -25,7 +40,7 @@ async fn main() {
 
         let executor = Box::leak(Box::new(CmdExecutor::new(home)));
         info!("command: {:#?}", sub);
-        if let Err(e) = executor.run(sub, None, cmd.quiet).await {
+        if let Err(e) = executor.run(sub, None, cmd.quiet, cmd.verbose).await {
             error!("{}", e);
             eprintln!("{}: {e}\nlogfile: {}", "FAIL".red(), log_path.display());
             exit(1);

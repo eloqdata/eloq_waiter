@@ -33,7 +33,7 @@ impl TaskGroup for CtrlDBTaskGroup {
 
         let cmd_str = cmd.as_ref().to_owned();
         let (barrier, executable) = match cmd.clone() {
-            SubCommand::Remove { cluster } => {
+            SubCommand::Remove { cluster, force: _ } => {
                 let (cluster, tx, log, store, monitor) = (cluster, true, true, true, true);
                 let (mut barrier, mut tasks) = self
                     .stop_tasks(tx, log, store, cmd, cluster_config, true)

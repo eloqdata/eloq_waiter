@@ -1,0 +1,11 @@
+title = "eloq_waiter gitleaks config"
+
+[allowlist]
+description = "Allow known safe test/demo placeholders"
+regexes = [
+  '''(?i)admin_password\s*=\s*admin''',
+]
+paths = [
+  '''^target/''',
+  '''^db/download/''',
+]

@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
 use std::string::ToString;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::{debug, error, info};
 use ExecutionValue as LastResult;
@@ -249,6 +250,15 @@ pub type ExecutionValue = HashMap<String, TaskArgValue>;
 pub type TaskStatusRecord = Vec<HashMap<String, TaskArgValue>>;
 
 pub(crate) static FINISH_: OnceCell<LastResult> = OnceCell::new();
+pub(crate) static VERBOSE_TASK_OUTPUT: AtomicBool = AtomicBool::new(false);
+
+pub fn set_verbose_task_output(enabled: bool) {
+    VERBOSE_TASK_OUTPUT.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_verbose_task_output() -> bool {
+    VERBOSE_TASK_OUTPUT.load(Ordering::Relaxed)
+}
 
 pub(crate) fn init_finish_signal() -> &'static LastResult {
     FINISH_.get_or_init(|| {
@@ -363,7 +373,7 @@ impl TaskMgr {
         }
     }
 
-    pub async fn write_task_result(&self, mut writer: Option<File>) -> Result<()> {
+    pub async fn write_task_result(&self, mut writer: Option<File>, verbose: bool) -> Result<()> {
         while let Some(TaskResultPair { task_id, result }) = self.task_controller.recv().await {
             match result {
                 TaskResultEnum::Success(Some(execution_value)) => {
@@ -390,13 +400,23 @@ impl TaskMgr {
                         .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
                         .unwrap_or_else(|| "".to_string());
                     let s = format!("{start}{task_id}\n{cmd}\n{status}; {cmd_out}\n{end}\n");
-                    match writer {
-                        Some(ref mut w) => w.write_all(s.as_bytes())?,
-                        None => println!("{s}"),
+                    if verbose || status_code != 0 {
+                        match writer {
+                            Some(ref mut w) => w.write_all(s.as_bytes())?,
+                            None => println!("{s}"),
+                        }
                     }
                 }
                 TaskResultEnum::Success(None) => info!("task {task_id} finished"),
-                TaskResultEnum::Error(err_msg) => error!("{task_id} failed: {err_msg}"),
+                TaskResultEnum::Error(err_msg) => {
+                    let s =
+                        format!("=> {task_id}\nFailure; {err_msg}\n---------------------------\n");
+                    match writer {
+                        Some(ref mut w) => w.write_all(s.as_bytes())?,
+                        None => eprintln!("{s}"),
+                    }
+                    error!("{task_id} failed: {err_msg}");
+                }
             }
         }
         Ok(())
@@ -432,7 +452,13 @@ impl TaskMgr {
             tasks_execution.executable.len(),
             tasks_execution.barrier
         );
-        let err_brk = !matches!(cmd_args, SubCommand::Remove { cluster: _ });
+        let err_brk = !matches!(
+            cmd_args,
+            SubCommand::Remove {
+                cluster: _,
+                force: _,
+            }
+        );
         self.task_controller
             .run_all_tasks(tasks_execution, config, err_brk)
             .await

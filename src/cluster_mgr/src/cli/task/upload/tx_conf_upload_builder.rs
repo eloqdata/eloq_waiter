@@ -17,6 +17,22 @@ use tracing::{info, warn};
 
 pub struct TxConfUpload;
 
+fn task_file_id(source_path: &str) -> String {
+    Path::new(source_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 impl UploadTaskBuilder for TxConfUpload {
     fn build(&self, config: &Config) -> IndexMap<TaskId, TaskInstance> {
         let cluster_config = match config {
@@ -218,6 +234,7 @@ impl UploadTaskBuilder for TxConfUpload {
 
         // Append any collected DSS uploads
         upload_cnf_files.extend(dss_upload_files);
+        upload_cnf_files.extend(Self::collect_tls_upload_files(cluster_config, &all_hosts));
 
         let source_host = get_source_host(None);
         upload_cnf_files
@@ -225,18 +242,14 @@ impl UploadTaskBuilder for TxConfUpload {
             .map(|upload_file| {
                 let host = upload_file.host.clone();
                 let source_path = upload_file.source.clone();
-
-                let file_stem_str = Path::new(&source_path)
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("unknown");
+                let file_id = task_file_id(&source_path);
 
                 build_task_instance(
                     source_host.clone(),
                     upload_file.clone(),
                     config,
                     "config-update",
-                    format!("upload-ini-{host}-{file_stem_str}").as_str(),
+                    format!("upload-ini-{host}-{file_id}").as_str(),
                 )
             })
             .collect::<IndexMap<TaskId, TaskInstance>>()
@@ -244,6 +257,62 @@ impl UploadTaskBuilder for TxConfUpload {
 }
 
 impl TxConfUpload {
+    fn collect_tls_upload_files(
+        cluster_config: &crate::config::config_base::DeployConfig,
+        all_hosts: &[String],
+    ) -> Vec<UploadFile> {
+        if !cluster_config.deployment.tls_enabled() {
+            return Vec::new();
+        }
+
+        cluster_config
+            .deployment
+            .ensure_tls_certs_for_all_kv_nodes()
+            .expect("failed to auto-generate TLS certificates");
+
+        let cert_dest_dir = cluster_config.deployment.tls_cert_install_dir();
+        all_hosts
+            .iter()
+            .flat_map(|host| {
+                let host_dir = format!("{}/{}", cluster_config.deployment.cluster_name, host);
+                let host_path = create_upload_cluster_dir(&host_dir);
+                fs::read_dir(&host_path)
+                    .map(|entries| {
+                        entries
+                            .filter_map(Result::ok)
+                            .filter_map(|entry| {
+                                let path = entry.path();
+                                if !path.is_file() {
+                                    return None;
+                                }
+                                let file_name =
+                                    path.file_name().and_then(|n| n.to_str())?.to_string();
+                                let is_tls_file = file_name.starts_with("eloqkv-tls-")
+                                    && (file_name.ends_with(".crt") || file_name.ends_with(".key"));
+                                if !is_tls_file {
+                                    return None;
+                                }
+                                Some(UploadFile {
+                                    source: path.to_string_lossy().to_string(),
+                                    dest: format!("{}/{}", cert_dest_dir, file_name),
+                                    extension: "tls".to_string(),
+                                    host: host.to_string(),
+                                    copy_dir: false,
+                                })
+                            })
+                            .collect::<Vec<UploadFile>>()
+                    })
+                    .unwrap_or_else(|_| {
+                        warn!(
+                            "Failed to read host TLS cert dir: {}",
+                            host_path.to_string_lossy()
+                        );
+                        Vec::new()
+                    })
+            })
+            .collect_vec()
+    }
+
     /// Build upload tasks with nodes that are being added or removed
     pub fn build_with_nodes(
         &self,
@@ -427,6 +496,8 @@ impl TxConfUpload {
             }
         }
 
+        upload_cnf_files.extend(Self::collect_tls_upload_files(cluster_config, &all_hosts));
+
         // Create upload tasks for each file
         let source_host = get_source_host(None);
         let mut result = upload_cnf_files
@@ -434,18 +505,14 @@ impl TxConfUpload {
             .map(|upload_file| {
                 let host = upload_file.host.clone();
                 let source_path = upload_file.source.clone();
-
-                let file_stem_str = Path::new(&source_path)
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("unknown");
+                let file_id = task_file_id(&source_path);
 
                 let task_name = match operation_type {
                     ScaleOperationType::AddNodes => {
-                        format!("upload-ini-add-{host}-{file_stem_str}")
+                        format!("upload-ini-add-{host}-{file_id}")
                     }
                     ScaleOperationType::RemoveNodes => {
-                        format!("upload-ini-remove-{host}-{file_stem_str}")
+                        format!("upload-ini-remove-{host}-{file_id}")
                     }
                 };
 
@@ -618,5 +685,23 @@ impl TxConfUpload {
             operation_type
         );
         IndexMap::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::task_file_id;
+
+    #[test]
+    fn task_file_id_distinguishes_tls_crt_and_key() {
+        let crt = "/tmp/eloqkv-tls-eloqkv-dev-sg-002_ai-transsion_com-6379.crt";
+        let key = "/tmp/eloqkv-tls-eloqkv-dev-sg-002_ai-transsion_com-6379.key";
+        assert_ne!(task_file_id(crt), task_file_id(key));
+    }
+
+    #[test]
+    fn task_file_id_sanitizes_special_chars() {
+        let p = "/tmp/a.b-c_d@e.key";
+        assert_eq!(task_file_id(p), "a_b-c_d_e_key");
     }
 }

@@ -107,7 +107,10 @@ impl LogCtlCmd {
                         };
                         LogCtlCmd::Stop(stop_cmd_string)
                     }
-                    SubCommand::Remove { cluster: _ } => {
+                    SubCommand::Remove {
+                        cluster: _,
+                        force: _,
+                    } => {
                         let ps_log_info = ps_cmd_part;
                         let stop_cmd_string = format!("{ps_log_info} | xargs kill -9");
                         LogCtlCmd::Stop(stop_cmd_string)

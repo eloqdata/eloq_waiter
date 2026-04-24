@@ -1,5 +1,7 @@
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::{init_finish_signal, TaskExecutionContext};
+use crate::cli::task::task_base::{
+    init_finish_signal, is_verbose_task_output, TaskExecutionContext,
+};
 use crate::cli::task::task_base::{TaskInstance, TaskResultEnum, TaskResultPair};
 use crate::post_task_execute;
 use crate::state::task_status_operation::TaskStatusEntity;
@@ -115,6 +117,9 @@ impl TaskController {
                     let task_input = execution_context.task_input.clone();
                     let task_host = &execution_context.task_host;
                     let task_id = task.identifier();
+                    if is_verbose_task_output() {
+                        println!("=> START {}", task_id.format_string());
+                    }
                     let execution_rs = task.execute(task_host.clone(), task_input).await;
                     info!("Task {:?} execution complete", task_id);
                     //let cmd = task_id.clone().cmd;

@@ -87,6 +87,19 @@ cargo make --no-workspace  --makefile Makefile.toml  pkg_eloqctl
 cargo make --no-workspace  --makefile Makefile.toml  rest_api_pkg
 ```
 
+## Versioning And Release
+
+This repository uses SemVer with automated version management.
+
+1. PRs should use Conventional Commit titles, for example:
+   - `feat: add s3 endpoint validation`
+   - `fix: handle missing grafana config`
+2. On each push to `main`, Release Please analyzes commits and opens or updates a release PR.
+3. Merging the release PR creates a new `vX.Y.Z` tag automatically.
+4. The tag triggers the GitHub Actions release workflow to build and publish release artifacts.
+
+Rust crate versions are inherited from `workspace.package.version` in `Cargo.toml`, so the release PR updates version in one place.
+
 ## Features
 
 ### Devtools

@@ -91,10 +91,17 @@ impl TaskGroup for DeploymentTaskGroup {
 
         let upload_tx_conf = upload_tasks(UploadTaskBuilderType::TxConf, config);
 
+        let mut mkdir_targets = vec![cluster_config.install_dir()];
+        if cluster_config.deployment.tls_enabled() {
+            let tls_dir = cluster_config.deployment.tls_cert_install_dir();
+            if !mkdir_targets.contains(&tls_dir) {
+                mkdir_targets.push(tls_dir);
+            }
+        }
         let mkdir_remote_dir = ExecCustomCommand::from_config(
             &cmd_args,
             "mkdir",
-            format!("mkdir -p {}", cluster_config.install_dir()),
+            format!("mkdir -p {}", mkdir_targets.join(" ")),
             config,
         );
         let upload_monitor_conf_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, config);

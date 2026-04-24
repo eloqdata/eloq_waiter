@@ -165,7 +165,11 @@ impl CassandraCtlTask {
                     host: "_NONE".to_string(),
                 },
             ),
-            SubCommand::Stop { .. } | SubCommand::Remove { cluster: _ } => (
+            SubCommand::Stop { .. }
+            | SubCommand::Remove {
+                cluster: _,
+                force: _,
+            } => (
                 "stop",
                 TaskId {
                     cmd: "stop".to_string(),

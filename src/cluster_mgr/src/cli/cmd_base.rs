@@ -1,8 +1,10 @@
 use crate::cli::task::backup_utils::split_manifests;
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::TaskMgr;
+use crate::cli::task::task_base::{
+    set_verbose_task_output, TaskArgValue, TaskMgr, TaskResultEnum, TaskResultPair,
+};
 use crate::cli::util::{cpu_arch, file_pg_bar, os_id, os_major_version};
-use crate::cli::{upload_dir, SubCommand, HOME_DIR};
+use crate::cli::{upload_dir, SubCommand, CMD_OUTPUT, CMD_STATUS, HOME_DIR};
 use crate::cli::{BackupCommand, ProxyCommand};
 use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
@@ -29,6 +31,15 @@ use std::{env, fs};
 use tokio_postgres::config::SslMode;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
+
+#[derive(tabled::Tabled)]
+struct StatusSummaryRow {
+    host: String,
+    service: String,
+    port: String,
+    status: String,
+    detail: String,
+}
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
 
@@ -137,6 +148,113 @@ impl CmdExecutor {
 
     pub fn os_vers(&self) -> String {
         format!("{}{}", os_id(), os_major_version())
+    }
+
+    fn parse_task_id_parts(task_id: &str) -> (String, String, String) {
+        let mut host = String::new();
+        let mut cmd = String::new();
+        let mut task = String::new();
+        for part in task_id.split(',') {
+            if let Some((k, v)) = part.split_once('=') {
+                match k.trim() {
+                    "host" => host = v.trim().to_string(),
+                    "cmd" => cmd = v.trim().to_string(),
+                    "task" => task = v.trim().to_string(),
+                    _ => {}
+                }
+            }
+        }
+        (host, cmd, task)
+    }
+
+    fn summarize_status_rows(task_results: &[TaskResultPair]) -> Vec<StatusSummaryRow> {
+        task_results
+            .iter()
+            .filter_map(|pair| {
+                let (host, cmd, task) = Self::parse_task_id_parts(&pair.task_id);
+                if host.is_empty() {
+                    return None;
+                }
+                let (service, port) = if task.starts_with("tx-status-") {
+                    (
+                        "tx".to_string(),
+                        task.trim_start_matches("tx-status-").to_string(),
+                    )
+                } else if task.starts_with("standby-status-") {
+                    (
+                        "standby".to_string(),
+                        task.trim_start_matches("standby-status-").to_string(),
+                    )
+                } else if task.starts_with("voter-status-") {
+                    (
+                        "voter".to_string(),
+                        task.trim_start_matches("voter-status-").to_string(),
+                    )
+                } else if cmd.starts_with("monograph_log_") && task == "status" {
+                    ("log".to_string(), "-".to_string())
+                } else if cmd.starts_with("dss_") && task == "status" {
+                    ("dss".to_string(), "-".to_string())
+                } else {
+                    return None;
+                };
+
+                match &pair.result {
+                    TaskResultEnum::Error(err) => Some(StatusSummaryRow {
+                        host,
+                        service,
+                        port,
+                        status: "ERROR".to_string(),
+                        detail: err.replace('\n', " "),
+                    }),
+                    TaskResultEnum::Success(Some(ev)) => {
+                        let status_code = ev
+                            .get(CMD_STATUS)
+                            .map(|v| TaskArgValue::into_inner_value::<i32>(v.clone()))
+                            .unwrap_or(0);
+                        let detail = ev
+                            .get(CMD_OUTPUT)
+                            .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
+                            .unwrap_or_default()
+                            .replace('\n', " ")
+                            .trim()
+                            .to_string();
+                        let low = detail.to_ascii_lowercase();
+                        let status = if status_code != 0 {
+                            "ERROR".to_string()
+                        } else if low.contains("running") {
+                            "UP".to_string()
+                        } else if low.contains("down") {
+                            "DOWN".to_string()
+                        } else if low.contains("unknown") {
+                            "UNKNOWN".to_string()
+                        } else {
+                            "OK".to_string()
+                        };
+                        Some(StatusSummaryRow {
+                            host,
+                            service,
+                            port,
+                            status,
+                            detail: if detail.len() > 120 {
+                                format!("{}...", &detail[..120])
+                            } else {
+                                detail
+                            },
+                        })
+                    }
+                    TaskResultEnum::Success(None) => None,
+                }
+            })
+            .collect_vec()
+    }
+
+    fn print_status_summary(task_results: &[TaskResultPair]) {
+        let rows = Self::summarize_status_rows(task_results);
+        if rows.is_empty() {
+            println!("No status rows found.");
+            return;
+        }
+        println!("{}", tabled::Table::new(rows));
     }
 
     fn dir_home(&self) -> &str {
@@ -281,7 +399,7 @@ impl CmdExecutor {
                 cluster,
             }
             | SubCommand::Inspect { cluster, .. }
-            | SubCommand::Remove { cluster }
+            | SubCommand::Remove { cluster, force: _ }
             | SubCommand::Connect { cluster }
             | SubCommand::Backup { cluster, .. }
             | SubCommand::Failover { cluster, .. }
@@ -440,14 +558,16 @@ impl CmdExecutor {
         mut cmd: SubCommand,
         option_config: Option<Config>,
         quiet: bool,
+        verbose: bool,
     ) -> Result<()> {
+        set_verbose_task_output(verbose);
         match &cmd {
             SubCommand::List => return self.list_clusters().await,
             SubCommand::Versions { product, store } => {
                 return self.list_versions(product.clone(), store.clone()).await
             }
             SubCommand::Update { cluster: None, .. } => return self.update().await,
-            SubCommand::Remove { cluster } => {
+            SubCommand::Remove { cluster, force: _ } => {
                 let upload_path = upload_dir().join(cluster);
                 if upload_path.exists() {
                     std::fs::remove_dir_all(upload_path)?;
@@ -539,7 +659,7 @@ impl CmdExecutor {
 
                         let recv_rs_and_print_join = tokio::task::spawn(async move {
                             task_mgr
-                                .write_task_result(outfile)
+                                .write_task_result(outfile, verbose)
                                 .await
                                 .expect("write task result failed");
                         });
@@ -551,6 +671,16 @@ impl CmdExecutor {
                             .await?;
                         recv_rs_and_print_join.await?;
                         info!(r#"all tasks complete. task_size={}"#, rs.len());
+                        if let SubCommand::Status { detail, .. } = &cmd {
+                            if !detail {
+                                Self::print_status_summary(&rs);
+                                if !verbose {
+                                    println!(
+                                        "Tip: use `--verbose` to show per-task execution details."
+                                    );
+                                }
+                            }
+                        }
 
                         // Using cluster_config again without moving it
                         self.finishing(cmd, Config::Cluster(deploy_config)).await?;
@@ -574,7 +704,7 @@ impl CmdExecutor {
 
                         let recv_rs_and_print_join = tokio::task::spawn(async move {
                             task_mgr
-                                .write_task_result(outfile)
+                                .write_task_result(outfile, verbose)
                                 .await
                                 .expect("write task result failed");
                         });
@@ -641,7 +771,47 @@ impl CmdExecutor {
                         }
                     }
                 }
-                SubCommand::Remove { cluster } => {
+                SubCommand::Remove { cluster, force } => {
+                    let failed_tasks = self
+                        .state_mgr
+                        .load_task_status_from_state(
+                            cluster.clone(),
+                            Some(1),
+                            Some(vec!["remove".to_string()]),
+                        )
+                        .await?;
+                    if !failed_tasks.is_empty() {
+                        let failed_hosts = failed_tasks
+                            .iter()
+                            .map(|t| t.task_host.clone())
+                            .unique()
+                            .collect_vec();
+                        eprintln!(
+                            "Remove completed with {} failed task(s) on host(s): {}",
+                            failed_tasks.len(),
+                            failed_hosts.join(", ")
+                        );
+                        eprintln!(
+                            "Please clean unreachable hosts manually, e.g.: rm -rf {}",
+                            cfg.deployment.install_dir()
+                        );
+                    }
+                    if force {
+                        eprintln!(
+                            "Force remove enabled: local state will be cleared even if remote cleanup is incomplete."
+                        );
+                        let hosts = cfg.get_unique_host_list();
+                        if !hosts.is_empty() {
+                            eprintln!(
+                                "Manual cleanup may still be required on: {}",
+                                hosts.join(", ")
+                            );
+                            eprintln!(
+                                "Example command: ssh <host> 'rm -rf {}'",
+                                cfg.deployment.install_dir()
+                            );
+                        }
+                    }
                     let n = self.state_mgr.delete_cluster(&cluster).await?;
                     info!("cluster state cleared rows={n}");
                 }

@@ -1,4 +1,5 @@
 use crate::cli::task::config_fields::{field_exists, is_cluster_wide_field};
+use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::Config;
 use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
@@ -45,6 +46,22 @@ impl TaskGroup for UpdateConfigTaskGroup {
 
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
+
+        if deploy_config.deployment.tls_enabled() {
+            let mut mkdir_targets = vec![deploy_config.install_dir()];
+            let tls_dir = deploy_config.deployment.tls_cert_install_dir();
+            if !mkdir_targets.contains(&tls_dir) {
+                mkdir_targets.push(tls_dir);
+            }
+            let mkdir_tasks = ExecCustomCommand::build_task_by_host(
+                format!("mkdir -p {}", mkdir_targets.join(" ")),
+                config,
+                deploy_config.get_unique_host_list(),
+                Some("mkdir_tls_dirs".to_string()),
+            );
+            barrier.push(mkdir_tasks.len());
+            executable.extend(mkdir_tasks);
+        }
 
         // Validate the field updates
         validate_fields(&fields, tx_node_id)?;

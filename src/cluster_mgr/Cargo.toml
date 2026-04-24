@@ -1,6 +1,6 @@
 [package]
 name = "cluster_mgr"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,6 +10,7 @@ async-trait = "0.1"
 bytes = "1"
 cdrs-tokio = "8.1.2"
 clap = { version = "4.2", features = ["derive"] }
+clap_complete = "4.5"
 chrono = { version = "0.4", features = ["serde"] }
 humantime = "2.1"
 configparser = { version = "3.0.2", features = ["indexmap"] }
