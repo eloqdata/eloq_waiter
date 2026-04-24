@@ -2,8 +2,6 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -38,22 +36,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            COMMIT_MSG='${{ github.event.head_commit.message }}'
-            RELEASE_VERSION=$(printf '%s' "$COMMIT_MSG" | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)
-
-            if [ -n "$RELEASE_VERSION" ]; then
-              echo "value=v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
-              echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            else
-              SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-              echo "value=main-$(date -u +%Y%m%d)-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-              echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            fi
+            echo "Expected a tag ref or workflow_dispatch input tag" >&2
+            exit 1
           fi
 
       - name: Install build dependencies
@@ -102,7 +89,6 @@ jobs:
 
     outputs:
       release_tag: ${{ steps.tag.outputs.value }}
-      prerelease: ${{ steps.tag.outputs.prerelease }}
 
   publish:
     name: Publish GitHub Release
@@ -123,6 +109,6 @@ jobs:
           tag_name: ${{ needs.build.outputs.release_tag }}
           files: dist/*.tar.gz
           overwrite_files: true
-          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
+          prerelease: false
           draft: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true' }}
           generate_release_notes: true
