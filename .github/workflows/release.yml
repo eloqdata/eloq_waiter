@@ -43,9 +43,17 @@ jobs:
             echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            echo "value=main-$(date -u +%Y%m%d)-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            COMMIT_MSG='${{ github.event.head_commit.message }}'
+            RELEASE_VERSION=$(printf '%s' "$COMMIT_MSG" | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)
+
+            if [ -n "$RELEASE_VERSION" ]; then
+              echo "value=v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            else
+              SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+              echo "value=main-$(date -u +%Y%m%d)-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Install build dependencies
