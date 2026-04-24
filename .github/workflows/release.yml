@@ -54,20 +54,27 @@ jobs:
           packages: protobuf-compiler pkg-config libssl-dev
           version: release-ubuntu24-v1
 
-      - name: Ensure build dependencies are available
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-04-21
 
-      - name: Cache Rust build outputs
+      - name: Cache Cargo registry (downloaded crates)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-
+
+      - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
           shared-key: release-ubuntu24
+          cache-on-failure: true
 
       - name: Build release tarball
         env:
