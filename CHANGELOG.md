@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/monographdb/eloq_waiter/compare/v1.0.3...v1.0.4) (2026-04-24)
+
+
+### Bug Fixes
+
+* **cluster_mgr:** use package version for eloqctl -V output ([#331](https://github.com/monographdb/eloq_waiter/issues/331)) ([9b1d409](https://github.com/monographdb/eloq_waiter/commit/9b1d40947374726d4213802d34e46d4678cb259e))
+
 ## [1.0.3](https://github.com/monographdb/eloq_waiter/compare/v1.0.2...v1.0.3) (2026-04-24)
 
 
