@@ -34,28 +34,17 @@ jobs:
           toolchain: nightly-2026-04-21
           components: rustfmt, clippy
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
           shared-key: quality-ubuntu24
-          cache-directories: |
-            ~/.cache/sccache
           cache-on-failure: true
 
       - name: Format check
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        env:
-          RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test
-        env:
-          RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
         run: cargo test --tests -- --test-threads=1
