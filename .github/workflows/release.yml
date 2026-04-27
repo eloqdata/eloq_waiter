@@ -1,9 +1,6 @@
-name: Release
+name: Release Assets
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -15,6 +12,9 @@ on:
         required: false
         default: false
         type: boolean
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 permissions:
   contents: write
@@ -34,14 +34,7 @@ jobs:
       - name: Compute release tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "Expected a tag ref or workflow_dispatch input tag" >&2
-            exit 1
-          fi
+          echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
 
       - name: Install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -54,9 +47,6 @@ jobs:
         with:
           toolchain: nightly-2026-04-21
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
@@ -68,8 +58,6 @@ jobs:
           RELEASE_TAG: ${{ steps.tag.outputs.value }}
           TARGET_OS_ID: ubuntu24
           TARGET_ARCH: amd64
-          RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
         run: |
           chmod +x scripts/build-release-tarball.sh
           scripts/build-release-tarball.sh
