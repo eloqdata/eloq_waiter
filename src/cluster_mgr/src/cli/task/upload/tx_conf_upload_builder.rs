@@ -21,6 +21,15 @@ pub struct TxConfUpload;
 static TX_INI_RENAME_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"EloqKv-(tx|candidate|voter)-(\d+)\.ini").unwrap());
 
+fn renamed_node_ini(file_name: &str) -> String {
+    if let Some(captures) = TX_INI_RENAME_RE.captures(file_name) {
+        let port = captures.get(2).map_or("", |m| m.as_str());
+        format!("EloqKv-node-{port}.ini")
+    } else {
+        file_name.to_string()
+    }
+}
+
 fn task_file_id(source_path: &str) -> String {
     Path::new(source_path)
         .file_name()
@@ -99,13 +108,7 @@ impl UploadTaskBuilder for TxConfUpload {
                             .unwrap_or_default();
 
                         // Check if filename matches the pattern and extract port
-                        let renamed_file =
-                            if let Some(captures) = TX_INI_RENAME_RE.captures(file_name) {
-                                let port = captures.get(2).map_or("", |m| m.as_str());
-                                format!("EloqKv-node-{}.ini", port)
-                            } else {
-                                file_name.to_string()
-                            };
+                        let renamed_file = renamed_node_ini(file_name);
 
                         upload_cnf_files.push(UploadFile {
                             source: file_path.to_string_lossy().to_string(),
@@ -405,13 +408,7 @@ impl TxConfUpload {
                             .unwrap_or_default();
 
                         // Check if filename matches the pattern and extract port
-                        let renamed_file =
-                            if let Some(captures) = TX_INI_RENAME_RE.captures(file_name) {
-                                let port = captures.get(2).map_or("", |m| m.as_str());
-                                format!("EloqKv-node-{}.ini", port)
-                            } else {
-                                file_name.to_string()
-                            };
+                        let renamed_file = renamed_node_ini(file_name);
 
                         upload_cnf_files.push(UploadFile {
                             source: file_path.to_string_lossy().to_string(),
@@ -471,13 +468,7 @@ impl TxConfUpload {
                             .unwrap_or_default();
 
                         // Check if filename matches the pattern and extract port
-                        let renamed_file =
-                            if let Some(captures) = TX_INI_RENAME_RE.captures(file_name) {
-                                let port = captures.get(2).map_or("", |m| m.as_str());
-                                format!("EloqKv-node-{}.ini", port)
-                            } else {
-                                file_name.to_string()
-                            };
+                        let renamed_file = renamed_node_ini(file_name);
 
                         upload_cnf_files.push(UploadFile {
                             source: path.to_string(),

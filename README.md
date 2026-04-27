@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/instal
 Install a specific release tag:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh -s -- v1.0.4
+curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh -s -- v1.0.3
 ```
 
 ## Quick Start

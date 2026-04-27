@@ -32,7 +32,7 @@ impl TaskController {
     }
 
     fn split_task(task_execution_context: &TaskExecutionContext) -> Vec<&'static [TaskInstance]> {
-        let barrier = task_execution_context.clone().barrier;
+        let barrier = &task_execution_context.barrier;
         let task_install_vec = task_execution_context
             .executable
             .values()

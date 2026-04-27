@@ -175,15 +175,13 @@ impl CmdExecutor {
                 if host.is_empty() {
                     return None;
                 }
-                let (service, port) = if task.starts_with("tx-status-") {
+                let tx_prefix = ["tx-status-", "txservice-status-"]
+                    .into_iter()
+                    .find(|prefix| task.starts_with(prefix));
+                let (service, port) = if let Some(prefix) = tx_prefix {
                     (
                         "tx".to_string(),
-                        task.trim_start_matches("tx-status-").to_string(),
-                    )
-                } else if task.starts_with("txservice-status-") {
-                    (
-                        "tx".to_string(),
-                        task.trim_start_matches("txservice-status-").to_string(),
+                        task.trim_start_matches(prefix).to_string(),
                     )
                 } else if task.starts_with("standby-status-") {
                     (
@@ -1152,33 +1150,29 @@ impl CmdExecutor {
                                 cluster_name: None,
                             });
                         };
-                        if let Some(storage_service) = deploy.storage_service.as_mut() {
-                            storage_service.cassandra = Some(Cassandra { host, kind });
-                        } else {
-                            deploy.storage_service = Some(StorageService {
-                                cassandra: Some(Cassandra { host, kind }),
+                        deploy
+                            .storage_service
+                            .get_or_insert(StorageService {
+                                cassandra: None,
                                 dynamodb: None,
                                 rocksdb: None,
                                 eloqdss: None,
-                            });
-                        }
+                            })
+                            .cassandra = Some(Cassandra { host, kind });
                     }
                     StorageProvider::Dynamodb => unimplemented!(),
                     StorageProvider::Rocksdb => {
-                        if let Some(storage_service) = deploy.storage_service.as_mut() {
-                            storage_service.rocksdb = Some(RocksDB::LOCAL(RocksLocal {
-                                path: Some("/tmp".to_string()),
-                            }));
-                        } else {
-                            deploy.storage_service = Some(StorageService {
+                        deploy
+                            .storage_service
+                            .get_or_insert(StorageService {
                                 cassandra: None,
                                 dynamodb: None,
-                                rocksdb: Some(RocksDB::LOCAL(RocksLocal {
-                                    path: Some("/tmp".to_string()),
-                                })),
+                                rocksdb: None,
                                 eloqdss: None,
-                            });
-                        }
+                            })
+                            .rocksdb = Some(RocksDB::LOCAL(RocksLocal {
+                            path: Some("/tmp".to_string()),
+                        }));
                     }
                     StorageProvider::EloqDSS => {
                         // Create a default DataStoreService with Local mode and EloqStore backend
@@ -1238,16 +1232,15 @@ impl CmdExecutor {
                             peer_host_ports: None,
                             mode: DataStoreServiceMode::Internal, // Default: eloqctl manages dss_server
                         };
-                        if let Some(storage_service) = deploy.storage_service.as_mut() {
-                            storage_service.eloqdss = Some(default_dss);
-                        } else {
-                            deploy.storage_service = Some(StorageService {
+                        deploy
+                            .storage_service
+                            .get_or_insert(StorageService {
                                 cassandra: None,
                                 dynamodb: None,
                                 rocksdb: None,
-                                eloqdss: Some(default_dss),
-                            });
-                        }
+                                eloqdss: None,
+                            })
+                            .eloqdss = Some(default_dss);
                     }
                 }
                 // deploy log-service jointly

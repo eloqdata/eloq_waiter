@@ -33,7 +33,7 @@ pub struct UnpackFileTask {
 }
 
 fn extract_unpacked_name(raw_file_name: &str) -> String {
-    if raw_file_name.contains("monographdb") {
+    if raw_file_name.starts_with("monographdb") {
         return "monographdb".to_string();
     }
     for unpacked in REMOTE_UNPACKED_NAMES {

@@ -240,7 +240,6 @@ pub fn parse_cluster_nodes_single(value: Value, default_host: &str) -> RedisResu
     let info_str = match value {
         Value::BulkString(bytes) => String::from_utf8_lossy(&bytes).to_string(),
         Value::SimpleString(s) => s,
-        Value::Okay => "OK".to_string(),
         _ => {
             return Err(RedisError::from((
                 ErrorKind::TypeError,

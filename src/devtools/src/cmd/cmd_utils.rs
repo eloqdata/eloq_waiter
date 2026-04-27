@@ -292,7 +292,7 @@ pub fn storage_service_running() -> bool {
                 name: "bash".to_string(),
                 args: Some(vec![
                     "-c".to_string(),
-                    format!("{}/nodetool status", cassandra_bin_dir),
+                    format!("{cassandra_bin_dir}/nodetool status"),
                 ]),
                 show_progress_type: None,
                 payload: None,

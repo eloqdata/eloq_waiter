@@ -30,6 +30,7 @@ args = ["build", "--package", "cluster_mgr", "--release"]
 dependencies = ["format", "generate_proto"]
 
 [tasks.clippy_advisory]
+description = "Run non-fatal clippy linting (advisory; no -D warnings)"
 command = "cargo"
 args = ["clippy", "--all-targets", "--all-features"]
 
@@ -57,7 +58,7 @@ script = '''
 set -euo pipefail
 
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit .githooks/pre-push .githooks/commit-msg
+find .githooks -type f -exec chmod +x {} +
 echo "Installed git hooks from .githooks"
 '''
 

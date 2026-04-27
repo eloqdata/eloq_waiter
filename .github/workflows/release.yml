@@ -61,8 +61,6 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           shared-key: release-ubuntu24
-          cache-directories: |
-            ~/.cache/sccache
           cache-on-failure: true
 
       - name: Build release tarball
