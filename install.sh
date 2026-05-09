@@ -92,6 +92,34 @@ fi
 
 chmod 755 "${BIN_DIR}/cluster_mgr"
 
+print_completion_help() {
+    echo "Shell completion is available but is not enabled automatically."
+    case "${shell}" in
+    bash)
+        echo "Enable it with:"
+        echo "  eloqctl completion bash > \"${ELOQCTL_HOME}/eloqctl.bash\""
+        echo "  echo 'source \"${ELOQCTL_HOME}/eloqctl.bash\"' >> \"${HOME}/.bashrc\""
+        echo "  source \"${HOME}/.bashrc\""
+        ;;
+    zsh)
+        echo "Enable it with:"
+        echo "  eloqctl completion zsh > \"${ELOQCTL_HOME}/_eloqctl\""
+        echo "  echo 'fpath=(\"${ELOQCTL_HOME}\" \$fpath)' >> \"${HOME}/.zshrc\""
+        echo "  echo 'autoload -Uz compinit && compinit' >> \"${HOME}/.zshrc\""
+        echo "  source \"${HOME}/.zshrc\""
+        ;;
+    fish)
+        echo "Enable it with:"
+        echo "  mkdir -p \"${HOME}/.config/fish/completions\""
+        echo "  eloqctl completion fish > \"${HOME}/.config/fish/completions/eloqctl.fish\""
+        ;;
+    *)
+        echo "Current shell '${shell}' has no install hint yet."
+        echo "You can still generate a script with: eloqctl completion <bash|zsh|fish>"
+        ;;
+    esac
+}
+
 bold=$(tput bold 2>/dev/null || true)
 sgr0=$(tput sgr0 2>/dev/null || true)
 
@@ -145,4 +173,6 @@ esac
 echo "==============================================="
 echo "To use it, open a new terminal or execute:"
 echo "${bold}source ${PROFILE}${sgr0}"
+echo
+print_completion_help
 echo "==============================================="
