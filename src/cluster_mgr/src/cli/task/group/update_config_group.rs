@@ -5,7 +5,6 @@ use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
-use crate::cli::task::task_utils::stop_with_failover;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
@@ -149,9 +148,71 @@ impl TaskGroup for UpdateConfigTaskGroup {
                 .is_some()
             {
                 // --- Round 1: failover masters, restart them as standbys ---
+                // Inlined to skip checkpoint — checkpoint triggers shutdown which
+                // disconnects the standby, making failover impossible.
                 let tx_host_ports =
                     deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
-                stop_with_failover(
+                let topo_task_id_1 = TaskId {
+                    cmd: "topology".to_string(),
+                    task: "check-topology-round1".to_string(),
+                    host: "_local".to_string(),
+                };
+                let (topo_tx_1, failover_rx_1) = watch::channel::<ClusterNodes>(ClusterNodes {
+                    masters: Vec::new(),
+                    replicas: Vec::new(),
+                });
+                let stop_nodes_rx_1 = failover_rx_1.clone();
+                let topo_task_1 = RedisOpTask::new(
+                    topo_task_id_1.clone(),
+                    tx_host_ports.clone(),
+                    "cluster topology".to_string(),
+                    topo_tx_1,
+                    deploy_config.redis_password(None),
+                    true,
+                );
+                executable.insert(
+                    topo_task_id_1,
+                    TaskInstance {
+                        task_input: HashMap::default(),
+                        task: Box::new(topo_task_1),
+                        task_host: TaskHost::Local,
+                    },
+                );
+                barrier.push(1);
+
+                let mut failover_ids_1 = Vec::new();
+                for node_addr in &tx_host_ports {
+                    if let Some((host, port_str)) = node_addr.split_once(':') {
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            let fid = TaskId {
+                                cmd: "failover".to_string(),
+                                task: format!("failover-check-round1-{}", port_str),
+                                host: host.to_string(),
+                            };
+                            let ftask = crate::cli::task::failover_op_task::FailoverOpTask::new(
+                                fid.clone(),
+                                host.to_string(),
+                                port,
+                                String::new(),
+                                0u16,
+                                failover_rx_1.clone(),
+                                deploy_config.redis_password(None),
+                            );
+                            executable.insert(
+                                fid.clone(),
+                                TaskInstance {
+                                    task_input: HashMap::default(),
+                                    task: Box::new(ftask),
+                                    task_host: TaskHost::Local,
+                                },
+                            );
+                            failover_ids_1.push(fid);
+                        }
+                    }
+                }
+                barrier.push(failover_ids_1.len());
+
+                let stop_nodes_1 = MonographTxCtlTask::from_config_with_channel(
                     SubCommand::Stop {
                         cluster: cluster_name.clone(),
                         tx: Some(true),
@@ -164,10 +225,12 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         nodes: tx_host_ports,
                     },
                     deploy_config,
-                    &mut barrier,
-                    &mut executable,
+                    ServerType::Node,
+                    Some(stop_nodes_rx_1),
                 )
-                .await;
+                .expect("stop nodes round1 error");
+                barrier.push(stop_nodes_1.len());
+                executable.extend(stop_nodes_1);
 
                 let start_tx_round1 = MonographTxCtlTask::from_config(
                     SubCommand::Start {
@@ -185,9 +248,6 @@ impl TaskGroup for UpdateConfigTaskGroup {
                 // to avoid key collision with round 1's topology task.
                 let standby_host_ports =
                     deploy_config.get_host_port_list(DeploymentPackage::MonographStandby);
-                let skip_checkpoint =
-                    crate::cli::task::task_utils::check_whether_to_skip_checkpoint(cluster_name)
-                        .await;
                 let topo_task_id_2 = TaskId {
                     cmd: "topology".to_string(),
                     task: "check-topology-round2".to_string(),
@@ -204,7 +264,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                     "cluster topology".to_string(),
                     topo_tx_2,
                     deploy_config.redis_password(None),
-                    skip_checkpoint,
+                    true,
                 );
                 executable.insert(
                     topo_task_id_2,
