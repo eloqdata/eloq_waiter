@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/monographdb/eloq_waiter/compare/v1.1.2...v1.1.3) (2026-05-11)
+
+
+### Bug Fixes
+
+* skip checkpoint before failover in zero-downtime apply ([#347](https://github.com/monographdb/eloq_waiter/issues/347)) ([d246169](https://github.com/monographdb/eloq_waiter/commit/d24616977aead8348be54a7a8da3e603bf0583f1))
+
 ## [1.1.2](https://github.com/monographdb/eloq_waiter/compare/v1.1.1...v1.1.2) (2026-05-11)
 
 
