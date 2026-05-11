@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.7](https://github.com/monographdb/eloq_waiter/compare/v1.1.6...v1.1.7) (2026-05-11)
+
+
+### Bug Fixes
+
+* re-upload prometheus config on monitor restart and wait for tx ready in update ([#356](https://github.com/monographdb/eloq_waiter/issues/356)) ([72fcb33](https://github.com/monographdb/eloq_waiter/commit/72fcb33d00b94405492c43501d4ac1f8863edcbd))
+
 ## [1.1.6](https://github.com/monographdb/eloq_waiter/compare/v1.1.5...v1.1.6) (2026-05-11)
 
 
