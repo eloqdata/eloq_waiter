@@ -5,7 +5,7 @@ use crate::cli::task::group::{TaskGroup, UpdateConfigTaskGroup};
 use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
-use crate::cli::task::task_utils::stop_with_hot_standby;
+use crate::cli::task::task_utils::stop_with_failover;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::SubCommand;
@@ -142,14 +142,15 @@ impl TaskGroup for UpdateConfigTaskGroup {
         }
 
         if need_restart {
-            // stop order: (standby-server -> voter-server ->) tx-server -> log-server -> kv-store
             if deploy_config
                 .deployment
                 .tx_service
                 .standby_host_ports
                 .is_some()
             {
-                stop_with_hot_standby(
+                let tx_host_ports =
+                    deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
+                stop_with_failover(
                     SubCommand::Stop {
                         cluster: cluster_name.clone(),
                         tx: Some(true),
@@ -159,7 +160,7 @@ impl TaskGroup for UpdateConfigTaskGroup {
                         force: false,
                         all: false,
                         password: None,
-                        nodes: Vec::new(),
+                        nodes: tx_host_ports,
                     },
                     deploy_config,
                     &mut barrier,
