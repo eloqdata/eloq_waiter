@@ -162,9 +162,13 @@ impl TaskGroup for UpdateConfigTaskGroup {
                     replicas: Vec::new(),
                 });
                 let stop_nodes_rx_1 = failover_rx_1.clone();
+                let standby_host_ports =
+                    deploy_config.get_host_port_list(DeploymentPackage::MonographStandby);
+                let mut all_nodes_1 = tx_host_ports.clone();
+                all_nodes_1.extend(standby_host_ports);
                 let topo_task_1 = RedisOpTask::new(
                     topo_task_id_1.clone(),
-                    tx_host_ports.clone(),
+                    all_nodes_1,
                     "cluster topology".to_string(),
                     topo_tx_1,
                     deploy_config.redis_password(None),
@@ -258,9 +262,13 @@ impl TaskGroup for UpdateConfigTaskGroup {
                     replicas: Vec::new(),
                 });
                 let stop_nodes_rx_2 = failover_rx_2.clone();
+                let tx_host_ports_r2 =
+                    deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
+                let mut all_nodes_2 = standby_host_ports.clone();
+                all_nodes_2.extend(tx_host_ports_r2);
                 let topo_task_2 = RedisOpTask::new(
                     topo_task_id_2.clone(),
-                    standby_host_ports.clone(),
+                    all_nodes_2,
                     "cluster topology".to_string(),
                     topo_tx_2,
                     deploy_config.redis_password(None),

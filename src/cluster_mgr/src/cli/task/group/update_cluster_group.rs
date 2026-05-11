@@ -88,6 +88,10 @@ impl TaskGroup for UpdateClusterTaskGroup {
         if has_standby {
             // --- Round 1: failover masters, stop them ---
             let tx_host_ports = cluster_config.get_host_port_list(DeploymentPackage::MonographTx);
+            let standby_host_ports =
+                cluster_config.get_host_port_list(DeploymentPackage::MonographStandby);
+            let mut all_nodes_1 = tx_host_ports.clone();
+            all_nodes_1.extend(standby_host_ports);
             let topo_task_id_1 = TaskId {
                 cmd: "topology".to_string(),
                 task: "check-topology-round1".to_string(),
@@ -104,7 +108,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
                     task_input: HashMap::default(),
                     task: Box::new(RedisOpTask::new(
                         topo_task_id_1,
-                        tx_host_ports.clone(),
+                        all_nodes_1,
                         "cluster topology".to_string(),
                         topo_tx_1,
                         redis_password.clone(),
@@ -241,6 +245,10 @@ impl TaskGroup for UpdateClusterTaskGroup {
             // --- Round 2: failover back, restart old standbys ---
             let standby_host_ports =
                 cluster_config.get_host_port_list(DeploymentPackage::MonographStandby);
+            let tx_host_ports_r2 =
+                cluster_config.get_host_port_list(DeploymentPackage::MonographTx);
+            let mut all_nodes_2 = standby_host_ports.clone();
+            all_nodes_2.extend(tx_host_ports_r2);
             let topo_task_id_2 = TaskId {
                 cmd: "topology".to_string(),
                 task: "check-topology-round2".to_string(),
@@ -257,7 +265,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
                     task_input: HashMap::default(),
                     task: Box::new(RedisOpTask::new(
                         topo_task_id_2,
-                        standby_host_ports.clone(),
+                        all_nodes_2,
                         "cluster topology".to_string(),
                         topo_tx_2,
                         redis_password.clone(),
