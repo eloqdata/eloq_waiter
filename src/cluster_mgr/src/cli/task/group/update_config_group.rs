@@ -268,16 +268,9 @@ impl TaskGroup for UpdateConfigTaskGroup {
                 barrier.push(stop_nodes_2.len());
                 executable.extend(stop_nodes_2);
 
-                let start_tx_round2 = MonographTxCtlTask::from_config(
-                    SubCommand::Start {
-                        cluster: cluster_name.to_string(),
-                        nodes: Vec::new(),
-                    },
-                    deploy_config,
-                    ServerType::Tx,
-                );
-                barrier.push(start_tx_round2.len());
-                executable.extend(start_tx_round2);
+                // Old standbys restart as standbys with new config.
+                // Round 1 already started the tx hosts — they are still running,
+                // the second failover only changed their role, no need to start again.
 
                 let start_standby = MonographTxCtlTask::from_config(
                     SubCommand::Start {
