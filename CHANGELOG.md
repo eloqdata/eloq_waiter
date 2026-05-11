@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/monographdb/eloq_waiter/compare/v1.1.1...v1.1.2) (2026-05-11)
+
+
+### Bug Fixes
+
+* trigger v1.1.2 release build ([#345](https://github.com/monographdb/eloq_waiter/issues/345)) ([dba3693](https://github.com/monographdb/eloq_waiter/commit/dba3693a284912ff7bfc6fa8c5cffc69f68e7bdf))
+
 ## [1.1.1](https://github.com/monographdb/eloq_waiter/compare/v1.1.0...v1.1.1) (2026-05-11)
 
 
