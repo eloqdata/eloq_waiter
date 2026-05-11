@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.8](https://github.com/monographdb/eloq_waiter/compare/v1.1.7...v1.1.8) (2026-05-11)
+
+
+### Bug Fixes
+
+* unpack standby nodes only after they are stopped in rolling update ([#358](https://github.com/monographdb/eloq_waiter/issues/358)) ([187b245](https://github.com/monographdb/eloq_waiter/commit/187b245bdad31eada5eff83d533f691a9c68e537))
+
 ## [1.1.7](https://github.com/monographdb/eloq_waiter/compare/v1.1.6...v1.1.7) (2026-05-11)
 
 
