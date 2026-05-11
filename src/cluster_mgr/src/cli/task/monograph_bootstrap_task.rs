@@ -1,19 +1,16 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
-use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
-use crate::cli::CMD_OUTPUT;
 use crate::config::config_base::{export_asan, DeployConfig};
 use crate::config::deployment::{Product, Version};
-use crate::config::{StorageProvider, MONOGRAPH_INSTALL_SCRIPT};
+use crate::config::MONOGRAPH_INSTALL_SCRIPT;
 use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
-use owo_colors::OwoColorize;
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct MonographInstall {
@@ -46,38 +43,6 @@ impl MonographInstall {
     pub fn new(config: DeployConfig, task_id: TaskId) -> Self {
         Self { config, task_id }
     }
-
-    pub async fn monograph_keyspace_exists(&self) -> anyhow::Result<bool> {
-        let keyspace = self.config.deployment.get_keyspace()?;
-        let cql = format!(
-            r#"select keyspace_name from system_schema.keyspaces where keyspace_name='{keyspace}'"#,
-        );
-        let cass = self
-            .config
-            .deployment
-            .storage_service
-            .as_ref()
-            .expect("storage_service is required")
-            .cassandra
-            .as_ref()
-            .unwrap();
-        let cass_host = cass.host.first().unwrap().clone();
-        let id = TaskId {
-            cmd: "install".to_string(),
-            task: "cassandra_op".to_string(),
-            host: "_local".to_string(),
-        };
-        let cassandra_op_task =
-            CassandraOpTask::new(id, cass_host.clone(), cass.client_port()?, cql);
-        let cassandra_op_task_rs = cassandra_op_task
-            .execute(TaskHost::Local, HashMap::default())
-            .await?
-            .unwrap();
-        let mono_keyspace_value = TaskArgValue::into_inner_value::<String>(
-            cassandra_op_task_rs.get(CMD_OUTPUT).unwrap().clone(),
-        );
-        Ok(!mono_keyspace_value.is_empty())
-    }
 }
 
 #[async_trait]
@@ -92,16 +57,6 @@ impl TaskExecutor for MonographInstall {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.format_string());
-        let keyspace_exists = match self.config.get_monograph_storage()? {
-            StorageProvider::Cassandra => self.monograph_keyspace_exists().await?,
-            _ => false,
-        };
-        if keyspace_exists {
-            let keyspace_name = self.config.deployment.get_monograph_keyspace()?;
-            let format = r#"MonographDB keyspace already exists."#.red();
-            warn!("{} => {}", format, keyspace_name.red());
-            return Ok(None);
-        }
 
         let ssh_session =
             SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())

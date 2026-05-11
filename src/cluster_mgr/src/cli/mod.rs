@@ -42,7 +42,7 @@ pub enum SubCommand {
     #[strum(serialize = "demo")]
     Demo {
         product: Product,
-        #[arg(short, long, default_value = "cassandra")]
+        #[arg(short, long, default_value = "rocksdb")]
         store: StorageProvider,
         #[arg(short, long, default_value = "latest")]
         version: String,
@@ -54,12 +54,6 @@ pub enum SubCommand {
         no_monitor: bool,
         #[arg(long, default_value_t = false)]
         joint_wal: bool,
-        #[arg(long, value_delimiter = ';', value_name = "contact-points")]
-        ext_cass: Vec<String>,
-        #[arg(long)]
-        cass_port: Option<u16>,
-        #[arg(long, value_name = "user:password")]
-        cass_auth: Option<String>,
     },
 
     #[command(long_about = "Check whether cluster can be deployed")]
@@ -130,10 +124,6 @@ pub enum SubCommand {
     Update {
         cluster: Option<String>,
         version: Option<String>,
-        #[arg(long, value_name = "version")]
-        cassandra: Option<String>,
-        #[arg(long, value_name = "url")]
-        cass_mirror: Option<String>,
         #[arg(long, value_name = "password for graceful shutdown")]
         password: Option<String>,
         #[arg(

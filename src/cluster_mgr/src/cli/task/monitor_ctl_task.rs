@@ -64,10 +64,17 @@ impl MonitorComponentCommand {
             }
             MonitorComponentCommand::Prometheus { home } => {
                 monitor.prometheus.as_ref().map(|prom| {
+                    let retention_flags = prom.retention_flags();
+                    let retention_flags = if retention_flags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {retention_flags}")
+                    };
                     format!(
-                        r#"{home}/prometheus --web.listen-address="0.0.0.0:{port}" --storage.tsdb.path={home}/data --config.file={home}/{PROMETHEUS_CONFIG_FILE} > /tmp/mono_prometheus.log 2>&1 &"#,
+                        r#"{home}/prometheus --web.listen-address="0.0.0.0:{port}" --storage.tsdb.path={home}/data{retention_flags} --config.file={home}/{PROMETHEUS_CONFIG_FILE} > /tmp/mono_prometheus.log 2>&1 &"#,
                         home = home,
-                        port = prom.port
+                        port = prom.port,
+                        retention_flags = retention_flags,
                     )
                 })
             }
@@ -91,6 +98,39 @@ impl MonitorComponentCommand {
         let ps_pid = format!(r#"ps uxwe | grep "{monitor_component_home}" | grep -v grep | "#);
         let output_pid = r#"awk '{print $2}'"#;
         format!("{ps_pid} {output_pid}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MonitorComponentCommand;
+    use crate::config::monitor::{Monitor, Prometheus};
+
+    #[test]
+    fn prometheus_start_command_includes_retention_flags() {
+        let monitor = Monitor {
+            data_dir: None,
+            prometheus: Some(Prometheus {
+                download_url: "https://example.com/prometheus.tar.gz".to_string(),
+                port: 9500,
+                host: "127.0.0.1".to_string(),
+                retention_time: Some("30d".to_string()),
+                retention_size: Some("50GB".to_string()),
+            }),
+            grafana: None,
+            node_exporter: None,
+            mysql_exporter: None,
+            monograph_metrics: None,
+            eloq_metrics: None,
+        };
+        let cmd = MonitorComponentCommand::Prometheus {
+            home: "/tmp/prometheus".to_string(),
+        }
+        .start(&monitor)
+        .unwrap();
+
+        assert!(cmd.contains(r#"--storage.tsdb.retention.time="30d""#));
+        assert!(cmd.contains(r#"--storage.tsdb.retention.size="50GB""#));
     }
 }
 

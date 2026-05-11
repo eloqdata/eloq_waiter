@@ -1,7 +1,5 @@
 mod backup_task;
 pub mod backup_utils;
-mod cassandra_ctl_task;
-mod cassandra_op_task;
 mod check_task;
 pub mod check_tx_cluster_scale_status_task;
 pub mod cluster_config_utils;

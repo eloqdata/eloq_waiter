@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use crate::cli::task::cassandra_op_task::CassandraOpTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{
     BackupTaskGroup, Config, CtrlDBTaskGroup, RemoveTaskGroup, TaskGroup,
 };
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::{BackupCommand, SubCommand};
-use crate::config::StorageProvider;
 use anyhow::bail;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -110,38 +108,14 @@ impl TaskGroup for RemoveTaskGroup {
             barrier.push(clean_tasks.len());
             executable.extend(clean_tasks);
         }
-        // remove keyspace in external cassandra/scylla/dynamo
+        // remove keyspace in external dynamo
         if let Some(store) = &cluster_config.deployment.storage_service {
             match store.provider().unwrap() {
-                StorageProvider::Cassandra => {
-                    let cass = store.cassandra.as_ref().unwrap();
-                    if cass.external().is_some() {
-                        let host = cass.host.first().unwrap().clone();
-                        let task_id = TaskId {
-                            cmd: "remove".to_string(),
-                            task: "drop-keyspace".to_string(),
-                            host: "_local".to_string(),
-                        };
-                        let cql = format!(
-                            "DROP KEYSPACE {}",
-                            cluster_config.deployment.get_keyspace()?
-                        );
-                        let task =
-                            CassandraOpTask::new(task_id.clone(), host, cass.client_port()?, cql);
-                        let inst = TaskInstance {
-                            task_input: HashMap::default(),
-                            task: Box::new(task),
-                            task_host: TaskHost::Local,
-                        };
-                        barrier.push(1);
-                        executable.insert(task_id, inst);
-                    }
-                }
-                StorageProvider::Dynamodb => {
+                crate::config::StorageProvider::Dynamodb => {
                     bail!("drop dynamodb keyspace is not implemented")
                 }
-                StorageProvider::Rocksdb => {}
-                StorageProvider::EloqDSS => {
+                crate::config::StorageProvider::Rocksdb => {}
+                crate::config::StorageProvider::EloqDSS => {
                     // Handle DataStoreService storage provider cleanup
                     if let Some(dss) = &store.eloqdss {
                         use crate::config::storage_service_config::DataStoreServiceBackend;

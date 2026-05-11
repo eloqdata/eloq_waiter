@@ -1,21 +1,16 @@
 use crate::cli::task::monograph_tx_ctl_task::ServerType;
 use crate::cli::{create_upload_cluster_dir, upload_dir};
 use crate::config::config_base::{
-    export_asan, CASSANDRA_FILE_KEY, LOG_SERVICE_HOME, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
+    export_asan, LOG_SERVICE_HOME, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
 };
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
-use crate::config::storage_service_config::{
-    Cassandra, DataStoreServiceBackend, RocksDB, StorageService,
-};
-use crate::config::ConfigErr::GenCassandraConfigErr;
+use crate::config::storage_service_config::{DataStoreServiceBackend, RocksDB, StorageService};
 use crate::config::{
-    cluster_config_template, config_template, load_yaml_config_template, DeploymentPackage,
-    DownloadUrl, StorageProvider, CASSANDRA_CONF_TEMPLATE, CASSANDRA_JVM_OPTION,
-    CASSANDRA_JVM_TEMPLATE, CDN, CODIS_DASHBOARD_CNF, CODIS_PROXY_CNF, ELOQDSS_TEMPLATE_INI,
-    ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI, ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI,
-    ELOQSQL_TEMPLATE_INI, JVM_SETTING_HOLDER, SECTION_CLUSTER, SECTION_LOCAL, SECTION_MARIADB,
-    SECTION_METRIC, SECTION_STORE,
+    cluster_config_template, config_template, DeploymentPackage, DownloadUrl, StorageProvider, CDN,
+    CODIS_PROXY_CNF, ELOQDSS_TEMPLATE_INI, ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI,
+    ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI, ELOQSQL_TEMPLATE_INI, SECTION_CLUSTER,
+    SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC, SECTION_STORE,
 };
 use anyhow::{anyhow, Result};
 use chrono::Local;
@@ -23,10 +18,9 @@ use configparser::ini::Ini;
 use core::panic;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -35,27 +29,6 @@ use std::str::FromStr;
 use strum_macros::Display;
 use tracing::warn;
 
-const GC_SETTING_CMS: &str = "
--XX:+UseConcMarkSweepGC
--XX:+CMSParallelRemarkEnabled
--XX:SurvivorRatio=8
--XX:MaxTenuringThreshold=1
--XX:CMSInitiatingOccupancyFraction=75
--XX:+UseCMSInitiatingOccupancyOnly
--XX:CMSWaitDuration=10000
--XX:+CMSParallelInitialMarkEnabled
--XX:+CMSEdenChunksRecordAlways
--XX:+CMSClassUnloadingEnabled
-";
-const GC_SETTING_G1: &str = "
--XX:+UseG1GC
--XX:+ParallelRefProcEnabled
--XX:MaxTenuringThreshold=1
--XX:G1HeapRegionSize=16m
--XX:G1RSetUpdatingPauseTimePercent=5
--XX:MaxGCPauseMillis=300
--XX:InitiatingHeapOccupancyPercent=70
-";
 const GB: u32 = 1024; // *MiB
 
 // pub(crate) static VERSION_PATT: LazyLock<Regex> =
@@ -228,20 +201,10 @@ impl Codis {
         format!("{install_dir}/codis")
     }
     pub fn dashboard_cfg(config: &Deployment) -> anyhow::Result<String> {
-        // Check if storage_service exists
-        if let Some(storage) = config.storage_service.as_ref() {
-            if let Some(coord) = storage.cassandra.as_ref() {
-                let port = coord.client_port()?;
-                let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
-                let keyspace = config.get_redis_keyspace()?;
-                let cmds = format!(
-                    "sed -i 's/coordinator_addr.*/coordinator_addr = \"{addr}\"/g ; s/coordinator_keyspace.*/coordinator_keyspace = \"{}\"/g' {}/dashboard.toml",
-                    keyspace, Self::dir(&config.install_dir())
-                );
-                return Ok(cmds);
-            }
-        }
-        Err(anyhow!("Codis requires storage_service with cassandra"))
+        let _ = config;
+        Err(anyhow!(
+            "Codis configuration is not supported because the legacy coordinator flow has been removed"
+        ))
     }
 }
 
@@ -502,10 +465,6 @@ impl Deployment {
             .unwrap_or(false)
     }
 
-    pub fn cassandra_home(&self) -> String {
-        format!("{}/cassandra", &self.install_dir())
-    }
-
     pub fn tx_srv_ini(&self, port: &str) -> String {
         let home = self.tx_srv_home();
         match self.product() {
@@ -618,53 +577,35 @@ impl Deployment {
     pub fn build_eloqsql_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
         let mut my_ini = Ini::new();
         let storage = self.storage_service.as_ref();
-        if let Some(cass) = storage.and_then(|s| s.cassandra.as_ref()) {
-            my_ini
-                .load(config_template(ELOQSQL_TEMPLATE_INI)?.as_path())
-                .unwrap();
-            let hosts = cass.host.join(",");
-            my_ini.set(SECTION_MARIADB, "eloq_cass_hosts", Some(hosts));
-            let port = cass.client_port()?;
-            my_ini.set(SECTION_MARIADB, "eloq_cass_port", Some(port.to_string()));
-            if let Some(conn) = cass.external() {
-                if let Some(user) = conn.user.clone() {
-                    my_ini.set(SECTION_MARIADB, "eloq_cass_user", Some(user));
-                }
-                if let Some(pwd) = conn.password.clone() {
-                    my_ini.set(SECTION_MARIADB, "eloq_cass_password", Some(pwd));
-                }
-            }
-        } else {
-            my_ini
-                .load(config_template(ELOQSQL_DYNAMO_TEMPLATE_INI)?.as_path())
-                .unwrap();
+        my_ini
+            .load(config_template(ELOQSQL_DYNAMO_TEMPLATE_INI)?.as_path())
+            .unwrap();
 
-            let dynamodb = storage
-                .expect("storage_service is required")
-                .dynamodb
-                .as_ref()
-                .unwrap();
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_aws_access_key_id",
-                Some(dynamodb.clone().access_key_id),
-            );
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_aws_secret_key",
-                Some(dynamodb.clone().secret_key),
-            );
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_dynamodb_region",
-                Some(dynamodb.clone().region),
-            );
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_dynamodb_endpoint",
-                Some(dynamodb.clone().endpoint),
-            );
-        }
+        let dynamodb = storage
+            .expect("storage_service is required")
+            .dynamodb
+            .as_ref()
+            .unwrap();
+        my_ini.set(
+            SECTION_MARIADB,
+            "eloq_aws_access_key_id",
+            Some(dynamodb.clone().access_key_id),
+        );
+        my_ini.set(
+            SECTION_MARIADB,
+            "eloq_aws_secret_key",
+            Some(dynamodb.clone().secret_key),
+        );
+        my_ini.set(
+            SECTION_MARIADB,
+            "eloq_dynamodb_region",
+            Some(dynamodb.clone().region),
+        );
+        my_ini.set(
+            SECTION_MARIADB,
+            "eloq_dynamodb_endpoint",
+            Some(dynamodb.clone().endpoint),
+        );
         // mysql_ini.set(
         //     CONFIG_MARIADB_SECTION,
         //     "eloq_keyspace_name",
@@ -857,23 +798,6 @@ impl Deployment {
         // Only configure storage if storage_service is provided
         if let Some(storage) = self.storage_service.as_ref() {
             match storage.provider().unwrap() {
-                StorageProvider::Cassandra => {
-                    let cass = storage.cassandra.as_ref().unwrap();
-                    let cassandra_hosts = cass.host.join(",");
-                    ini.set(SECTION_STORE, "cass_hosts", Some(cassandra_hosts));
-                    let port = cass.client_port()?;
-                    ini.set(SECTION_STORE, "cass_port", Some(port.to_string()));
-                    if let Some(conn) = cass.external() {
-                        if let Some(user) = conn.user.clone() {
-                            ini.set(SECTION_STORE, "cass_user", Some(user));
-                        }
-                        if let Some(pwd) = conn.password.clone() {
-                            ini.set(SECTION_STORE, "cass_password", Some(pwd));
-                        }
-                    }
-                    let factor = cass.host.len().min(3).to_string();
-                    ini.set(SECTION_STORE, "cass_keyspace_replication", Some(factor));
-                }
                 StorageProvider::Dynamodb => panic!("not supported"),
                 StorageProvider::Rocksdb => match storage.rocksdb.clone().unwrap() {
                     RocksDB::LOCAL(local) => {
@@ -2414,31 +2338,10 @@ impl Deployment {
 
     // generate dashboard config file
     pub fn codis_dashboard_config(&self) -> anyhow::Result<PathBuf> {
-        let temp = fs::read_to_string(config_template(CODIS_DASHBOARD_CNF)?)?;
-        let mut cnf = toml::Table::from_str(&temp)?;
-        cnf.insert(
-            "product_name".to_owned(),
-            toml::Value::String(self.cluster_name.clone()),
-        );
-
-        // Check if storage_service exists
-        if let Some(storage) = self.storage_service.as_ref() {
-            if let Some(coord) = storage.cassandra.as_ref() {
-                let port = coord.client_port()?;
-                let addr = coord.host.iter().map(|ip| format!("{ip}:{port}")).join(",");
-                let keyspace = self.get_redis_keyspace()?;
-                cnf.insert("coordinator_addr".to_owned(), toml::Value::String(addr));
-                cnf.insert(
-                    "coordinator_keyspace".to_owned(),
-                    toml::Value::String(keyspace),
-                );
-                // write toml
-                let path_dashb = upload_dir().join(CODIS_DASHBOARD_CNF);
-                fs::File::create(path_dashb.as_path())?.write_all(cnf.to_string().as_bytes())?;
-                return Ok(path_dashb);
-            }
-        }
-        Err(anyhow!("Codis requires storage_service with cassandra"))
+        let _ = self;
+        Err(anyhow!(
+            "Codis configuration is not supported because the legacy coordinator flow has been removed"
+        ))
     }
 
     pub fn monograph_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
@@ -2446,15 +2349,6 @@ impl Deployment {
         download_urls!(links,{MONOGRAPH_FILE_KEY, self.tx_image()});
         if let Some(img) = self.log_image() {
             download_urls!(links,{MONOGRAPH_LOG_FILE_KEY, img});
-        }
-        if let Some(storage) = self.storage_service.as_ref() {
-            if let Some(cass) = storage.cassandra.as_ref() {
-                if let Some(cassdp) = cass.internal() {
-                    download_urls!(links,
-                        {CASSANDRA_FILE_KEY, &cassdp.image_url()}
-                    );
-                }
-            }
         }
         Ok(links)
     }
@@ -2487,16 +2381,7 @@ impl Deployment {
 
     pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
         match service {
-            DeploymentPackage::Storage => {
-                if let Some(storage) = &self.storage_service {
-                    if let Some(cassandra) = &storage.cassandra {
-                        if cassandra.internal().is_some() {
-                            return cassandra.host.to_vec();
-                        }
-                    }
-                }
-                vec![]
-            }
+            DeploymentPackage::Storage => vec![],
             DeploymentPackage::MonographLog => {
                 if let Some(ref log_srv) = self.log_service {
                     log_srv.log_host_unique()
@@ -2587,117 +2472,11 @@ impl Deployment {
         self.populate_topo(&mut topo, DeploymentPackage::MonographTx);
         self.populate_topo(&mut topo, DeploymentPackage::MonographStandby);
         self.populate_topo(&mut topo, DeploymentPackage::MonographVoter);
-        self.populate_topo(&mut topo, DeploymentPackage::Storage);
         self.populate_topo(&mut topo, DeploymentPackage::Prometheus);
         self.populate_topo(&mut topo, DeploymentPackage::Grafana);
         self.populate_topo(&mut topo, DeploymentPackage::MonographLog);
         self.populate_topo(&mut topo, DeploymentPackage::Codis);
         topo
-    }
-
-    // key is cassandra node IP, value config files path
-    pub fn gen_cassandra_config(
-        &self,
-        install_dir: String,
-        cluster_name: String,
-    ) -> anyhow::Result<HashMap<String, Vec<PathBuf>>> {
-        let storage = self.storage_service.as_ref();
-        if storage.and_then(|s| s.cassandra.as_ref()).is_none() {
-            return Err(anyhow!(GenCassandraConfigErr("NotCassandra".to_string())));
-        }
-        let mut configs = vec![];
-        if let Some(monitor) = &self.monitor {
-            if monitor.cassandra_collector.is_some() {
-                let storage = storage.expect("storage_service exists since we checked above");
-                let p = storage.gen_cassandra_env(&cluster_name, install_dir)?;
-                configs.push(p);
-            }
-        }
-        let jvm_temp = fs::read_to_string(config_template(CASSANDRA_JVM_TEMPLATE)?)?;
-        let tune_jvm = jvm_temp.contains(JVM_SETTING_HOLDER);
-        let cass = storage
-            .expect("storage_service exists since we checked above")
-            .cassandra
-            .as_ref()
-            .unwrap();
-        // cassandra.yaml config object
-        let mut cass_conf_map = load_yaml_config_template(CASSANDRA_CONF_TEMPLATE)?;
-        let storage_cluster = if let Some(cassdp) = cass.internal() {
-            cassdp.cluster_name.clone().unwrap_or(cluster_name.clone())
-        } else {
-            unreachable!()
-        };
-        let nodes_topo = self.topology();
-
-        cass_conf_map.insert("cluster_name".to_string(), Value::String(storage_cluster));
-        let seeds = cass.host.iter().take(Cassandra::MAX_SEED).join(",");
-        let seed_values = format!(
-            r#"
-               - class_name: org.apache.cassandra.locator.SimpleSeedProvider
-                 parameters:
-                 - seeds: {seeds}"#,
-        );
-        let seed_yaml_value: Value = serde_yaml::from_str(seed_values.as_str())?;
-        cass_conf_map.insert(String::from("seed_provider"), seed_yaml_value);
-        let cass_config_vec = cass
-            .host
-            .iter()
-            .map(|host| {
-                let host_value = Value::String(host.to_string());
-                cass_conf_map.insert(String::from("listen_address"), host_value.clone());
-                cass_conf_map.insert(
-                    String::from("rpc_address"),
-                    Value::String("0.0.0.0".to_string()),
-                );
-                cass_conf_map.insert(String::from("broadcast_rpc_address"), host_value.clone());
-                cass_conf_map.insert(String::from("broadcast_address"), host_value);
-                // Store cassandra.yaml inside .eloqctl/upload/${cluster_name}/${host}/cassandra.yaml
-                let cluster_host_path = format!("{}/{}", cluster_name, host);
-                let config_path =
-                    create_upload_cluster_dir(&cluster_host_path).join("cassandra.yaml");
-                let new_config_file = File::create(config_path.as_path()).unwrap();
-                let gen_config_write = serde_yaml::to_writer(new_config_file, &cass_conf_map);
-                assert!(gen_config_write.is_ok());
-                let mut host_configs = configs.clone();
-                host_configs.push(config_path);
-
-                // Tune JVM for each cassandra node
-                // https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/operations/opsTuneJVM.html
-                let jvm_opt = if tune_jvm {
-                    let gc_setting;
-                    if let Some(hw) = self.get_hardware(host) {
-                        let union = nodes_topo
-                            .get(host)
-                            .unwrap()
-                            .contains(&DeploymentPackage::MonographTx);
-                        let heap = if union { hw.memory / 4 } else { hw.memory / 2 }.min(64 * GB);
-                        let h_xm = format!("-Xms{}M\n-Xmx{}M", heap, heap);
-                        if heap < 8 * GB {
-                            gc_setting = format!("{GC_SETTING_CMS}\n{h_xm}");
-                        } else {
-                            gc_setting = format!("{GC_SETTING_G1}\n{h_xm}");
-                        }
-                    } else {
-                        warn!("cass node hardware information for {} is missing", host);
-                        gc_setting = GC_SETTING_CMS.to_owned();
-                    }
-                    jvm_temp.clone().replace(JVM_SETTING_HOLDER, &gc_setting)
-                } else {
-                    jvm_temp.clone()
-                };
-                // Store jvm11-server.options inside .eloqctl/upload/${cluster_name}/${host}/jvm11-server.options
-                let opt_path =
-                    create_upload_cluster_dir(&cluster_host_path).join(CASSANDRA_JVM_OPTION);
-                File::create(opt_path.as_path())
-                    .unwrap()
-                    .write_all(jvm_opt.as_bytes())
-                    .unwrap();
-                host_configs.push(opt_path);
-                (host.to_string(), host_configs)
-            })
-            .collect::<HashMap<String, Vec<PathBuf>>>();
-
-        Ok(cass_config_vec)
     }
 
     /// Generate environment variable export statements from configuration

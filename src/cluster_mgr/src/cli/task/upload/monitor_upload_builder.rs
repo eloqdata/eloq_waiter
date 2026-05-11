@@ -116,13 +116,6 @@ impl MonitorInfraConfUploadBuilder {
 
         // Handle Prometheus configuration separately
         if monitor.prometheus.is_some() {
-            let cass_config_host_ref = all_host.get(&DeploymentPackage::Storage).unwrap();
-            let cass_config_hosts = cass_config_host_ref.clone();
-
-            let mcac_config = monitor
-                .gen_mcac_file_sd_config(&config.deployment.cluster_name, cass_config_hosts.clone())
-                .unwrap(); // Prometheus MCAC config
-
             let log_hosts = all_host.get(&DeploymentPackage::MonographLog).unwrap();
             let mut jobs = HashMap::from([
                 (
@@ -131,12 +124,7 @@ impl MonitorInfraConfUploadBuilder {
                 ),
                 (
                     NODE_EXPORTER_JOB_NAME.to_string(),
-                    [
-                        &merged_tx_standby_hosts[..],
-                        &log_hosts.clone()[..],
-                        &cass_config_hosts[..],
-                    ]
-                    .concat(),
+                    [&merged_tx_standby_hosts[..], &log_hosts.clone()[..]].concat(),
                 ),
             ]);
 
@@ -150,11 +138,6 @@ impl MonitorInfraConfUploadBuilder {
             let prometheus_conf = monitor
                 .gen_prometheus_config(&config.deployment.cluster_name, jobs)
                 .unwrap(); // Prometheus config
-            let prometheus_conf_files = if let Some(mcac) = mcac_config {
-                vec![prometheus_conf, mcac]
-            } else {
-                vec![prometheus_conf]
-            };
 
             // Upload alert.rules to prometheus config directory
             let alert_rules_source = upload_dir()
@@ -177,16 +160,11 @@ impl MonitorInfraConfUploadBuilder {
             // Add the alert.rules file to the upload list
             upload_files.push(alert_rules_upload_file);
 
-            let prometheus_conf_source_files = prometheus_conf_files
-                .iter()
-                .map(|prome_conf| MonitorInfraConfUploadBuilder::path_string(prome_conf.clone()))
-                .join(" ");
-
             // Prepare the Prometheus UploadFile
             let prometheus_upload_file = UploadFile {
-                source: prometheus_conf_source_files,
+                source: MonitorInfraConfUploadBuilder::path_string(prometheus_conf),
                 dest: format!("{install_dir}/{PROMETHEUS_CONFIG_DIR}"),
-                extension: "prometheus,mcac".to_string(),
+                extension: "prometheus".to_string(),
                 host: MonitorInfraConfUploadBuilder::monitor_host(
                     &all_host,
                     DeploymentPackage::Prometheus,

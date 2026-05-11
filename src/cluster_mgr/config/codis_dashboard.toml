@@ -5,11 +5,11 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd" & "filesystem".
-# for zookeeper/etcd, coorinator_auth accept "user:password" 
-# Quick Start
-coordinator_name = "cassandra"
-coordinator_addr = "127.0.0.1:9042"
+# Set Coordinator.
+# This template is retained for legacy Codis wiring, but the former
+# coordinator-backed flow is no longer supported by eloqctl.
+coordinator_name = "unsupported"
+coordinator_addr = "127.0.0.1:0"
 coordinator_auth = ""
 coordinator_keyspace = "mono_redis"
 

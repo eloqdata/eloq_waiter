@@ -23,12 +23,10 @@ pub const LOG_SERVICE_HOME: &str = "LogServer";
 
 pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
 pub const MONOGRAPH_LOG_FILE_KEY: &str = "monograph_log";
-pub const CASSANDRA_FILE_KEY: &str = "cassandra";
 pub const PROMETHEUS_FILE_KEY: &str = "prometheus";
 pub const GRAFANA_FILE_KEY: &str = "grafana";
 pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
 pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
-pub const CASSANDRA_COLLECTOR_AGENT_FILE_KEY: &str = "datastax-mcac-agent";
 pub const DEPLOYMENT_CHECK_SUCCESS_TASK: &str = "deploy_check_success_task";
 pub const SCALED_CLUSTER_CONFIG: &str = "cluster_config";
 
@@ -100,11 +98,6 @@ impl DeployConfig {
 
     fn unpack_links_map(&self) -> HashMap<DeploymentPackage, Vec<DownloadUrl>> {
         let all_hosts = self.get_host_as_map();
-        let cassandra_opt = self
-            .deployment
-            .storage_service
-            .as_ref()
-            .and_then(|s| s.cassandra.as_ref());
         let monitor_opt = self.deployment.monitor.as_ref();
         let tx_image = self.deployment.tx_image();
         let log_image = self.deployment.log_image();
@@ -118,25 +111,7 @@ impl DeployConfig {
             .map(|pkg| {
                 let mut unpack_files = vec![];
                 match pkg {
-                    DeploymentPackage::Storage => {
-                        if let Some(cassandra) = cassandra_opt {
-                            if let Some(cassdply) = cassandra.internal() {
-                                let cass_url =
-                                    DownloadUrl::from_url_str(&cassdply.image_url()).unwrap();
-                                unpack_files.push(cass_url);
-                                extract_monitor_link!(
-                                    monitor_link,
-                                    NODE_EXPORTER_FILE_KEY,
-                                    unpack_files
-                                );
-                                extract_monitor_link!(
-                                    monitor_link,
-                                    CASSANDRA_COLLECTOR_AGENT_FILE_KEY,
-                                    unpack_files
-                                );
-                            }
-                        }
-                    }
+                    DeploymentPackage::Storage => {}
                     DeploymentPackage::MonographTx => {
                         extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
                         extract_monitor_link!(monitor_link, MYSQL_EXPORTER_FILE_KEY, unpack_files);
@@ -679,11 +654,6 @@ impl DeployConfig {
                 paths.push(base.join("eloqkv"));
             }
         }
-        if let Some(storage) = &self.deployment.storage_service {
-            if storage.inner_cass().is_some() {
-                paths.push(base.join("cassandra"));
-            }
-        }
         paths
             .into_iter()
             .flat_map(|p| {
@@ -757,8 +727,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_cass_env_gen() {
-        let config = load_test_config("eloqkv_cassandra.yaml");
+    pub fn test_prometheus_config_gen() {
+        let config = load_test_config("eloqkv_rocks_s3.yaml");
         let monitor_opt = config.clone().deployment.monitor;
         let monitor = monitor_opt.as_ref();
         assert!(monitor.is_some());
@@ -774,7 +744,7 @@ mod tests {
 
     #[test]
     pub fn test_redis_password_falls_back_to_requirepass() {
-        let mut config = load_test_config("eloqkv_cassandra.yaml");
+        let mut config = load_test_config("eloqkv_rocksdb.yaml");
 
         config.deployment.tx_service.requirepass = Some("requirepass-from-config".to_string());
 

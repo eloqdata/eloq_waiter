@@ -1,11 +1,10 @@
 use crate::config::ConfigErr::DownloadUrlFormatErr;
 use anyhow::anyhow;
 use itertools::Itertools;
-use regex::Regex;
 use serde_yaml::Value;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read};
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use strum_macros::{AsRefStr, Display};
 use thiserror::Error;
@@ -36,10 +35,6 @@ pub const CODIS_DASHBOARD_CNF: &str = "codis_dashboard.toml";
 
 pub const START_LOG_TEMPLATE: &str = "start_tx_log.bash";
 pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
-pub const CASSANDRA_CONF_TEMPLATE: &str = "cassandra_template.yaml";
-pub const CASSANDRA_ENV_TEMPLATE: &str = "cassandra-env-template";
-pub const CASSANDRA_JVM_OPTION: &str = "jvm11-server.options";
-pub const CASSANDRA_JVM_TEMPLATE: &str = "jvm11-server.template";
 pub const JVM_SETTING_HOLDER: &str = "_GC_SETTINGS_PLACEHOLDER_";
 pub const PROMETHEUS_CONFIG_TEMPLATE: &str = "mono_prometheus.yaml";
 pub const MONITOR_DIR: &str = "monitor";
@@ -48,10 +43,7 @@ pub const ALERT_RULES_TEMPLATE: &str = "alert.rules";
 pub const GRAFANA_DASHBOARDS_CONFIG_TEMPLATE: &str = "grafana_dashboards.yaml";
 
 pub const PROMETHEUS_CONFIG_FILE: &str = "prometheus.yml";
-pub const CASS_MCAC_CONF_FILE: &str = "tg_mcac.json";
 pub const GRAFANA_PROMETHEUS_DS_FILE: &str = "prometheus-datasource.yml";
-
-pub const MCAC_PROMETHEUS_CONFIG_TEMPLATE: &str = "mcac_prometheus.yaml";
 
 pub const GRAFANA_CONFIG_TEMPLATE: &str = "grafana_config.ini";
 pub const GRAFANA_CONFIG_FILE: &str = "defaults.ini";
@@ -106,11 +98,8 @@ macro_rules! all_hosts_merge {
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]
 pub enum ConfigErr {
-    #[error("MonographDB storage provider config error [{0}].For now only support Cassandra or DynamoDB, \
-    You can choose either one.")]
+    #[error("MonographDB storage provider config error [{0}].")]
     StorageConfigErr(String),
-    #[error("The current configuration of the storage provider is not Cassandra. Storage Provider is {0}")]
-    GenCassandraConfigErr(String),
     #[error("The download url format is incorrect. Storage Provider is {0}")]
     DownloadUrlFormatErr(String),
 }
@@ -133,8 +122,6 @@ pub enum TopoFormat {
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
 pub enum StorageProvider {
-    #[strum(serialize = "cassandra")]
-    Cassandra,
     #[strum(serialize = "dynamodb")]
     Dynamodb,
     #[strum(serialize = "rocksdb")]
@@ -303,32 +290,4 @@ pub fn load_yaml_config_template(template_name: &str) -> anyhow::Result<HashMap<
     let cass_opened_file = File::open(cass_template_path_buf.as_path())?;
     let yaml_map = serde_yaml::from_reader::<File, HashMap<String, Value>>(cass_opened_file)?;
     Ok(yaml_map)
-}
-
-pub fn cassandra_used_ports() -> Vec<(String, u16)> {
-    let cass_cnf =
-        load_yaml_config_template(CASSANDRA_CONF_TEMPLATE).expect("cassandra config invalid");
-    let mut used = vec![];
-    for name in ["native_transport_port", "storage_port", "ssl_storage_port"] {
-        let port = cass_cnf
-            .get(name)
-            .expect("port is not configured")
-            .as_u64()
-            .expect("port is invalid") as u16;
-        used.push((name.to_owned(), port));
-    }
-
-    let re = Regex::new(r#"^(?<name>\w+)_PORT="(?<port>\d{1,5})""#).expect("invalid regex pattern");
-    let cass_env_p = config_template(CASSANDRA_ENV_TEMPLATE).expect("cassandra env config missing");
-    let cass_env = fs::File::open(cass_env_p).unwrap();
-    for line in BufReader::new(cass_env).lines().map(|l| l.unwrap()) {
-        if let Some(caps) = re.captures(&line) {
-            if let Ok(p) = caps["port"].parse::<u16>() {
-                used.push((caps["name"].to_owned(), p));
-            } else {
-                error!("cassandra port of {} is {}", &caps["name"], &caps["port"]);
-            }
-        }
-    }
-    used
 }

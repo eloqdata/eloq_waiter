@@ -8,7 +8,6 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
-cdrs-tokio = "8.1.2"
 clap = { version = "4.2", features = ["derive"] }
 clap_complete = "4.5"
 chrono = { version = "0.4", features = ["serde"] }

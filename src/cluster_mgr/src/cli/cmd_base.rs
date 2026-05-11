@@ -10,8 +10,7 @@ use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::storage_service_config::{
-    CassConnect, CassDeploy, CassKind, Cassandra, DataStoreServiceBackend, DataStoreServiceMode,
-    RocksDB, RocksLocal, StorageService,
+    DataStoreServiceBackend, DataStoreServiceMode, RocksDB, RocksLocal, StorageService,
 };
 use crate::config::{StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR};
 use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
@@ -482,8 +481,6 @@ impl CmdExecutor {
             SubCommand::Update {
                 cluster: Some(cluster),
                 version,
-                cassandra,
-                cass_mirror,
                 ..
             } => {
                 let mut config = self
@@ -501,33 +498,6 @@ impl CmdExecutor {
                         logsrv.image = None;
                     }
                     self.resolve_version(&mut config.deployment).await?;
-                }
-                if cassandra.is_some() || cass_mirror.is_some() {
-                    let cass = &mut config
-                        .deployment
-                        .storage_service
-                        .as_mut()
-                        .expect("storage_service is required")
-                        .cassandra;
-                    if cass.is_none() {
-                        bail!("do not have cassandra");
-                    }
-                    if cass.is_none() {
-                        bail!("do not have cassandra");
-                    }
-                    if let CassKind::Internal(cass) = &mut cass.as_mut().unwrap().kind {
-                        if let Some(v) = cassandra {
-                            if v == cass.version {
-                                warn!("cassandra version not changed")
-                            }
-                            cass.version = v;
-                        }
-                        if let Some(mi) = cass_mirror {
-                            cass.mirror = Some(mi);
-                        }
-                    } else {
-                        bail!("can not update cassandra");
-                    }
                 }
 
                 // Validate metrics configuration
@@ -1133,9 +1103,6 @@ impl CmdExecutor {
                 unlimited,
                 no_monitor,
                 joint_wal,
-                ext_cass,
-                cass_port,
-                cass_auth,
             } => {
                 let topology = format!(
                     "{}/demo-{product}.yaml",
@@ -1143,54 +1110,16 @@ impl CmdExecutor {
                 );
                 let mut config = DeployConfig::load(Some(topology))?;
                 let deploy = &mut config.deployment;
+                if product == Product::EloqSQL && store != StorageProvider::Dynamodb {
+                    bail!("EloqSQL demo only supports dynamodb storage");
+                }
                 // set storage
                 match store {
-                    StorageProvider::Cassandra => {
-                        let host;
-                        let kind;
-                        if !ext_cass.is_empty() {
-                            host = ext_cass;
-                            let mut user = None;
-                            let mut password = None;
-                            if let Some(auth) = cass_auth {
-                                if let Some((u, p)) = auth.split_once(':') {
-                                    if !u.is_empty() {
-                                        user = Some(u.to_owned());
-                                    }
-                                    if !p.is_empty() {
-                                        password = Some(p.to_owned());
-                                    }
-                                }
-                            }
-                            kind = CassKind::External(CassConnect {
-                                port: cass_port,
-                                user,
-                                password,
-                            });
-                        } else {
-                            host = vec!["127.0.0.1".to_owned()];
-                            kind = CassKind::Internal(CassDeploy {
-                                mirror: Some(CDN.to_owned()),
-                                version: "4.1.3".to_owned(),
-                                cluster_name: None,
-                            });
-                        };
-                        deploy
-                            .storage_service
-                            .get_or_insert(StorageService {
-                                cassandra: None,
-                                dynamodb: None,
-                                rocksdb: None,
-                                eloqdss: None,
-                            })
-                            .cassandra = Some(Cassandra { host, kind });
-                    }
                     StorageProvider::Dynamodb => unimplemented!(),
                     StorageProvider::Rocksdb => {
                         deploy
                             .storage_service
                             .get_or_insert(StorageService {
-                                cassandra: None,
                                 dynamodb: None,
                                 rocksdb: None,
                                 eloqdss: None,
@@ -1260,7 +1189,6 @@ impl CmdExecutor {
                         deploy
                             .storage_service
                             .get_or_insert(StorageService {
-                                cassandra: None,
                                 dynamodb: None,
                                 rocksdb: None,
                                 eloqdss: None,
@@ -1287,10 +1215,6 @@ impl CmdExecutor {
                     deploy.monitor = None;
                 }
                 if let Some(monitor) = &mut deploy.monitor {
-                    if store != StorageProvider::Cassandra {
-                        monitor.cassandra_collector = None
-                    }
-
                     // Check metrics configuration
                     let has_monograph = monitor.monograph_metrics.is_some();
                     let has_eloq = monitor.eloq_metrics.is_some();

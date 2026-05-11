@@ -3,7 +3,6 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
 };
 use crate::config::config_base::{DeployConfig, LOG_SERVICE_HOME};
-use crate::config::storage_service_config::CassKind;
 use crate::config::DownloadUrl;
 use crate::task_return_value;
 use async_trait::async_trait;
@@ -13,14 +12,14 @@ use std::collections::HashMap;
 use tracing::info;
 
 pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
-    "cassandra",
     "prometheus",
     "grafana",
     "node_exporter",
     "mysqld_exporter",
-    "datastax-mcac-agent",
     "monograph-logserver",
     "codis",
+    "eloqkv-proxy",
+    "monographdb",
 ];
 
 #[derive(Debug, Clone)]
@@ -172,36 +171,6 @@ impl UnpackFileTask {
         }
         tasks
     }
-
-    pub fn unpack_cassandra(config: &DeployConfig, ex_cnf: bool) -> IndexMap<TaskId, TaskInstance> {
-        let deploy_ref = &config.deployment;
-        if let Some(storage) = &deploy_ref.storage_service {
-            if let Some(cass) = &storage.cassandra {
-                if let CassKind::Internal(cdp) = &cass.kind {
-                    let image = cdp.image_file();
-                    let home = extract_unpacked_name(&image);
-                    let exclude = if ex_cnf {
-                        vec![
-                            "conf/cassandra.yaml".to_owned(),
-                            "conf/jvm11-server.options".to_owned(),
-                            "conf/cassandra-env.sh".to_owned(),
-                        ]
-                    } else {
-                        vec![]
-                    };
-                    return cass
-                        .host
-                        .iter()
-                        .map(|host| {
-                            Self::make_task_pair(config, host, &image, &home, exclude.clone())
-                        })
-                        .collect();
-                }
-            }
-        }
-        IndexMap::new()
-    }
-
     fn make_task_pair(
         config: &DeployConfig,
         host: &str,

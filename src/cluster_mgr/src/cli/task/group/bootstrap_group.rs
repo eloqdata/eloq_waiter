@@ -1,4 +1,3 @@
-use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::copy_task::CopyTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, InstallDBTaskGroup, TaskGroup};
@@ -34,35 +33,7 @@ impl TaskGroup for InstallDBTaskGroup {
             cluster: cluster_config.clone().deployment.cluster_name,
         };
         if let Some(storage_service) = &cluster_config.deployment.storage_service {
-            if let Some(cass) = &storage_service.cassandra {
-                if cass.internal().is_some() {
-                    let upload_cass_config_task =
-                        upload_tasks(UploadTaskBuilderType::CassConf, config);
-                    barrier.push(upload_cass_config_task.len());
-                    executable.extend(upload_cass_config_task);
-                    if let Some(monitor) = cluster_config.deployment.monitor.as_ref() {
-                        if let Some(mcac_collector) = &monitor.cassandra_collector {
-                            let install_dir = cluster_config.install_dir();
-                            let update_http_port_cmd =
-                                mcac_collector.update_http_port_cmd(install_dir);
-                            let cassandra_hosts =
-                                cluster_config.get_host_list(DeploymentPackage::Storage);
-                            let update_http_port_task = ExecCustomCommand::build_task_by_host(
-                                update_http_port_cmd,
-                                config,
-                                cassandra_hosts,
-                                None,
-                            );
-                            barrier.push(update_http_port_task.len());
-                            executable.extend(update_http_port_task);
-                        }
-                    }
-                    let cassandra_start =
-                        CassandraCtlTask::from_config(install_cmd, cluster_config);
-                    barrier.extend(CassandraCtlTask::start_barrier(cassandra_start.len()));
-                    executable.extend(cassandra_start);
-                }
-            } else if let Some(dss) = &storage_service.eloqdss {
+            if let Some(dss) = &storage_service.eloqdss {
                 // Handle DataStoreService: check backend type and handle accordingly
                 use crate::config::storage_service_config::DataStoreServiceBackend;
                 match dss.backend_config() {
@@ -100,8 +71,7 @@ impl TaskGroup for InstallDBTaskGroup {
         let process_only_first_host_port =
             if let Some(storage_service) = &cluster_config.deployment.storage_service {
                 use crate::config::storage_service_config::DataStoreServiceBackend;
-                storage_service.cassandra.is_some()
-                    || storage_service.dynamodb.is_some()
+                storage_service.dynamodb.is_some()
                     || (storage_service.eloqdss.is_some()
                         && matches!(
                             storage_service.eloqdss.as_ref().unwrap().backend_config(),
