@@ -59,6 +59,8 @@ deployment:
       download_url: "https://github.com/prometheus/prometheus/releases/download/v2.42.0/prometheus-2.42.0.linux-amd64.tar.gz"
       port: 9500
       host: 10.0.0.3
+      # remote_write_urls:
+      #   - "http://vminsert-ieorange.ai-transsion.com/insert/0/prometheus"
     grafana:
       download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
       port: 3301
