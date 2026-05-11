@@ -40,6 +40,8 @@ deployment:
       download_url: "https://github.com/prometheus/prometheus/releases/download/v2.42.0/prometheus-2.42.0.linux-amd64.tar.gz"
       port: 9500
       host: 127.0.0.1
+      # retention_time: "15d"
+      # retention_size: "50GB"
     grafana:
       download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
       port: 3301

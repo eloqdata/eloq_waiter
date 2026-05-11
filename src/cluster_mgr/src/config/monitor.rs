@@ -1,14 +1,12 @@
 use crate::cli::upload_dir;
 use crate::config::config_base::{
-    CASSANDRA_COLLECTOR_AGENT_FILE_KEY, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
-    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::{
-    config_template, load_yaml_config_template, DownloadUrl, CASS_MCAC_CONF_FILE,
-    CREATE_MONITOR_USER_SQL_FILE, GRAFANA_CONFIG_FILE, GRAFANA_CONFIG_TEMPLATE,
-    GRAFANA_DASHBOARDS_CONFIG_TEMPLATE, GRAFANA_PROMETHEUS_DS_FILE,
-    MCAC_PROMETHEUS_CONFIG_TEMPLATE, MONITOR_DIR, MYSQL_EXPORTER_CLIENT_CONFIG,
-    PROMETHEUS_CONFIG_FILE, PROMETHEUS_CONFIG_TEMPLATE,
+    config_template, load_yaml_config_template, DownloadUrl, CREATE_MONITOR_USER_SQL_FILE,
+    GRAFANA_CONFIG_FILE, GRAFANA_CONFIG_TEMPLATE, GRAFANA_DASHBOARDS_CONFIG_TEMPLATE,
+    GRAFANA_PROMETHEUS_DS_FILE, MONITOR_DIR, MYSQL_EXPORTER_CLIENT_CONFIG, PROMETHEUS_CONFIG_FILE,
+    PROMETHEUS_CONFIG_TEMPLATE,
 };
 use crate::download_urls;
 use configparser::ini::Ini;
@@ -56,21 +54,32 @@ macro_rules! monitor_components {
     };
 }
 
-monitor_components!(Prometheus);
 monitor_components!(Grafana);
 
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct CassandraCollector {
-    pub mcac_agent: String,
-    pub mcac_port: u16,
+pub struct Prometheus {
+    pub download_url: String,
+    pub port: u16,
+    pub host: String,
+    pub retention_time: Option<String>,
+    pub retention_size: Option<String>,
 }
 
-impl CassandraCollector {
-    pub fn update_http_port_cmd(&self, install_dir: String) -> String {
-        let mcac_config_file_path =
-            format!("{install_dir}/datastax-mcac-agent/config/collectd.conf.tmpl");
-        let http_port = self.mcac_port;
-        format!(r#"sed -i -e 's/9103/{http_port}/g' {mcac_config_file_path}"#)
+impl Prometheus {
+    pub fn retention_flags(&self) -> String {
+        let mut flags = Vec::new();
+        if let Some(retention_time) = &self.retention_time {
+            flags.push(format!(
+                r#"--storage.tsdb.retention.time="{retention_time}""#
+            ));
+        }
+        if let Some(retention_size) = &self.retention_size {
+            flags.push(format!(
+                r#"--storage.tsdb.retention.size="{retention_size}""#
+            ));
+        }
+        flags.join(" ")
     }
 }
 
@@ -100,7 +109,6 @@ pub struct Monitor {
     pub grafana: Option<Grafana>,
     pub node_exporter: Option<Exporter>,
     pub mysql_exporter: Option<Exporter>,
-    pub cassandra_collector: Option<CassandraCollector>,
     pub monograph_metrics: Option<MonographMetrics>,
     pub eloq_metrics: Option<EloqMetrics>,
 }
@@ -124,9 +132,6 @@ impl Monitor {
         }
         if let Some(myex) = &self.mysql_exporter {
             download_urls!(links, {MYSQL_EXPORTER_FILE_KEY, &myex.url});
-        }
-        if let Some(mcac) = &self.cassandra_collector {
-            download_urls!(links, {CASSANDRA_COLLECTOR_AGENT_FILE_KEY, &mcac.mcac_agent});
         }
         Ok(links)
     }
@@ -288,7 +293,7 @@ impl Monitor {
         Value::Mapping(target_job_yaml_value)
     }
 
-    // node_exporter, mysql_exporter,prometheus,cassandra_metrics(optional)
+    // node_exporter, mysql_exporter, prometheus
     pub fn gen_prometheus_config(
         &self,
         cluster_name: &str,
@@ -332,25 +337,6 @@ impl Monitor {
                 Monitor::build_prometheus_target_value(job_name.to_string(), url, target_hosts);
             scrape_configs.push(scrape_job_value);
         });
-        if self.cassandra_collector.is_some() {
-            let mcac_prometheus_config =
-                load_yaml_config_template(MCAC_PROMETHEUS_CONFIG_TEMPLATE)?;
-            let mcac_scrape_value = mcac_prometheus_config
-                .get("scrape_configs")
-                .unwrap()
-                .clone();
-            let mcac_scrape_job = mcac_scrape_value.get(0).unwrap().clone();
-            scrape_configs.push(mcac_scrape_job);
-        }
-
-        // if !monograph_targets.is_empty() {
-        //     let monograph_scrap_job_value = Monitor::build_prometheus_target_value(
-        //         "monograph-service".to_string(),
-        //         Some("/eloq_metrics".to_string()),
-        //         monograph_targets,
-        //     );
-        //     scrape_configs.push(monograph_scrap_job_value);
-        // }
 
         let prometheus_host = &self.prometheus.as_ref().unwrap().host;
         let prometheus_port = self.prometheus.as_ref().unwrap().port;
@@ -376,38 +362,6 @@ impl Monitor {
         let file = File::create(&prometheus_config_file)?;
         serde_yaml::to_writer(file, &prometheus_config_map)?;
         Ok(prometheus_config_file)
-    }
-
-    pub fn gen_mcac_file_sd_config(
-        &self,
-        cluster_name: &str,
-        cassandra_host: Vec<String>,
-    ) -> anyhow::Result<Option<PathBuf>> {
-        if let Some(cassandra_collector) = self.cassandra_collector.as_ref() {
-            let mcac_port = cassandra_collector.mcac_port;
-            let cassandra_target = cassandra_host
-                .iter()
-                .map(|host| format!("{host}:{mcac_port}"))
-                .collect_vec()
-                .join(",");
-            let mcac_json = serde_json::json!([
-                {
-                    "targets": [cassandra_target],"labels": {}
-                }
-            ]);
-            let mcac_json_path = upload_dir()
-                .join(cluster_name)
-                .join(MONITOR_DIR)
-                .join(CASS_MCAC_CONF_FILE);
-            if let Some(parent) = mcac_json_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mcac_json_file = File::create(mcac_json_path.as_path()).unwrap();
-            serde_json::to_writer(mcac_json_file, &mcac_json)?;
-            Ok(Some(mcac_json_path))
-        } else {
-            Ok(None)
-        }
     }
 
     pub fn gen_grafana_datasource_config(&self, cluster_name: &str) -> anyhow::Result<PathBuf> {

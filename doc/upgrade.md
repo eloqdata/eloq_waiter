@@ -10,10 +10,3 @@ Upgrade eloqsql/eloqkv to the latest stable version:
 ```shell
 cluster_mgr update <CLUSTER> latest
 ```
-
-## Upgrade cassandra
-Upgrade cassandra to a specified version:
-```shell
-cluster_mgr update <CLUSTER> --cass-mirror https://dlcdn.apache.org
-cluster_mgr update <CLUSTER> --cassandra 4.1.5
-```

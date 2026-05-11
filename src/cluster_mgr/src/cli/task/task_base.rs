@@ -180,8 +180,6 @@ pub enum CmdErr {
     SSHConnErr(String, String),
     #[error("SSHConn execute remote cmd {0} failed, error causes {1}")]
     SSHRemoteCmdErr(String, String),
-    #[error("Error executing apache-cassandra control command {0} failed, error causes {1}")]
-    CassandraCtlErr(String, String),
     #[error("MonographDB installation database error. command {0} , error causes {1}")]
     MonographInstallErr(String, String),
     #[error("Failed to execute the MonographDB control command. command {0} , error causes {1}")]
@@ -190,8 +188,6 @@ pub enum CmdErr {
     ClusterAlreadyExists(String),
     #[error("Unpacking file errors. command {0}, error causes {1}")]
     UnpackErr(String, String),
-    #[error("Error interacting with cassandra. error causes {0}")]
-    CassandraOpErr(String),
     #[error("Error executing LocalCopyTask; please check if the source path exists path {0}")]
     CopyTaskErr(String),
     #[error("Error executing MonographDB monitor component task {0}, error causes {1}")]

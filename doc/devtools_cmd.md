@@ -42,7 +42,6 @@ manage it in a standard way.
 │   ├── monograph
 │   └── tx_service
 └── third_party
-    ├── apache-cassandra-4.1-alpha1
     ├── aws
     ├── braft
     ├── brpc
@@ -77,4 +76,3 @@ the ```workspace in config/common.toml```.The following points need to be specif
 | init_db         | Initialize the MonographDB database instance.                                                                                                                                                  | ❌          | Same as the mysql_install_db command, which can be seen in the doc [Initialize MySQL Data Directory](https://dev.mysql.com/doc/refman/5.7/en/mysql-install-db.html)                                                                       |
 | stop            | stop all MonographDB services (storage services will not be stopped)                                                                                                                           | ✅          |                                                                                                                                                                                                                                           |
 | start           | start all MonographDB services. If the storage service is not running, it is started.                                                                                                          | ✅          |                                                                                                                                                                                                                                           |
-

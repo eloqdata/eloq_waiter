@@ -1,4 +1,3 @@
-use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::codis_task::{self, CodisTask};
 use crate::cli::task::eloq_store_data_clean_task::EloqStoreDataCleanTask;
 use crate::cli::task::group::{Config, CtrlDBTaskGroup, MonitorCtlTaskGroup, TaskGroup};
@@ -342,11 +341,6 @@ impl CtrlDBTaskGroup {
                         barrier.push(stop_dss.len());
                         executable.extend(stop_dss);
                     }
-                } else if storage.inner_cass().is_some() {
-                    // Cassandra storage provider
-                    let tasks = CassandraCtlTask::from_config(cmd, config);
-                    barrier.push(tasks.len());
-                    executable.extend(tasks);
                 }
             }
         }

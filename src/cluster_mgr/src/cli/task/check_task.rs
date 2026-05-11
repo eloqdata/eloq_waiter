@@ -70,34 +70,6 @@ impl CheckTask {
         Ok(None)
     }
 
-    async fn check_kv_store(
-        &self,
-        host: TaskHost,
-        input: HashMap<String, TaskArgValue>,
-    ) -> Result<Option<ExecutionValue>> {
-        let storage_service = self.config.deployment.storage_service.as_ref();
-        assert!(storage_service.is_some() && storage_service.unwrap().cassandra.is_some());
-        let ssh_k = self.config.connection.ssh_auth_key().unwrap();
-        let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
-        for p in sess.used_tcp_ports().await? {
-            if let Some(v) = input.get(&p.to_string()) {
-                let name = v.clone().into_inner_value::<String>();
-                bail!("cassandra {name} socket {}:{p} is already used", self.host);
-            }
-            if let Some(moni) = &self.config.deployment.monitor {
-                if moni.node_exporter.as_ref().unwrap().port == p {
-                    bail!("node exporter socket {}:{p} is already used", self.host);
-                }
-                if let Some(cc) = &moni.cassandra_collector {
-                    if cc.mcac_port == p {
-                        bail!("cassandra mcac socket {}:{p} is already used", self.host);
-                    }
-                }
-            }
-        }
-        Ok(None)
-    }
-
     async fn check_prometheus(&self, host: TaskHost) -> Result<Option<ExecutionValue>> {
         let ssh_k = self.config.connection.ssh_auth_key().unwrap();
         let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
@@ -188,7 +160,10 @@ impl TaskExecutor for CheckTask {
             DeploymentPackage::MonographTx => self.check_tx_sv(host).await,
             DeploymentPackage::MonographStandby => self.check_tx_sv(host).await,
             DeploymentPackage::MonographVoter => self.check_tx_sv(host).await,
-            DeploymentPackage::Storage => self.check_kv_store(host, input).await,
+            DeploymentPackage::Storage => {
+                let _ = input;
+                Ok(None)
+            }
             DeploymentPackage::Prometheus => self.check_prometheus(host).await,
             DeploymentPackage::Grafana => self.check_grafana(host).await,
             DeploymentPackage::MonographLog => self.check_log_sv(host).await,

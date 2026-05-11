@@ -1,7 +1,6 @@
 use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{TaskArgValue, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
-use crate::cli::task::upload::cass_conf_upload_builder::CassConfUploadBuilder;
 use crate::cli::task::upload::codis_upload::CodisUpload;
 use crate::cli::task::upload::data_dir_upload_builder::DataDirUploadBuilder;
 use crate::cli::task::upload::monitor_upload_builder::*;
@@ -29,9 +28,8 @@ pub trait UploadTaskBuilder {
     /// These tasks include but are not limited to:
     /// 1. Uploading MonographDB TxService, including configuration files and bootstrap database commands for each instance.
     /// 2. Uploading MonographDB LogService, including start-up commands for each instance (if configured).
-    /// 3. Uploading the Monitor component, including (NodeExporter, MySQLExporter, Prometheus, Grafana, Cassandra Monitor)
-    ///    and configuration files for all components.
-    /// 4. Modifying and uploading the configuration files for Cassandra config (cassandra.yml, jvm11-server.options).
+    /// 3. Uploading the Monitor component, including NodeExporter, MySQLExporter, Prometheus,
+    ///    Grafana, and configuration files for all components.
     fn build(&self, config: &Config) -> IndexMap<TaskId, TaskInstance>;
 }
 
@@ -64,14 +62,12 @@ pub(crate) fn scp(upload_file: &UploadFile, conn: Connection) -> String {
 
 #[derive(Clone, Debug)]
 pub enum UploadTaskBuilderType {
-    CassConf,
     DataDir,
     MonographAll,
     MonitorConf,
     TxConf,
     Codis,
     EloqImage,
-    CassImage,
     Proxy,
     ScaleTxConf,
 }
@@ -88,7 +84,6 @@ pub fn upload_tasks(
     conf: &Config,
 ) -> IndexMap<TaskId, TaskInstance> {
     match builder_type {
-        UploadTaskBuilderType::CassConf => CassConfUploadBuilder {}.build(conf),
         UploadTaskBuilderType::DataDir => DataDirUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonographAll => MonographUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonitorConf => MonitorInfraConfUploadBuilder {}.build(conf),
@@ -105,18 +100,6 @@ pub fn upload_tasks(
                 "update",
                 "upload_eloq_image",
                 EloqUpload::eloq_image_upload(&cluster_config.deployment),
-            )
-        }
-        UploadTaskBuilderType::CassImage => {
-            let cluster_config = match conf {
-                Config::Cluster(cfg) => cfg,
-                _ => panic!("Expected ClusterConfig for TxConfUpload"),
-            };
-            EloqUpload::build_tasks(
-                conf,
-                "update",
-                "upload_cass_image",
-                EloqUpload::cassandra_image_upload(&cluster_config.deployment),
             )
         }
         UploadTaskBuilderType::Proxy => ProxyUploadBuilder {}.build(conf),

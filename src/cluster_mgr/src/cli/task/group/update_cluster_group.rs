@@ -1,4 +1,3 @@
-use crate::cli::task::cassandra_ctl_task::CassandraCtlTask;
 use crate::cli::task::download_task::DownloadTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, TaskGroup, UpdateClusterTaskGroup};
@@ -29,18 +28,17 @@ impl TaskGroup for UpdateClusterTaskGroup {
             }
         };
 
-        let (update_eloq, update_cass, password, force) = match &cmd_arg {
+        let (update_eloq, password, force) = match &cmd_arg {
             SubCommand::Update {
                 version,
-                cassandra,
                 password,
                 force,
                 ..
-            } => (version.is_some(), cassandra.is_some(), password, force),
+            } => (version.is_some(), password, force),
             _ => unreachable!(),
         };
         let redis_password = cluster_config.redis_password(password.clone());
-        if !update_eloq && !update_cass {
+        if !update_eloq {
             return Ok(TaskExecutionContext::dummy());
         }
 
@@ -58,16 +56,6 @@ impl TaskGroup for UpdateClusterTaskGroup {
             upload_img.extend(upload_tasks(UploadTaskBuilderType::EloqImage, config));
             unpack_tasks.extend(UnpackFileTask::unpack_eloqservers(cluster_config));
         }
-        if update_cass {
-            if let Some(storage_service) = &deployment.storage_service {
-                let inner_cass = storage_service.inner_cass();
-                if let Some(inner_cass) = inner_cass {
-                    downloads.push(inner_cass.image_url());
-                    upload_img.extend(upload_tasks(UploadTaskBuilderType::CassImage, config));
-                    unpack_tasks.extend(UnpackFileTask::unpack_cassandra(cluster_config, true));
-                }
-            }
-        }
         let download_task = DownloadTask::instances(DownloadTask::from_urls(downloads));
         let mut barrier = vec![download_task.len(), upload_img.len()];
         let mut executable = IndexMap::new();
@@ -79,7 +67,7 @@ impl TaskGroup for UpdateClusterTaskGroup {
             cluster: cluster.clone(),
             tx: Some(true),
             log: true,
-            store: update_cass,
+            store: false,
             monitor: false,
             force: *force,
             all: false,
@@ -114,29 +102,15 @@ impl TaskGroup for UpdateClusterTaskGroup {
             barrier.push(stop_log.len());
             executable.extend(stop_log);
         }
-        if update_cass {
-            let tasks = CassandraCtlTask::from_config(stop_cmd, cluster_config);
-            barrier.push(tasks.len());
-            executable.extend(tasks);
-        }
 
         barrier.push(unpack_tasks.len());
         executable.extend(unpack_tasks);
 
-        // start order: cassandra -> log-server -> tx-server
+        // start order: log-server -> tx-server
         let start_cmd = SubCommand::Start {
             cluster,
             nodes: Vec::new(),
         };
-        if let Some(storage_service) = &deployment.storage_service {
-            let inner_cass = storage_service.inner_cass();
-            if inner_cass.is_some() {
-                let tasks = CassandraCtlTask::from_config(start_cmd.clone(), cluster_config);
-                let ba = CassandraCtlTask::start_barrier(tasks.len());
-                barrier.extend(ba);
-                executable.extend(tasks);
-            }
-        }
         if deployment.log_service.is_some() {
             let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), cluster_config);
             barrier.push(start_log.len());

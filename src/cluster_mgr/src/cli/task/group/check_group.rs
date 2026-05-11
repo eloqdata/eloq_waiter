@@ -1,13 +1,10 @@
 use crate::cli::task::check_task::CheckTask;
 use crate::cli::task::group::{CheckTaskGroup, Config, TaskGroup};
-use crate::cli::task::task_base::{
-    TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
-};
+use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::SubCommand;
-use crate::config::{cassandra_used_ports, DeploymentPackage};
+use crate::config::DeploymentPackage;
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use tracing::info;
 
 macro_rules! make_check_tasks {
     ($pkg:expr, $config:expr, $input:expr, $executable:expr) => {
@@ -70,25 +67,6 @@ impl TaskGroup for CheckTaskGroup {
             input,
             executable
         );
-        if let Some(storage_service) = &cluster_config.deployment.storage_service {
-            if let Some(cass) = &storage_service.cassandra {
-                if cass.internal().is_some() {
-                    let input = cassandra_used_ports()
-                        .into_iter()
-                        .map(|(name, port)| {
-                            info!("cassandra used port {} for {}", port, name);
-                            (port.to_string(), TaskArgValue::Str(name))
-                        })
-                        .collect::<HashMap<String, TaskArgValue>>();
-                    make_check_tasks!(
-                        DeploymentPackage::Storage,
-                        cluster_config,
-                        input,
-                        executable
-                    );
-                }
-            }
-        }
         if cluster_config.deployment.monitor.is_some() {
             make_check_tasks!(
                 DeploymentPackage::Prometheus,

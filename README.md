@@ -28,7 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/instal
 Start a full EloqKV cluster from a topology file. `eloqctl launch` will start every service declared in the YAML, including tx nodes, `log_service`, storage, and `monitor` if it is configured:
 
 ```shell
-eloqctl launch "$ELOQCTL_HOME/config/examples/eloqkv_cassandra.yaml" -s
+eloqctl launch "$ELOQCTL_HOME/config/examples/eloqkv_rocksdb.yaml" -s
 ```
 
 Check the cluster status and get a client command:

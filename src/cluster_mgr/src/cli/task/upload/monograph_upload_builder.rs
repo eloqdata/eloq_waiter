@@ -5,12 +5,10 @@ use crate::cli::task::upload::upload_task_builder::{
 };
 use crate::cli::{create_upload_cluster_dir, upload_dir};
 use crate::config::config_base::{
-    DeployConfig, UploadFile, CASSANDRA_COLLECTOR_AGENT_FILE_KEY, CASSANDRA_FILE_KEY,
-    GRAFANA_FILE_KEY, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY, MYSQL_EXPORTER_FILE_KEY,
-    NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
+    DeployConfig, UploadFile, GRAFANA_FILE_KEY, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
+    MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
 use crate::config::deployment::{Deployment, Product};
-use crate::config::storage_service_config::CassKind;
 use crate::config::storage_service_config::RocksDB;
 use crate::config::{
     config_template, DeploymentPackage, DownloadUrl, ELOQDSS_TEMPLATE_INI, ELOQKV_TEMPLATE_INI,
@@ -55,9 +53,6 @@ impl MonographUploadBuilder {
                     ]
                     .concat(),
                     MONOGRAPH_LOG_FILE_KEY => log_hosts.clone(),
-                    CASSANDRA_FILE_KEY | CASSANDRA_COLLECTOR_AGENT_FILE_KEY => {
-                        storage_hosts.clone()
-                    }
                     PROMETHEUS_FILE_KEY => config.get_host_list(DeploymentPackage::Prometheus),
                     GRAFANA_FILE_KEY => config.get_host_list(DeploymentPackage::Grafana),
                     "codis" => codis_hosts.clone(),
@@ -391,31 +386,6 @@ impl EloqUpload {
         }
         uploads
     }
-
-    pub fn cassandra_image_upload(config: &Deployment) -> Vec<UploadFile> {
-        let install_dir = config.install_dir();
-        if let Some(storage) = &config.storage_service {
-            if let Some(cass) = &storage.cassandra {
-                if let CassKind::Internal(cdp) = &cass.kind {
-                    let url = DownloadUrl::from_url_str(&cdp.image_url()).unwrap();
-                    let img_src = format!("{}/{}", url.cache_dir().unwrap(), url.file_name());
-                    return cass
-                        .host
-                        .iter()
-                        .map(|host| UploadFile {
-                            source: img_src.clone(),
-                            dest: install_dir.clone(),
-                            extension: "gz".to_string(),
-                            host: host.to_string(),
-                            copy_dir: false,
-                        })
-                        .collect_vec();
-                }
-            }
-        }
-        vec![]
-    }
-
     pub fn build_tasks(
         config: &Config,
         cmd: &str,
