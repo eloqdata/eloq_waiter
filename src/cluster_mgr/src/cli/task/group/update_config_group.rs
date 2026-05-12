@@ -247,6 +247,26 @@ impl TaskGroup for UpdateConfigTaskGroup {
                 barrier.push(start_tx_round1.len());
                 executable.extend(start_tx_round1);
 
+                // Wait for tx nodes to be ready before Round 2 topology + failover.
+                // Without this probe, the failover command is sent to the standby (now master)
+                // before the newly-started tx replica is eligible to accept leadership,
+                // causing "Failover execution failed, status_code=1".
+                let wait_tx_ready = MonographTxCtlTask::from_config(
+                    SubCommand::Status {
+                        cluster: cluster_name.clone(),
+                        user: None,
+                        password: deploy_config.redis_password(None),
+                        wait: Some(60),
+                        detail: false,
+                    },
+                    deploy_config,
+                    ServerType::Tx,
+                );
+                if !wait_tx_ready.is_empty() {
+                    barrier.push(wait_tx_ready.len());
+                    executable.extend(wait_tx_ready);
+                }
+
                 // --- Round 2: failover back, restart old standbys ---
                 // Inline the failover logic for round 2 with a unique topology task ID
                 // to avoid key collision with round 1's topology task.
