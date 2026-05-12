@@ -15,11 +15,26 @@ use crate::cli::SubCommand;
 use crate::config::config_base::DeployConfig;
 use crate::config::storage_service_config::DataStoreServiceBackend;
 use crate::config::DeploymentPackage;
+use anyhow::bail;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tokio::sync::watch;
 use tracing::info;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn single_barrier_ctx(
+    task_group: &str,
+    executable: IndexMap<TaskId, TaskInstance>,
+) -> TaskExecutionContext {
+    let len = executable.len();
+    TaskExecutionContext {
+        task_group: task_group.to_string(),
+        barrier: (len > 0).then(|| vec![len]),
+        executable,
+    }
+}
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -35,11 +50,13 @@ pub struct UpgradeContext {
 }
 
 impl UpgradeContext {
-    pub fn new(cmd_arg: &SubCommand, config: Config) -> Self {
-        let deploy = match &config {
-            Config::Cluster(c) => c.clone(),
-            _ => unreachable!(),
+    /// Create an `UpgradeContext` from the CLI args and cluster config.
+    /// Panics if `config` is not `Config::Cluster` — callers must guarantee this.
+    pub(crate) fn new(cmd_arg: &SubCommand, config: Config) -> Self {
+        let Config::Cluster(ref deploy) = config else {
+            panic!("UpgradeContext requires Config::Cluster");
         };
+        let deploy = deploy.clone();
         let (redis_password, force) = match cmd_arg {
             SubCommand::Update {
                 password, force, ..
@@ -125,34 +142,38 @@ fn build_round(
     );
     barrier.push(1);
 
+    let mut failover_count = 0usize;
     for node_addr in nodes_to_failover {
-        if let Some((host, port_str)) = node_addr.split_once(':') {
-            if let Ok(port) = port_str.parse::<u16>() {
-                let fid = TaskId {
-                    cmd: "failover".to_string(),
-                    task: format!("failover-check-{round_label}-{port_str}"),
-                    host: host.to_string(),
-                };
-                executable.insert(
-                    fid.clone(),
-                    TaskInstance {
-                        task_input: HashMap::default(),
-                        task: Box::new(FailoverOpTask::new(
-                            fid,
-                            host.to_string(),
-                            port,
-                            String::new(),
-                            0u16,
-                            failover_rx.clone(),
-                            ctx.redis_password.clone(),
-                        )),
-                        task_host: TaskHost::Local,
-                    },
-                );
-            }
-        }
+        let Some((host, port_str)) = node_addr.split_once(':') else {
+            bail!("invalid host:port in failover list: '{node_addr}'");
+        };
+        let Ok(port) = port_str.parse::<u16>() else {
+            bail!("invalid port in failover list: '{node_addr}'");
+        };
+        let fid = TaskId {
+            cmd: "failover".to_string(),
+            task: format!("failover-check-{round_label}-{port_str}"),
+            host: host.to_string(),
+        };
+        executable.insert(
+            fid.clone(),
+            TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(FailoverOpTask::new(
+                    fid,
+                    host.to_string(),
+                    port,
+                    String::new(),
+                    0u16,
+                    failover_rx.clone(),
+                    ctx.redis_password.clone(),
+                )),
+                task_host: TaskHost::Local,
+            },
+        );
+        failover_count += 1;
     }
-    barrier.push(nodes_to_failover.len());
+    barrier.push(failover_count);
 
     let stop_tasks = MonographTxCtlTask::from_config_with_channel(
         SubCommand::Stop {
@@ -212,14 +233,17 @@ impl Step for DownloadAndUpload {
         ));
 
         let download_task = DownloadTask::instances(DownloadTask::from_urls(downloads));
-        let barrier = vec![download_task.len(), upload_img.len()];
+        let barrier: Vec<usize> = [download_task.len(), upload_img.len()]
+            .into_iter()
+            .filter(|&n| n > 0)
+            .collect();
         let mut executable = IndexMap::new();
         executable.extend(download_task);
         executable.extend(upload_img);
 
         Ok(TaskExecutionContext {
             task_group: "download-and-upload".to_string(),
-            barrier: if barrier.iter().all(|&n| n == 0) {
+            barrier: if barrier.is_empty() {
                 None
             } else {
                 Some(barrier)
@@ -262,12 +286,7 @@ impl Step for StopTxNodes {
                 &self.ctx.deploy,
                 ServerType::Tx,
             );
-            let len = stop_tx.len();
-            return Ok(TaskExecutionContext {
-                task_group: "stop-tx-nodes".to_string(),
-                barrier: if len > 0 { Some(vec![len]) } else { None },
-                executable: stop_tx,
-            });
+            return Ok(single_barrier_ctx("stop-tx-nodes", stop_tx));
         }
 
         // Has standby: failover masters → stop them
@@ -320,12 +339,7 @@ impl Step for StopLog {
             },
             &self.ctx.deploy,
         );
-        let len = stop_log.len();
-        Ok(TaskExecutionContext {
-            task_group: "stop-log".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: stop_log,
-        })
+        Ok(single_barrier_ctx("stop-log", stop_log))
     }
 }
 
@@ -347,12 +361,7 @@ impl Step for UnpackTxLog {
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
         let unpack = UnpackFileTask::unpack_tx_and_log_nodes(&self.ctx.deploy);
-        let len = unpack.len();
-        Ok(TaskExecutionContext {
-            task_group: "unpack-tx-log".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: unpack,
-        })
+        Ok(single_barrier_ctx("unpack-tx-log", unpack))
     }
 }
 
@@ -492,12 +501,7 @@ impl Step for StartTx {
             &self.ctx.deploy,
             ServerType::Tx,
         );
-        let len = start_tx.len();
-        Ok(TaskExecutionContext {
-            task_group: "start-tx".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: start_tx,
-        })
+        Ok(single_barrier_ctx("start-tx", start_tx))
     }
 }
 
@@ -529,12 +533,7 @@ impl Step for WaitTxReady {
             &self.ctx.deploy,
             ServerType::Tx,
         );
-        let len = probe.len();
-        Ok(TaskExecutionContext {
-            task_group: "wait-tx-ready".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: probe,
-        })
+        Ok(single_barrier_ctx("wait-tx-ready", probe))
     }
 }
 
@@ -595,12 +594,7 @@ impl Step for UnpackStandby {
             return Ok(TaskExecutionContext::dummy());
         }
         let unpack = UnpackFileTask::unpack_standby_nodes(&self.ctx.deploy);
-        let len = unpack.len();
-        Ok(TaskExecutionContext {
-            task_group: "unpack-standby".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: unpack,
-        })
+        Ok(single_barrier_ctx("unpack-standby", unpack))
     }
 }
 
@@ -632,12 +626,7 @@ impl Step for StartStandby {
             &self.ctx.deploy,
             ServerType::Standby,
         );
-        let len = start.len();
-        Ok(TaskExecutionContext {
-            task_group: "start-standby".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: start,
-        })
+        Ok(single_barrier_ctx("start-standby", start))
     }
 }
 
@@ -676,12 +665,7 @@ impl Step for StopVoters {
             &self.ctx.deploy,
             ServerType::Voter,
         );
-        let len = stop.len();
-        Ok(TaskExecutionContext {
-            task_group: "stop-voters".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: stop,
-        })
+        Ok(single_barrier_ctx("stop-voters", stop))
     }
 }
 
@@ -713,12 +697,7 @@ impl Step for StartVoters {
             &self.ctx.deploy,
             ServerType::Voter,
         );
-        let len = start.len();
-        Ok(TaskExecutionContext {
-            task_group: "start-voters".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: start,
-        })
+        Ok(single_barrier_ctx("start-voters", start))
     }
 }
 
@@ -748,12 +727,7 @@ impl Step for VerifyVersion {
             self.ctx.deploy.deployment.tx_service.merge_hosts(),
             Some("check_eloqkv_version".to_string()),
         );
-        let len = tasks.len();
-        Ok(TaskExecutionContext {
-            task_group: "verify-version".to_string(),
-            barrier: if len > 0 { Some(vec![len]) } else { None },
-            executable: tasks,
-        })
+        Ok(single_barrier_ctx("verify-version", tasks))
     }
 }
 
@@ -773,8 +747,9 @@ pub fn build_upgrade_steps(ctx: UpgradeContext) -> Vec<Box<dyn Step>> {
         Box::new(FailoverBackAndStopStandby::new(ctx.clone())),
         Box::new(UnpackStandby::new(ctx.clone())),
         Box::new(StartStandby::new(ctx.clone())),
+        Box::new(StopVoters::new(ctx.clone())),
         Box::new(StartVoters::new(ctx.clone())),
-        Box::new(VerifyVersion::new(ctx.clone())),
+        Box::new(VerifyVersion::new(ctx)),
     ]
 }
 

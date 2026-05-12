@@ -38,3 +38,4 @@ src/log/
 log/
 .monograph_waiter/
 .bin/
+tests/ssh_keys/test_rsa

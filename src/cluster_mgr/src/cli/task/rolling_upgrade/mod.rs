@@ -61,12 +61,22 @@ pub async fn run_step_context(ctx: TaskExecutionContext, config: Config) -> anyh
 
 // ── Runner ────────────────────────────────────────────────────────────────────
 
+/// Sequential rolling-upgrade executor.
+///
+/// Steps are executed in the order they are provided.  Execution aborts on the
+/// first step that fails.  Every step builds its own `TaskExecutionContext` and
+/// is driven through an independent `TaskController`.
+///
+/// Steps are expected to be **idempotent** — re-running after a failure should
+/// be safe because stopping an already-stopped process, unpacking an
+/// already-correct binary, etc. are no-ops by design.
 pub struct RollingUpgrade {
     steps: Vec<Box<dyn Step>>,
     config: Config,
 }
 
 impl RollingUpgrade {
+    /// Create a new upgrade runner with the given ordered steps and cluster config.
     pub fn new(steps: Vec<Box<dyn Step>>, config: Config) -> Self {
         Self { steps, config }
     }

@@ -219,7 +219,7 @@ where
             break;
         }
         let elapsed = total_secs - timeout_remaining.as_secs();
-        if elapsed % 10 == 0 || elapsed < 5 {
+        if elapsed.is_multiple_of(10) || elapsed < 5 {
             println!(
                 "  [wait] {}s elapsed (timeout {}s): {}",
                 elapsed,
