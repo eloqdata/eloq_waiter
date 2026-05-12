@@ -7,14 +7,6 @@
       "type": "datasource",
       "pluginId": "prometheus",
       "pluginName": "Prometheus"
-    },
-    {
-      "name": "DS_LOKI",
-      "label": "loki",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "loki",
-      "pluginName": "Loki"
     }
   ],
   "__elements": {},
@@ -36,12 +28,6 @@
       "id": "logs",
       "name": "Logs",
       "version": ""
-    },
-    {
-      "type": "datasource",
-      "id": "loki",
-      "name": "Loki",
-      "version": "1.0.0"
     },
     {
       "type": "datasource",
@@ -4970,61 +4956,6 @@
       ],
       "title": "Remote Requests Metrics (instance view)",
       "type": "row"
-    },
-    {
-      "collapsed": true,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 34
-      },
-      "id": 123290,
-      "panels": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "fieldConfig": {
-            "defaults": {},
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 24,
-            "x": 0,
-            "y": 17
-          },
-          "id": 123306,
-          "options": {
-            "dedupStrategy": "none",
-            "enableLogDetails": true,
-            "prettifyLogMessage": false,
-            "showCommonLabels": false,
-            "showLabels": false,
-            "showTime": false,
-            "sortOrder": "Descending",
-            "wrapLogMessage": false
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "loki",
-                "uid": "${DS_LOKI}"
-              },
-              "editorMode": "code",
-              "expr": "{job=\"mysqld-log\"}",
-              "queryType": "range",
-              "refId": "A"
-            }
-          ],
-          "title": "Mysqld Log",
-          "type": "logs"
-        }
-      ],
-      "title": "Logs",
-      "type": "row"
     }
   ],
   "refresh": "5s",
@@ -5039,17 +4970,6 @@
         "name": "DS_PROMETHEUS",
         "options": [],
         "query": "prometheus",
-        "refresh": 1,
-        "regex": "",
-        "type": "datasource"
-      },
-      {
-        "current": {},
-        "hide": 2,
-        "includeAll": false,
-        "name": "DS_LOKI",
-        "options": [],
-        "query": "loki",
         "refresh": 1,
         "regex": "",
         "type": "datasource"
