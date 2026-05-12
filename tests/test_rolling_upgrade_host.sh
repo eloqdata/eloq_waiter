@@ -1,5 +1,7 @@
 #!/bin/bash
-# Host-based test: zero-downtime rolling config restart via RollingUpgrade.
+# End-to-end test: zero-downtime rolling upgrade via `eloqctl apply`.
+#
+# apply → detects config change → calls update-conf --restart → RollingUpgrade
 #
 # Prerequisites: SSH key at ~/.ssh/id_rsa, sshd on localhost
 # Usage: cargo build -p cluster_mgr && bash tests/test_rolling_upgrade_host.sh
@@ -7,6 +9,7 @@
 set -eo pipefail
 ELOQCTL="${PWD}/target/debug/cluster_mgr"
 TOPO="${PWD}/tests/rolling_upgrade_standby_localhost.yaml"
+TOPO_V2="/tmp/rolling_upgrade_v2.yaml"
 CLUSTER="test-rolling-standby"
 export ELOQCTL_HOME="${HOME}/.eloqctl"
 mkdir -p "${ELOQCTL_HOME}"
@@ -15,11 +18,11 @@ cleanup() {
     "${ELOQCTL}" stop "${CLUSTER}" --all 2>/dev/null || true
     "${ELOQCTL}" remove "${CLUSTER}" --force 2>/dev/null || true
     kill "$WRITER_PID" 2>/dev/null || true
-    rm -f "${WRITE_LOG}" "${ERROR_LOG}" /tmp/rolling_launch.log
+    rm -f "${WRITE_LOG}" "${ERROR_LOG}" /tmp/rolling_launch.log "${TOPO_V2}"
 }
 trap cleanup EXIT
 
-echo "[1/5] Launch"
+echo "[1/5] Launch cluster (checkpoint_interval=120)"
 rm -rf "${HOME}/${CLUSTER}" "${ELOQCTL_HOME}/db/cluster_mgr_state.db" 2>/dev/null || true
 set +e
 "${ELOQCTL}" launch "${TOPO}" -s > /tmp/rolling_launch.log 2>&1
@@ -38,7 +41,12 @@ for i in $(seq 1 60); do
 done
 "${CLIENT}" cluster slots
 
-echo "[3/5] Start writes + rolling restart"
+echo "[3/5] Create modified YAML (checkpoint_interval=130)"
+sed 's/checkpoint_interval: 120/checkpoint_interval: 130/' "${TOPO}" > "${TOPO_V2}"
+echo "  diff:"
+diff "${TOPO}" "${TOPO_V2}" || true
+
+echo "[4/5] Start writes + apply (triggers RollingUpgrade)..."
 WRITE_LOG=$(mktemp); ERROR_LOG=$(mktemp)
 (while true; do
     SEQ=$((SEQ+1))
@@ -48,19 +56,22 @@ WRITE_LOG=$(mktemp); ERROR_LOG=$(mktemp)
 done) & WRITER_PID=$!
 sleep 2
 
-echo "Note: stop after failover may take ~5min due to graceful_quit_on_sigterm=true"
 start_ts=$(date +%s)
-"${ELOQCTL}" update-conf "${CLUSTER}" --restart --fields checkpoint_interval:130
+"${ELOQCTL}" apply "${TOPO_V2}" 2>&1
 elapsed=$(($(date +%s) - start_ts))
-echo "  restart done (${elapsed}s)"
+echo "  apply done (${elapsed}s)"
 
 sleep 2; kill "$WRITER_PID" 2>/dev/null || true; wait "$WRITER_PID" 2>/dev/null || true
 
-echo "[4/5] Results"
-echo "  writes=$(wc -l < "${WRITE_LOG}" 2>/dev/null) errors=$(wc -l < "${ERROR_LOG}" 2>/dev/null)"
-[ "$(wc -l < "${ERROR_LOG}" 2>/dev/null || echo 0)" -gt 0 ] && { echo "FAIL: write errors"; head -10 "${ERROR_LOG}"; exit 1; }
+echo "[5/5] Results"
+echo "  writes=$(wc -l < "${WRITE_LOG}") errors=$(wc -l < "${ERROR_LOG}")"
+if [ "$(wc -l < "${ERROR_LOG}" 2>/dev/null || echo 0)" -gt 0 ]; then
+    echo "FAIL: write errors"
+    head -10 "${ERROR_LOG}"
+    exit 1
+fi
 
-echo "[5/5] Verify"
+"${CLIENT}" cluster slots
 "${CLIENT}" set final_k ok >/dev/null 2>&1
 VAL=$("${CLIENT}" get rolling_k 2>/dev/null || echo "N/A")
 echo "  last rolling key = ${VAL}"
