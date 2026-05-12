@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/monographdb/eloq_waiter/compare/v1.1.8...v1.2.0) (2026-05-12)
+
+
+### Features
+
+* improve task execution progress output ([#361](https://github.com/monographdb/eloq_waiter/issues/361)) ([95b7304](https://github.com/monographdb/eloq_waiter/commit/95b73044da49a83a570f06dfb7e40a6826d4856e))
+
+
+### Bug Fixes
+
+* wait for tx nodes ready before round2 failover in update-conf ([#360](https://github.com/monographdb/eloq_waiter/issues/360)) ([5fb48da](https://github.com/monographdb/eloq_waiter/commit/5fb48da6c3d00334a92b59d49b6749ce65cfb693))
+
 ## [1.1.8](https://github.com/monographdb/eloq_waiter/compare/v1.1.7...v1.1.8) (2026-05-11)
 
 
