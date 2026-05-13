@@ -51,7 +51,7 @@ impl super::TaskGroup for ScaleTaskGroup {
         let mut barrier = Vec::new();
         let mut executable = IndexMap::new();
 
-        let (add_nodes, remove_nodes, is_candidate, cluster_name, ng_id, password, version, fix) =
+        let (add_nodes, remove_nodes, is_candidate, cluster_name, ng_id, password, version) =
             if let SubCommand::Scale {
                 add_nodes: add,
                 remove_nodes: remove,
@@ -60,7 +60,6 @@ impl super::TaskGroup for ScaleTaskGroup {
                 ng_id,
                 password,
                 version,
-                fix,
                 ..
             } = &cmd
             {
@@ -72,7 +71,6 @@ impl super::TaskGroup for ScaleTaskGroup {
                     *ng_id,
                     password.clone(),
                     version.clone(),
-                    *fix,
                 )
             } else {
                 return Err(anyhow!("Invalid command for scale task group"));
@@ -277,39 +275,32 @@ impl super::TaskGroup for ScaleTaskGroup {
         }
 
         // ── gRPC scale operation (add_peers / remove_node) ──
-        // Skip when --fix is set (node already in cluster, just repair infrastructure)
-        if !fix {
-            let scale_task_id = TaskId {
-                cmd: "scale".to_string(),
-                task: "execute-scale".to_string(),
-                host: "_local".to_string(),
-            };
-            let scale_config = ScaleOpConfig {
-                operation_type: operation_type.clone(),
-                nodes_list: nodes_list.clone(),
-                is_candidate: is_candidate.clone(),
-                cluster_name: cluster_name.clone(),
-                ng_id,
-            };
-            let scale_task = ScaleOpTask::new(
-                scale_task_id.clone(),
-                scale_event_id.clone(),
-                scale_config,
-                redis_op_rx.clone(),
-                scale_op_tx.clone(),
-            );
-            let scale_instance = TaskInstance {
-                task_input: HashMap::default(),
-                task: Box::new(scale_task),
-                task_host: TaskHost::Local,
-            };
-            barrier.push(1);
-            executable.insert(scale_task_id, scale_instance);
-        } else {
-            info!("--fix mode: skipping gRPC add_peers/remove_node, node already in cluster");
-            // Send empty config through channel to unblock downstream tasks
-            let _ = scale_op_tx.send(empty_cluster_nodes_with_config.clone());
-        }
+        let scale_task_id = TaskId {
+            cmd: "scale".to_string(),
+            task: "execute-scale".to_string(),
+            host: "_local".to_string(),
+        };
+        let scale_config = ScaleOpConfig {
+            operation_type: operation_type.clone(),
+            nodes_list: nodes_list.clone(),
+            is_candidate: is_candidate.clone(),
+            cluster_name: cluster_name.clone(),
+            ng_id,
+        };
+        let scale_task = ScaleOpTask::new(
+            scale_task_id.clone(),
+            scale_event_id.clone(),
+            scale_config,
+            redis_op_rx.clone(),
+            scale_op_tx.clone(),
+        );
+        let scale_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(scale_task),
+            task_host: TaskHost::Local,
+        };
+        barrier.push(1);
+        executable.insert(scale_task_id, scale_instance);
 
         // ── Common steps for both add and remove ──
 

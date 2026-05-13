@@ -780,6 +780,7 @@ impl CmdExecutor {
                 command: _,
                 cluster,
             }
+            | SubCommand::Health { cluster }
             | SubCommand::Inspect { cluster, .. }
             | SubCommand::Export { cluster, .. }
             | SubCommand::Remove { cluster, force: _ }
@@ -920,6 +921,9 @@ impl CmdExecutor {
                     SubCommand::Connect { .. } => {
                         println!("{}", deploy_config.client_conn());
                     }
+                    SubCommand::Health { cluster: _ } => {
+                        return self.health_check(&deploy_config).await;
+                    }
                     SubCommand::Export { cluster, output } => {
                         let yaml_str = deploy_config.to_yaml();
                         if let Some(path) = output {
@@ -1054,6 +1058,184 @@ impl CmdExecutor {
         }
 
         Ok(())
+    }
+
+    /// Audit cluster health: SSH, eloqkv processes, node_exporter, TLS certs.
+    async fn health_check(&self, deploy: &DeployConfig) -> Result<()> {
+        use crate::cli::ssh::SSHSession;
+
+        let all_hosts = deploy.get_unique_host_list();
+        let ssh_key = deploy
+            .connection
+            .ssh_auth_key()
+            .ok_or_else(|| anyhow!("no ssh key configured"))?
+            .to_string();
+        let ssh_usr = &deploy.connection.username;
+        let ssh_port = deploy.connection.ssh_port() as usize;
+
+        println!("Cluster: {}", deploy.deployment.cluster_name);
+        println!("Hosts:   {}", all_hosts.join(", "));
+        println!();
+
+        let mut issues = 0u32;
+        let install_dir = deploy.install_dir();
+        let tx_home = deploy.deployment.tx_srv_home();
+
+        // Hosts with eloqkv nodes
+        let node_hosts: Vec<String> = deploy
+            .deployment
+            .tx_service
+            .merge_hosts()
+            .into_iter()
+            .dedup()
+            .collect();
+
+        // 1. SSH + eloqkv + node_exporter for each node host
+        println!("── Nodes ──");
+        for host in &node_hosts {
+            let session = match SSHSession::connect(&ssh_key, ssh_usr, host, ssh_port).await {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("  FAIL {host} — SSH: {e}");
+                    issues += 1;
+                    continue;
+                }
+            };
+
+            // eloqkv
+            let cmd = format!("ps ux | grep '[e]loqkv.*{tx_home}' | wc -l");
+            let proc_count = Self::ssh_exec(&session, &cmd)
+                .await
+                .map(|s| s.trim().parse::<u32>().unwrap_or(0))
+                .unwrap_or(0);
+            let eloq_ok = proc_count > 0;
+
+            // node_exporter
+            let ne_bin = format!("{install_dir}/node_exporter/node_exporter");
+            let ne_exist = Self::ssh_exec(
+                &session,
+                &format!("test -x {ne_bin} && echo ok || echo missing"),
+            )
+            .await
+            .map(|s| s.trim() == "ok")
+            .unwrap_or(false);
+            let ne_running = Self::ssh_exec(&session, "ps ux | grep '[n]ode_exporter' | wc -l")
+                .await
+                .map(|s| s.trim().parse::<u32>().unwrap_or(0) > 0)
+                .unwrap_or(false);
+
+            println!("  {host}:");
+            println!(
+                "    eloqkv:        {}",
+                if eloq_ok { "OK" } else { "FAIL — no process" }
+            );
+            if !eloq_ok {
+                issues += 1;
+            }
+            println!(
+                "    node_exporter: {}",
+                if ne_exist && ne_running {
+                    "OK"
+                } else if ne_exist {
+                    "WARN — binary present, not running"
+                } else {
+                    issues += 1;
+                    "FAIL — binary missing"
+                }
+            );
+
+            // TLS certs
+            if deploy.deployment.tls_enabled() {
+                let tls_dir = deploy.deployment.tls_cert_install_dir();
+                let all_hp = deploy.get_host_port_list(DeploymentPackage::MonographTx);
+                let standby_hp = deploy.get_host_port_list(DeploymentPackage::MonographStandby);
+                let voter_hp = deploy.get_host_port_list(DeploymentPackage::MonographVoter);
+                let mut all_nodes = all_hp;
+                all_nodes.extend(standby_hp);
+                all_nodes.extend(voter_hp);
+
+                let mut tls_ok = true;
+                for hp in &all_nodes {
+                    let parts: Vec<&str> = hp.split(':').collect();
+                    if parts.len() != 2 {
+                        continue;
+                    }
+                    if parts[0] != host {
+                        continue;
+                    }
+                    let port = parts[1];
+                    let san_host = host.replace('.', "_");
+                    let cert = format!("{tls_dir}/eloqkv-tls-{san_host}-{port}.crt");
+                    let key = format!("{tls_dir}/eloqkv-tls-{san_host}-{port}.key");
+                    let check =
+                        format!("test -f {cert} && test -f {key} && echo ok || echo missing");
+                    let result = Self::ssh_exec(&session, &check)
+                        .await
+                        .map(|s| s.trim() == "ok")
+                        .unwrap_or(false);
+                    if !result {
+                        tls_ok = false;
+                    }
+                }
+                println!(
+                    "    TLS:           {}",
+                    if tls_ok {
+                        "OK"
+                    } else {
+                        issues += 1;
+                        "FAIL — cert/key missing"
+                    }
+                );
+            }
+
+            let _ = session.close().await;
+        }
+        println!();
+
+        // 2. Remaining hosts (non-node)
+        let remaining: Vec<_> = all_hosts
+            .iter()
+            .filter(|h| !node_hosts.contains(*h))
+            .collect();
+        if !remaining.is_empty() {
+            println!("── Other hosts ──");
+            for host in remaining {
+                match SSHSession::connect(&ssh_key, ssh_usr, host, ssh_port).await {
+                    Ok(s) => {
+                        println!("  ok  {host}");
+                        let _ = s.close().await;
+                    }
+                    Err(e) => {
+                        println!("  FAIL {host} — SSH: {e}");
+                        issues += 1;
+                    }
+                }
+            }
+            println!();
+        }
+
+        if issues > 0 {
+            println!("{issues} issue(s) found.");
+        } else {
+            println!("All checks passed.");
+        }
+
+        Ok(())
+    }
+
+    /// Run a shell command over SSH and return stdout as String.
+    async fn ssh_exec(session: &crate::cli::ssh::SSHSession, cmd: &str) -> Result<String> {
+        use crate::cli::ssh::SSHCommandOption;
+        use crate::cli::CMD_OUTPUT;
+        let result = session.command(cmd, SSHCommandOption::None).await?;
+        let output = result
+            .get(CMD_OUTPUT)
+            .and_then(|v| match v {
+                crate::cli::task::task_base::TaskArgValue::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        Ok(output)
     }
 
     async fn finishing(&self, cmd: SubCommand, config: Config) -> Result<()> {

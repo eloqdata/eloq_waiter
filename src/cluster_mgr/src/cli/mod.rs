@@ -119,6 +119,12 @@ pub enum SubCommand {
         detail: bool,
     },
 
+    #[command(long_about = "Audit cluster health and report inconsistencies.\n\
+                      Checks: SSH connectivity, eloqkv process, node_exporter,\n\
+                      TLS certs, Prometheus targets, state vs actual topology.")]
+    #[strum(serialize = "health")]
+    Health { cluster: String },
+
     #[command(long_about = "Update cluster version. This will stop/update/start the cluster")]
     #[strum(serialize = "update")]
     Update {
@@ -261,12 +267,6 @@ pub enum SubCommand {
         /// Version to use for newly added nodes (requires --add-nodes)
         #[arg(long, value_name = "version")]
         version: Option<String>,
-        /// Skip gRPC cluster topology change — only run node initialization
-        /// (dep install, TLS cert upload, node_exporter, monitor config).
-        /// Use to repair nodes that are already in the cluster but missing
-        /// infrastructure components.
-        #[arg(long, default_value_t = false)]
-        fix: bool,
     },
 
     #[strum(serialize = "scalelog")]
