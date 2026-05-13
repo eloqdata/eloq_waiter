@@ -453,11 +453,11 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
     fields.insert(
         "cluster_mode",
         FieldMetadata {
-            description: "Cluster mode for EloqKV (e.g. 'raft')",
+            description: "Enable cluster mode for EloqKV",
             scope: FieldScope::NodeSpecific,
-            example: "raft",
-            value_type: FieldValueType::String,
-            default_value: "raft",
+            example: "true",
+            value_type: FieldValueType::Boolean,
+            default_value: "false",
         },
     );
 

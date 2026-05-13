@@ -503,9 +503,9 @@ impl CmdExecutor {
                 current.deployment.checkpoint_interval;
         }
 
-        if let Some(ref mode) = desired.deployment.cluster_mode {
-            if current.deployment.cluster_mode.as_ref() != Some(mode) {
-                merged.deployment.cluster_mode = Some(mode.clone());
+        if let Some(mode) = desired.deployment.cluster_mode {
+            if current.deployment.cluster_mode != Some(mode) {
+                merged.deployment.cluster_mode = Some(mode);
                 plan.tx_field_updates.push(format!("cluster_mode:{mode}"));
                 plan.applied_changes.push(format!(
                     "deployment.cluster_mode: {:?} -> {:?}",
@@ -514,7 +514,7 @@ impl CmdExecutor {
                 ));
             }
         } else {
-            desired_for_diff.deployment.cluster_mode = current.deployment.cluster_mode.clone();
+            desired_for_diff.deployment.cluster_mode = current.deployment.cluster_mode;
         }
 
         let current_prom = current

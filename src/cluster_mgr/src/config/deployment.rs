@@ -241,7 +241,7 @@ pub struct Deployment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maxclients: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cluster_mode: Option<String>,
+    pub cluster_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_variables: Option<HashMap<String, String>>,
 }
@@ -1590,9 +1590,9 @@ impl Deployment {
             println!("**WARNING:** Manually modifying `checkpoint_interval` in template `EloqKv.ini` is not recommended.");
         }
 
-        if let Some(ref mode) = self.cluster_mode {
+        if let Some(mode) = self.cluster_mode {
             if self.is_empty(&ini, SECTION_LOCAL, "cluster_mode") {
-                ini.set(SECTION_LOCAL, "cluster_mode", Some(mode.clone()));
+                ini.set(SECTION_LOCAL, "cluster_mode", Some(mode.to_string()));
             }
         }
 
