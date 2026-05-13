@@ -274,6 +274,34 @@ impl super::TaskGroup for ScaleTaskGroup {
             }
         }
 
+        // ── gRPC scale operation (add_peers / remove_node) ──
+        let scale_task_id = TaskId {
+            cmd: "scale".to_string(),
+            task: "execute-scale".to_string(),
+            host: "_local".to_string(),
+        };
+        let scale_config = ScaleOpConfig {
+            operation_type: operation_type.clone(),
+            nodes_list: nodes_list.clone(),
+            is_candidate: is_candidate.clone(),
+            cluster_name: cluster_name.clone(),
+            ng_id,
+        };
+        let scale_task = ScaleOpTask::new(
+            scale_task_id.clone(),
+            scale_event_id.clone(),
+            scale_config,
+            redis_op_rx.clone(),
+            scale_op_tx.clone(),
+        );
+        let scale_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(scale_task),
+            task_host: TaskHost::Local,
+        };
+        barrier.push(1);
+        executable.insert(scale_task_id, scale_instance);
+
         // ── Common steps for both add and remove ──
 
         let all_hosts_before_scale: Vec<String> = all_nodes_before_scale
@@ -572,35 +600,6 @@ impl super::TaskGroup for ScaleTaskGroup {
             }
         }
 
-        // ── gRPC scale operation (add_peers / remove_node) ──
-        // Must run AFTER all preparation (SSH, deps, upload, unpack, config) is done
-        let scale_task_id = TaskId {
-            cmd: "scale".to_string(),
-            task: "execute-scale".to_string(),
-            host: "_local".to_string(),
-        };
-        let scale_config = ScaleOpConfig {
-            operation_type: operation_type.clone(),
-            nodes_list: nodes_list.clone(),
-            is_candidate: is_candidate.clone(),
-            cluster_name: cluster_name.clone(),
-            ng_id,
-        };
-        let scale_task = ScaleOpTask::new(
-            scale_task_id.clone(),
-            scale_event_id.clone(),
-            scale_config,
-            redis_op_rx.clone(),
-            scale_op_tx.clone(),
-        );
-        let scale_instance = TaskInstance {
-            task_input: HashMap::default(),
-            task: Box::new(scale_task),
-            task_host: TaskHost::Local,
-        };
-        barrier.push(1);
-        executable.insert(scale_task_id, scale_instance);
-
         // Channel for getting candidate nodes after scaling, RedisOpTask to CheckTxClusterScaleStatusTask
         let (redis_op_scaled_tx, redis_op_scaled_rx) = watch::channel(empty_cluster_nodes.clone());
 
@@ -620,7 +619,7 @@ impl super::TaskGroup for ScaleTaskGroup {
                 true, // poll until finished
                 None, // no scale_status_tx needed here
                 None, // no redis_op_rx needed here
-                None,
+                Some(candidate_nodes_after_scale.clone()),
             );
 
             let validate_config_instance = TaskInstance {
