@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/monographdb/eloq_waiter/compare/v1.3.0...v1.4.0) (2026-05-13)
+
+
+### Features
+
+* idempotent scale, export command, cluster_mode, Redis password fixes ([#366](https://github.com/monographdb/eloq_waiter/issues/366)) ([86ac3d5](https://github.com/monographdb/eloq_waiter/commit/86ac3d51a143473f6787407249d1831dbe9f095f))
+
 ## [1.3.0](https://github.com/monographdb/eloq_waiter/compare/v1.2.0...v1.3.0) (2026-05-13)
 
 
