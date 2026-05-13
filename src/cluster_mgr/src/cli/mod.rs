@@ -250,6 +250,12 @@ pub enum SubCommand {
         /// Version to use for newly added nodes (requires --add-nodes)
         #[arg(long, value_name = "version")]
         version: Option<String>,
+        /// Skip gRPC cluster topology change — only run node initialization
+        /// (dep install, TLS cert upload, node_exporter, monitor config).
+        /// Use to repair nodes that are already in the cluster but missing
+        /// infrastructure components.
+        #[arg(long, default_value_t = false)]
+        fix: bool,
     },
 
     #[strum(serialize = "scalelog")]
