@@ -1,10 +1,11 @@
 use crate::cli::task::backup_utils::split_manifests;
 use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{
-    set_verbose_task_output, TaskArgValue, TaskMgr, TaskResultEnum, TaskResultPair,
+    set_verbose_task_output, TaskArgValue, TaskExecutionContext, TaskMgr, TaskResultEnum,
+    TaskResultPair,
 };
 use crate::cli::util::{cpu_arch, file_pg_bar, os_id, os_major_version};
-use crate::cli::{upload_dir, SubCommand, CMD_OUTPUT, CMD_STATUS, HOME_DIR};
+use crate::cli::{download_dir, upload_dir, SubCommand, CMD_OUTPUT, CMD_STATUS, HOME_DIR};
 use crate::cli::{BackupCommand, ProxyCommand};
 use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
@@ -12,6 +13,7 @@ use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::storage_service_config::{
     DataStoreServiceBackend, DataStoreServiceMode, RocksDB, RocksLocal, StorageService,
 };
+use crate::config::{config_template, SSH_PYTHON_SCRIPT};
 use crate::config::{
     DeploymentPackage, StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR,
 };
@@ -501,6 +503,20 @@ impl CmdExecutor {
                 current.deployment.checkpoint_interval;
         }
 
+        if let Some(ref mode) = desired.deployment.cluster_mode {
+            if current.deployment.cluster_mode.as_ref() != Some(mode) {
+                merged.deployment.cluster_mode = Some(mode.clone());
+                plan.tx_field_updates.push(format!("cluster_mode:{mode}"));
+                plan.applied_changes.push(format!(
+                    "deployment.cluster_mode: {:?} -> {:?}",
+                    current.deployment.cluster_mode,
+                    Some(mode)
+                ));
+            }
+        } else {
+            desired_for_diff.deployment.cluster_mode = current.deployment.cluster_mode.clone();
+        }
+
         let current_prom = current
             .deployment
             .monitor
@@ -608,6 +624,7 @@ impl CmdExecutor {
 
         let supported_paths = [
             "deployment.checkpoint_interval",
+            "deployment.cluster_mode",
             "deployment.monitor.prometheus.retention_time",
             "deployment.monitor.prometheus.retention_size",
             "deployment.monitor.prometheus.remote_write_urls",
@@ -781,6 +798,7 @@ impl CmdExecutor {
                 cluster,
             }
             | SubCommand::Health { cluster }
+            | SubCommand::Fix { cluster }
             | SubCommand::Inspect { cluster, .. }
             | SubCommand::Export { cluster, .. }
             | SubCommand::Remove { cluster, force: _ }
@@ -923,6 +941,9 @@ impl CmdExecutor {
                     }
                     SubCommand::Health { cluster: _ } => {
                         return self.health_check(&deploy_config).await;
+                    }
+                    SubCommand::Fix { cluster: _ } => {
+                        return self.fix_infra(&deploy_config, quiet, verbose).await;
                     }
                     SubCommand::Export { cluster, output } => {
                         let yaml_str = deploy_config.to_yaml();
@@ -1285,6 +1306,139 @@ impl CmdExecutor {
             })
             .unwrap_or_default();
         Ok(output)
+    }
+
+    /// Repair missing infrastructure: TLS certs, node_exporter, monitor config.
+    /// Does NOT modify cluster topology. All steps are idempotent.
+    async fn fix_infra(
+        &'static self,
+        deploy: &DeployConfig,
+        _quiet: bool,
+        _verbose: bool,
+    ) -> Result<()> {
+        use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
+        use crate::cli::task::group::Config;
+
+        use crate::cli::task::task_controller::TaskController;
+        use crate::cli::task::unpack_file_task::UnpackFileTask;
+        use crate::cli::task::upload::upload_task_builder::{
+            build_task_instance, get_source_host, upload_tasks, UploadTaskBuilderType,
+        };
+        use crate::config::config_base::UploadFile;
+
+        let config = Config::Cluster(deploy.clone());
+        let mut barrier = Vec::new();
+        let mut executable = indexmap::IndexMap::new();
+
+        // 1. SSH key exchange for all hosts
+        let ssh_python_bin = config_template(SSH_PYTHON_SCRIPT)?
+            .to_string_lossy()
+            .into_owned();
+        let host_values = deploy.get_unique_host_list().join(" ");
+        if !host_values.is_empty() {
+            let ssh_task = ExecCustomCommand::build_local_task(
+                format!("python3 {} {}", ssh_python_bin, host_values),
+                &config,
+                "ssh setup",
+            );
+            barrier.push(ssh_task.len());
+            executable.extend(ssh_task);
+        }
+
+        // 2. TLS cert generation (idempotent — skips if already exist)
+        deploy.deployment.ensure_tls_certs_for_all_kv_nodes().ok();
+
+        // 3. Monitor config regeneration + upload
+        if deploy.deployment.monitor.is_some() {
+            let mon_tasks = upload_tasks(UploadTaskBuilderType::MonitorConf, &config);
+            if !mon_tasks.is_empty() {
+                let len = mon_tasks.len();
+                barrier.push(len);
+                executable.extend(mon_tasks);
+            }
+        }
+
+        // 4. Node exporter upload + unpack for all hosts
+        if let Some(ne_url) = deploy
+            .deployment
+            .monitor
+            .as_ref()
+            .and_then(|m| m.node_exporter.as_ref())
+            .map(|n| n.url.clone())
+        {
+            let hosts = deploy.get_unique_host_list();
+            let ne_file = ne_url
+                .split('/')
+                .next_back()
+                .unwrap_or("node_exporter.tar.gz");
+            let store = deploy
+                .deployment
+                .storage_service
+                .as_ref()
+                .map_or("rocksdb".to_string(), |s| s.pretty_name());
+            let ne_tarball = download_dir().join("monitor").join(&store).join(ne_file);
+
+            // Upload
+            for host in &hosts {
+                let source_host = get_source_host(None);
+                let upload_file = UploadFile {
+                    source: ne_tarball.to_string_lossy().to_string(),
+                    dest: deploy.install_dir(),
+                    extension: "gz".to_string(),
+                    host: host.clone(),
+                    copy_dir: false,
+                };
+                let (id, instance) = build_task_instance(
+                    source_host,
+                    upload_file,
+                    &config,
+                    "deploy",
+                    "node_exporter_fix",
+                );
+                barrier.push(1);
+                executable.insert(id, instance);
+            }
+
+            // Unpack
+            let mut ne_config = deploy.clone();
+            ne_config.deployment.tx_service.image = Some(ne_url.clone());
+            ne_config.deployment.tx_service.tx_host_ports =
+                hosts.iter().map(|h| format!("{h}:6379")).collect();
+            ne_config.deployment.tx_service.standby_host_ports = None;
+            ne_config.deployment.tx_service.voter_host_ports = None;
+            ne_config.deployment.log_service = None;
+            ne_config.tx_image_override = Some(ne_url);
+
+            let ne_unpack = UnpackFileTask::unpack_eloqservers(&ne_config);
+            for (task_id, instance) in ne_unpack {
+                barrier.push(1);
+                executable.insert(task_id, instance);
+            }
+        }
+
+        if executable.is_empty() {
+            println!("Nothing to fix.");
+            return Ok(());
+        }
+
+        println!("Repairing infrastructure...");
+        let ctx = TaskExecutionContext {
+            task_group: "fix-infra".to_string(),
+            barrier: Some(barrier),
+            executable,
+        };
+
+        let controller: &'static TaskController = Box::leak(Box::new(TaskController::new()));
+        let results = controller.run_all_tasks(ctx, config, true).await?;
+
+        for pair in &results {
+            if let TaskResultEnum::Error(msg) = &pair.result {
+                eprintln!("  FAIL {}: {msg}", pair.task_id);
+            }
+        }
+
+        println!("Done.");
+        Ok(())
     }
 
     async fn finishing(&self, cmd: SubCommand, config: Config) -> Result<()> {
