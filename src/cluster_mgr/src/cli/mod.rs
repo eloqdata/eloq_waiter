@@ -179,6 +179,17 @@ pub enum SubCommand {
         format: Option<TopoFormat>,
     },
 
+    #[command(
+        long_about = "Export the latest cluster topology as a launch-compatible YAML file.\n\
+                      The output can be used directly with `eloqctl launch`."
+    )]
+    #[strum(serialize = "export")]
+    Export {
+        cluster: String,
+        #[arg(short, long, help = "Output file path (default: <cluster>.yaml)")]
+        output: Option<String>,
+    },
+
     #[command(long_about = "Connect to cluster")]
     #[strum(serialize = "connect")]
     Connect { cluster: String },

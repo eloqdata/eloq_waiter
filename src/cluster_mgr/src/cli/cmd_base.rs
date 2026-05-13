@@ -781,6 +781,7 @@ impl CmdExecutor {
                 cluster,
             }
             | SubCommand::Inspect { cluster, .. }
+            | SubCommand::Export { cluster, .. }
             | SubCommand::Remove { cluster, force: _ }
             | SubCommand::Connect { cluster }
             | SubCommand::Backup { cluster, .. }
@@ -918,6 +919,16 @@ impl CmdExecutor {
                 match cmd_for_match {
                     SubCommand::Connect { .. } => {
                         println!("{}", deploy_config.client_conn());
+                    }
+                    SubCommand::Export { cluster, output } => {
+                        let yaml_str = deploy_config.to_yaml();
+                        if let Some(path) = output {
+                            std::fs::write(path.clone(), &yaml_str)
+                                .map_err(|e| anyhow!("failed to write {}: {}", path, e))?;
+                            println!("Exported cluster '{}' topology to {}", cluster, path);
+                        } else {
+                            println!("{}", yaml_str);
+                        }
                     }
                     SubCommand::Inspect { cluster: _, format } => match format {
                         Some(fmt) => match fmt {
