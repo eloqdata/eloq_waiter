@@ -1,4 +1,6 @@
 -- deployment database schema
+-- Migration: drop legacy t_scale_tx_nodes (scale state tracking removed)
+drop table if exists t_scale_tx_nodes;
 create table if not exists t_deployment
 (
     cluster_name      varchar(200) not null primary key,
