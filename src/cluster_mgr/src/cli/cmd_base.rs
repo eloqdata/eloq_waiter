@@ -1110,6 +1110,45 @@ impl CmdExecutor {
                 .unwrap_or(0);
             let eloq_ok = proc_count > 0;
 
+            // Redis API check — get all ports for this host
+            let mut redis_ports: Vec<String> = Vec::new();
+            for pkg in &[
+                DeploymentPackage::MonographTx,
+                DeploymentPackage::MonographStandby,
+                DeploymentPackage::MonographVoter,
+            ] {
+                for hp in &deploy.get_host_port_list(pkg.clone()) {
+                    if let Some((h, p)) = hp.split_once(':') {
+                        if h == host {
+                            redis_ports.push(p.to_string());
+                        }
+                    }
+                }
+            }
+            redis_ports.dedup();
+
+            let mut redis_issues: Vec<String> = Vec::new();
+            for port in &redis_ports {
+                let redis_url = if let Some(ref pass) = deploy.redis_password(None) {
+                    format!("redis://:{pass}@{host}:{port}")
+                } else {
+                    format!("redis://{host}:{port}")
+                };
+                match redis::Client::open(redis_url.clone()) {
+                    Ok(client) => match client.get_connection() {
+                        Ok(mut con) => {
+                            let ping: redis::RedisResult<String> =
+                                redis::cmd("PING").query(&mut con);
+                            if ping.as_deref() != Ok("PONG") {
+                                redis_issues.push(format!("{host}:{port} PING failed"));
+                            }
+                        }
+                        Err(e) => redis_issues.push(format!("{host}:{port} connection: {e}")),
+                    },
+                    Err(e) => redis_issues.push(format!("{host}:{port} client: {e}")),
+                }
+            }
+
             // node_exporter
             let ne_bin = format!("{install_dir}/node_exporter/node_exporter");
             let ne_exist = Self::ssh_exec(
@@ -1124,13 +1163,23 @@ impl CmdExecutor {
                 .map(|s| s.trim().parse::<u32>().unwrap_or(0) > 0)
                 .unwrap_or(false);
 
+            // Check Redis service on each port
+            let redis_ok = redis_issues.is_empty();
+
             println!("  {host}:");
-            println!(
-                "    eloqkv:        {}",
-                if eloq_ok { "OK" } else { "FAIL — no process" }
-            );
-            if !eloq_ok {
+            let eloq_status = if eloq_ok && redis_ok {
+                "OK"
+            } else if !eloq_ok {
+                "FAIL — no process"
+            } else {
+                "FAIL — process running but Redis unreachable"
+            };
+            println!("    eloqkv:        {eloq_status}");
+            if !eloq_ok || !redis_ok {
                 issues += 1;
+            }
+            for issue in &redis_issues {
+                println!("      → {issue}");
             }
             println!(
                 "    node_exporter: {}",
