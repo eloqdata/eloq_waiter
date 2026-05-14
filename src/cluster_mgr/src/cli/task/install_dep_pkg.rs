@@ -10,8 +10,12 @@ use indexmap::IndexMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::vec;
+use tokio::time::timeout;
 use tracing::info;
+
+const DEP_CMD_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug)]
 pub struct DepPkgTask {
@@ -82,8 +86,6 @@ impl DepPkgTask {
         let pkgs = DeployConfig::load_runtime_deps_by_os(&os_name)?;
 
         let mpg_bar = MultiProgress::new();
-        let conn_user = config.connection.clone().username;
-        let ssh_port = config.connection.ssh_port();
         let host_values = config.get_unique_host_list();
         let install_dep_task = host_values
             .iter()
@@ -102,11 +104,7 @@ impl DepPkgTask {
                     pkgs: pkgs.clone(),
                     pg_bar,
                 };
-                let task_host = TaskHost::Remote {
-                    user: conn_user.clone(),
-                    port: ssh_port as usize,
-                    host: host_name.to_string(),
-                };
+                let task_host = TaskHost::remote(&config.connection, host_name);
                 (
                     task_id,
                     TaskInstance {
@@ -119,6 +117,25 @@ impl DepPkgTask {
             .collect::<IndexMap<TaskId, TaskInstance>>();
 
         Ok(install_dep_task)
+    }
+
+    async fn execute_remote_cmd(&self, session: &SSHSession, host: &str, cmd: &str) -> Result<()> {
+        let msg = format!("{host} $ {cmd}");
+        info!("install package {msg}");
+        self.pg_bar.set_message(msg);
+        let (code, out) = timeout(DEP_CMD_TIMEOUT, session.execute(cmd))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "install package timed out on {host} after {}s: '{cmd}'",
+                    DEP_CMD_TIMEOUT.as_secs()
+                )
+            })??;
+        if code != 0 {
+            bail!("install package failed on {host}: '{cmd}' :{code}, {out}");
+        }
+        self.pg_bar.inc(1);
+        Ok(())
     }
 }
 
@@ -140,26 +157,22 @@ impl TaskExecutor for DepPkgTask {
             self.config.connection.ssh_auth_key().unwrap(),
         )
         .await?;
-        let pkg_cmds = self
-            .pkgs
-            .iter()
-            .map(|s| format!("{} {s}", self.head))
-            .collect_vec();
+        if self.pkgs.is_empty() {
+            bail!(
+                "no runtime dependency packages configured for {}",
+                self.task_id.task
+            );
+        }
+        let install_cmd = format!("{} {}", self.head, self.pkgs.join(" "));
         let temp = "{bar:40.cyan/grey} [{pos}/{len}] {elapsed} {wide_msg}";
         let style = ProgressStyle::default_bar().template(temp)?;
         self.pg_bar.set_style(style);
-        self.pg_bar
-            .set_length((self.prepare.len() + pkg_cmds.len()) as u64);
-        for cmd in self.prepare.iter().chain(pkg_cmds.iter()) {
-            let msg = format!("{host} $ {cmd}");
-            info!("install package {msg}");
-            self.pg_bar.set_message(msg);
-            let (code, out) = session.execute(cmd).await?;
-            if code != 0 {
-                bail!("install package failed on {host}: '{cmd}' :{code}, {out}")
-            }
-            self.pg_bar.inc(1);
+        self.pg_bar.set_length((self.prepare.len() + 1) as u64);
+        for cmd in &self.prepare {
+            self.execute_remote_cmd(&session, &host, cmd).await?;
         }
+        self.execute_remote_cmd(&session, &host, &install_cmd)
+            .await?;
         let msg = format!("{host} Finished");
         self.pg_bar.finish_with_message(msg);
         session.close().await?;

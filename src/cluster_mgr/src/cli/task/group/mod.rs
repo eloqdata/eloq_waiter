@@ -55,6 +55,20 @@ impl Config {
         }
     }
 
+    pub fn ssh_endpoint(&self, host: &str) -> (String, u16) {
+        match self {
+            Config::Cluster(cfg) => cfg.connection.ssh_endpoint(host),
+            Config::Proxy(cfg) => cfg.connection.ssh_endpoint(host),
+        }
+    }
+
+    pub fn service_endpoint(&self, host: &str, port: u16) -> (String, u16) {
+        match self {
+            Config::Cluster(cfg) => cfg.connection.service_endpoint(host, port),
+            Config::Proxy(cfg) => cfg.connection.service_endpoint(host, port),
+        }
+    }
+
     pub fn conn_ssh_auth_key(&self) -> String {
         match self {
             Config::Cluster(cfg) => cfg.connection.ssh_auth_key().unwrap(),

@@ -2,8 +2,11 @@ use crate::cli::task::backup_utils::{extract_all_manifests, extract_backup_ts, j
 use crate::cli::task::grpc::cc_request::ClusterBackupResponse;
 use crate::cli::task::grpc::GrpcClient;
 use crate::cli::task::redis_op_task::parse_cluster_nodes;
-use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
+use crate::cli::task::task_base::{
+    is_verbose_task_output, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
+};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::connection::{resolve_service_endpoint, ServiceEndpoint};
 use crate::config::storage_service_config::DataStoreServiceBackend;
 use crate::state::snapshot_info_operation::{SnapshotEntity, SnapshotOperation};
 use crate::state::state_base::StateOperation;
@@ -34,6 +37,7 @@ pub struct BackupTask {
     redis_host_ports: Vec<String>,
     cluster_name: String,
     back_up_config: BackupConfig,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 }
 
 impl BackupTask {
@@ -48,7 +52,34 @@ impl BackupTask {
             redis_host_ports,
             cluster_name,
             back_up_config: config,
+            service_endpoints: None,
         }
+    }
+
+    pub fn with_service_endpoints(
+        mut self,
+        service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
+    ) -> Self {
+        self.service_endpoints = service_endpoints;
+        self
+    }
+
+    fn service_host_port(&self, host_port: &str) -> String {
+        let Some((host, port)) = host_port.rsplit_once(':') else {
+            return host_port.to_string();
+        };
+        let Ok(port) = port.parse::<u16>() else {
+            return host_port.to_string();
+        };
+        let (endpoint_host, endpoint_port) =
+            resolve_service_endpoint(self.service_endpoints.as_ref(), host, port);
+        format!("{endpoint_host}:{endpoint_port}")
+    }
+
+    fn grpc_url(&self, host: &str, port: u16) -> String {
+        let (endpoint_host, endpoint_port) =
+            resolve_service_endpoint(self.service_endpoints.as_ref(), host, port);
+        format!("http://{endpoint_host}:{endpoint_port}")
     }
 
     pub fn format_string(current_date_time: DateTime<Utc>) -> String {
@@ -141,6 +172,7 @@ impl TaskExecutor for BackupTask {
         let nodes: Vec<String> = self
             .redis_host_ports
             .iter()
+            .map(|host_port| self.service_host_port(host_port))
             .map(|host_port| {
                 if let Some(password) = &self.back_up_config.password {
                     format!("redis://:{}@{}", password, host_port)
@@ -155,10 +187,12 @@ impl TaskExecutor for BackupTask {
         let mut con = match client.get_connection() {
             Ok(connection) => connection,
             Err(err) => {
-                println!(
-                    "Cannot connect to the cluster. Attempted nodes: [{}]. Error: {}",
-                    nodes_info, err
-                );
+                if is_verbose_task_output() {
+                    println!(
+                        "Cannot connect to the cluster. Attempted nodes: [{}]. Error: {}",
+                        nodes_info, err
+                    );
+                }
                 task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
                 task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
                 return Ok(Some(task_result));
@@ -191,10 +225,14 @@ impl TaskExecutor for BackupTask {
                     // Both are Some, use the provided values
                     (dest_host.clone(), dest_user.clone())
                 } else {
-                    println!("dest_host or dest_user is None, use default values");
+                    if is_verbose_task_output() {
+                        println!("dest_host or dest_user is None, use default values");
+                    }
                     (local_ip().unwrap().to_string(), whoami::username())
                 };
-                println!("dest_host:{dest_host},dest_user:{dest_user}");
+                if is_verbose_task_output() {
+                    println!("dest_host:{dest_host},dest_user:{dest_user}");
+                }
 
                 // Construct snapshot path based on storage type
                 let initial_snapshot_path = if self.back_up_config.path.is_empty() {
@@ -223,6 +261,7 @@ impl TaskExecutor for BackupTask {
                     // Clone variables for the async block
                     let node_ip = node.ip.clone();
                     let node_port = node.port + 10000 + 1;
+                    let url = self.grpc_url(&node_ip, node_port);
                     let dest_host = dest_host.clone();
                     let dest_user = dest_user.clone();
 
@@ -236,7 +275,6 @@ impl TaskExecutor for BackupTask {
 
                     // Create the async task
                     let task = async move {
-                        let url = format!("http://{}:{}", node_ip, node_port);
                         let mut grpc_client = GrpcClient::new(&url).await.map_err(|e| {
                             error!("Failed to create GrpcClient for {}: {}", url, e);
                             anyhow::anyhow!(e)
@@ -319,15 +357,17 @@ impl TaskExecutor for BackupTask {
                 if trigger_backup_succeed && backup_finished {
                     // Print full response message content
                     if let Some(ref response) = trigger_response {
-                        println!("Backup finished. Response details:");
-                        println!("  backup_name: {}", response.backup_name);
-                        println!("  result: {}", response.result);
-                        println!("  backup_infos count: {}", response.backup_infos.len());
-                        for (idx, info) in response.backup_infos.iter().enumerate() {
-                            println!(
-                                "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
-                                idx, info.ng_id, info.backup_files, info.backup_ts, info.status
-                            );
+                        if is_verbose_task_output() {
+                            println!("Backup finished. Response details:");
+                            println!("  backup_name: {}", response.backup_name);
+                            println!("  result: {}", response.result);
+                            println!("  backup_infos count: {}", response.backup_infos.len());
+                            for (idx, info) in response.backup_infos.iter().enumerate() {
+                                println!(
+                                    "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
+                                    idx, info.ng_id, info.backup_files, info.backup_ts, info.status
+                                );
+                            }
                         }
                         info!("Backup finished. Full response: {:#?}", response);
                     }
@@ -451,15 +491,20 @@ impl TaskExecutor for BackupTask {
                         Ok(final_response) => {
                             // Print full response message content
                             if let Some(ref response) = final_response {
-                                println!("Backup finished. Response details:");
-                                println!("  backup_name: {}", response.backup_name);
-                                println!("  result: {}", response.result);
-                                println!("  backup_infos count: {}", response.backup_infos.len());
-                                for (idx, info) in response.backup_infos.iter().enumerate() {
+                                if is_verbose_task_output() {
+                                    println!("Backup finished. Response details:");
+                                    println!("  backup_name: {}", response.backup_name);
+                                    println!("  result: {}", response.result);
                                     println!(
-                                        "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
-                                        idx, info.ng_id, info.backup_files, info.backup_ts, info.status
+                                        "  backup_infos count: {}",
+                                        response.backup_infos.len()
                                     );
+                                    for (idx, info) in response.backup_infos.iter().enumerate() {
+                                        println!(
+                                            "  backup_info[{}]: ng_id={}, backup_files={:?}, backup_ts={}, status={:?}",
+                                            idx, info.ng_id, info.backup_files, info.backup_ts, info.status
+                                        );
+                                    }
                                 }
                                 info!("Backup finished. Full response: {:#?}", response);
                             }

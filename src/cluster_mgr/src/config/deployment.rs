@@ -1,35 +1,25 @@
-use crate::cli::task::monograph_tx_ctl_task::ServerType;
+use crate::cli::task::eloq_tx_ctl_task::ServerType;
 use crate::cli::{create_upload_cluster_dir, upload_dir};
-use crate::config::config_base::{
-    export_asan, LOG_SERVICE_HOME, MONOGRAPH_FILE_KEY, MONOGRAPH_LOG_FILE_KEY,
-};
+use crate::config::config_base::{export_asan, ELOQ_FILE_KEY, ELOQ_LOG_FILE_KEY, LOG_SERVICE_HOME};
 use crate::config::log_service::LogService;
 use crate::config::monitor::Monitor;
 use crate::config::storage_service_config::{DataStoreServiceBackend, RocksDB, StorageService};
 use crate::config::{
-    cluster_config_template, config_template, DeploymentPackage, DownloadUrl, StorageProvider, CDN,
-    CODIS_PROXY_CNF, ELOQDSS_TEMPLATE_INI, ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI,
-    ELOQSQL_CLIENT_PORT, ELOQSQL_DYNAMO_TEMPLATE_INI, ELOQSQL_TEMPLATE_INI, SECTION_CLUSTER,
-    SECTION_LOCAL, SECTION_MARIADB, SECTION_METRIC, SECTION_STORE,
+    cluster_config_template, DeploymentPackage, DownloadUrl, StorageProvider, ELOQDSS_TEMPLATE_INI,
+    ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI, SECTION_CLUSTER, SECTION_LOCAL, SECTION_METRIC,
+    SECTION_STORE,
 };
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use configparser::ini::Ini;
 use core::panic;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs;
-use std::io::Write;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
-use std::str::FromStr;
 use strum_macros::Display;
-use tracing::warn;
-
-const GB: u32 = 1024; // *MiB
 
 // pub(crate) static VERSION_PATT: LazyLock<Regex> =
 //     LazyLock::new(|| Regex::new(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)").unwrap());
@@ -46,7 +36,11 @@ macro_rules! download_urls {
 macro_rules! set_by_user {
     ($opt_val:expr, $T:ty) => {
         if let Some(v) = $opt_val {
-            Some(v.parse::<$T>()?)
+            if v == "${OVERRIDE}" {
+                None
+            } else {
+                Some(v.parse::<$T>()?)
+            }
         } else {
             None
         }
@@ -67,12 +61,12 @@ macro_rules! extract_monitor_host {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Port {
     pub cs_conn: Option<u16>,
-    pub monograph_port: Option<MonographPort>,
+    pub eloq_port: Option<EloqPort>,
 }
 
 impl Port {
     pub fn contains(&self, p: u16) -> bool {
-        if let Some(mono_port) = &self.monograph_port {
+        if let Some(mono_port) = &self.eloq_port {
             if p >= mono_port.start && p <= mono_port.end {
                 return true;
             }
@@ -87,13 +81,13 @@ impl Port {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct MonographPort {
+pub struct EloqPort {
     pub start: u16,
     pub end: u16,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct MonographService {
+pub struct EloqService {
     pub image: Option<String>,
     pub tx_host_ports: Vec<String>,
     pub standby_host_ports: Option<Vec<String>>,
@@ -105,7 +99,7 @@ pub struct MonographService {
     pub max_standby_lag: Option<u32>,
 }
 
-impl MonographService {
+impl EloqService {
     fn parse_standby_voter_hosts(&self, hosts_vec: Vec<String>) -> Vec<String> {
         hosts_vec
             .iter()
@@ -159,8 +153,6 @@ impl MonographService {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum, Display)]
 pub enum Product {
-    #[serde(alias = "eloqsql", alias = "eloq-sql", alias = "SQL")]
-    EloqSQL,
     #[serde(alias = "eloqkv", alias = "eloq-kv", alias = "KV")]
     EloqKV,
 }
@@ -168,14 +160,12 @@ pub enum Product {
 impl Product {
     pub fn name(&self) -> &str {
         match self {
-            Product::EloqSQL => "eloqsql",
             Product::EloqKV => "eloqkv",
         }
     }
 
     pub fn home(&self) -> &str {
         match self {
-            Product::EloqSQL => "EloqSQL",
             Product::EloqKV => "EloqKV",
         }
     }
@@ -185,27 +175,6 @@ impl Product {
 pub struct Hardware {
     pub cpu: u16,
     pub memory: u32, // MiB
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Codis {
-    pub dashboard: String,
-    pub proxy: Vec<String>,
-}
-
-impl Codis {
-    pub fn download_url() -> String {
-        format!("{CDN}/codis/codis-linux-amd64.tar.gz")
-    }
-    pub fn dir(install_dir: &str) -> String {
-        format!("{install_dir}/codis")
-    }
-    pub fn dashboard_cfg(config: &Deployment) -> anyhow::Result<String> {
-        let _ = config;
-        Err(anyhow!(
-            "Codis configuration is not supported because the legacy coordinator flow has been removed"
-        ))
-    }
 }
 
 pub enum Version {
@@ -227,11 +196,10 @@ pub struct Deployment {
     pub version: Option<String>,
     pub cluster_name: String,
     pub install_dir: String,
-    pub tx_service: MonographService,
+    pub tx_service: EloqService,
     pub log_service: Option<LogService>,
     pub storage_service: Option<StorageService>,
     pub monitor: Option<Monitor>,
-    pub codis: Option<Codis>,
     pub hardware: Option<HashMap<String, Hardware>>,
     pub enable_wal: Option<bool>,
     pub enable_io_uring: Option<bool>,
@@ -277,10 +245,6 @@ impl Deployment {
 
     pub fn version(&self) -> Option<Version> {
         self.version.as_ref().map(|ver| parse_version(ver))
-    }
-
-    pub fn client_port(&self) -> u16 {
-        self.tx_service.client_port.unwrap_or(ELOQSQL_CLIENT_PORT)
     }
 
     pub fn tls_enabled(&self) -> bool {
@@ -468,11 +432,7 @@ impl Deployment {
     }
 
     pub fn tx_srv_ini(&self, port: &str) -> String {
-        let home = self.tx_srv_home();
-        match self.product() {
-            Product::EloqSQL => format!("{home}/{ELOQSQL_TEMPLATE_INI}"),
-            Product::EloqKV => format!("{}/{}-{}.ini", &self.tx_srv_home(), ELOQKV_NODE_INI, port),
-        }
+        format!("{}/{}-{}.ini", &self.tx_srv_home(), ELOQKV_NODE_INI, port)
     }
 
     pub fn dss_srv_ini(&self, port: &str) -> String {
@@ -489,32 +449,12 @@ impl Deployment {
     }
 
     pub fn tx_srv_bin(&self) -> String {
-        match self.product() {
-            Product::EloqSQL => format!("{}/bin/mariadbd", &self.tx_srv_home()),
-            Product::EloqKV => format!("{}/bin/eloqkv", &self.tx_srv_home()),
-        }
+        format!("{}/bin/eloqkv", &self.tx_srv_home())
     }
 
     pub fn client_bin(&self) -> String {
         let tx_home = self.tx_srv_home();
-        match self.product() {
-            Product::EloqSQL => format!("{tx_home}/bin/mariadb"),
-            Product::EloqKV => format!("{tx_home}/bin/eloqkv-cli"),
-        }
-    }
-
-    pub fn get_monograph_keyspace(&self) -> anyhow::Result<String> {
-        let my_local = upload_dir().join("my_local.cnf");
-        if !my_local.exists() {
-            self.gen_eloqsql_config(None, None)?;
-        }
-        let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
-        if let Some(keyspace) = my_ini_local.get(SECTION_MARIADB, "eloq_keyspace_name") {
-            Ok(keyspace)
-        } else {
-            Ok("mono".to_string())
-        }
+        format!("{tx_home}/bin/eloqkv-cli")
     }
 
     pub fn get_redis_keyspace(&self) -> anyhow::Result<String> {
@@ -534,10 +474,7 @@ impl Deployment {
     }
 
     pub fn get_keyspace(&self) -> Result<String> {
-        match self.product() {
-            Product::EloqSQL => self.get_monograph_keyspace(),
-            Product::EloqKV => self.get_redis_keyspace(),
-        }
+        self.get_redis_keyspace()
     }
 
     fn build_log_config(&self) -> HashMap<String, String> {
@@ -556,14 +493,8 @@ impl Deployment {
             .collect::<Vec<String>>()
             .join(",");
 
-        let key_list = match self.product() {
-            Product::EloqSQL => "eloq_txlog_service_list".to_string(),
-            Product::EloqKV => "txlog_service_list".to_string(),
-        };
-        let key_replica = match self.product() {
-            Product::EloqSQL => "eloq_txlog_group_replica_num".to_string(),
-            Product::EloqKV => "txlog_group_replica_num".to_string(),
-        };
+        let key_list = "txlog_service_list".to_string();
+        let key_replica = "txlog_group_replica_num".to_string();
         HashMap::from([
             (key_replica, replica_num.to_string()),
             (key_list, node_group),
@@ -574,189 +505,6 @@ impl Deployment {
         let all_hosts = self.tx_service.merge_hosts();
         assert!(!all_hosts.is_empty());
         all_hosts.first().unwrap().to_string()
-    }
-
-    pub fn build_eloqsql_config(&self, set_ip_list: bool) -> anyhow::Result<Ini> {
-        let mut my_ini = Ini::new();
-        let storage = self.storage_service.as_ref();
-        my_ini
-            .load(config_template(ELOQSQL_DYNAMO_TEMPLATE_INI)?.as_path())
-            .unwrap();
-
-        let dynamodb = storage
-            .expect("storage_service is required")
-            .dynamodb
-            .as_ref()
-            .unwrap();
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_aws_access_key_id",
-            Some(dynamodb.clone().access_key_id),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_aws_secret_key",
-            Some(dynamodb.clone().secret_key),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_dynamodb_region",
-            Some(dynamodb.clone().region),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_dynamodb_endpoint",
-            Some(dynamodb.clone().endpoint),
-        );
-        // mysql_ini.set(
-        //     CONFIG_MARIADB_SECTION,
-        //     "eloq_keyspace_name",
-        //     Some(self.cluster_name.clone()),
-        // );
-
-        let txsrv_home = self.tx_srv_home();
-        my_ini.set(
-            SECTION_MARIADB,
-            "datadir",
-            Some(format!("{txsrv_home}/datafarm")),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "lc_messages_dir",
-            Some(format!("{txsrv_home}/share")),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "plugin_dir",
-            Some(format!("{txsrv_home}/lib/plugin",)),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "port",
-            Some(self.client_port().to_string()),
-        );
-        my_ini.set(
-            SECTION_MARIADB,
-            "socket",
-            Some(format!("/tmp/eloqsql{}.sock", self.client_port())),
-        );
-
-        let tx_host_ports = &self.tx_service.tx_host_ports;
-        if set_ip_list {
-            let ip_list = tx_host_ports
-                .iter()
-                .map(|host_port| host_port.clone().to_string())
-                .join(",");
-            my_ini.set(SECTION_MARIADB, "eloq_ip_list", Some(ip_list));
-        } else {
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_ip_list",
-                Some(format!("{}:{}", "127.0.0.1", "8000")),
-            );
-        }
-
-        let enable_metric = if let Some(monitor) = &self.monitor {
-            monitor.monograph_metrics.is_some() || monitor.eloq_metrics.is_some()
-        } else {
-            false
-        };
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_enable_metrics",
-            Some(enable_metric.to_string()),
-        );
-        Ok(my_ini.clone())
-    }
-
-    pub fn gen_eloqsql_config(
-        &self,
-        host: Option<String>,
-        port: Option<String>,
-    ) -> anyhow::Result<PathBuf> {
-        let is_host = host.is_some();
-        let mut my_ini = self.build_eloqsql_config(is_host)?;
-        let (host, port, cnf_path) = if let (Some(host), Some(port)) = (host, port) {
-            (
-                host.clone(),
-                port.clone(),
-                create_upload_cluster_dir(&host).join(ELOQSQL_TEMPLATE_INI),
-            )
-        } else {
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_local_ip",
-                Some("127.0.0.1:8000".to_string()),
-            );
-            my_ini.set(SECTION_MARIADB, "thread_pool_size", Some("1".to_owned()));
-            my_ini.set(SECTION_MARIADB, "eloq_core_num", Some("1".to_owned()));
-            my_ini.set(
-                SECTION_MARIADB,
-                "eloq_node_memory_limit_mb",
-                Some("512".to_owned()),
-            );
-            let cnf_path = upload_dir().join("my_local.cnf");
-            my_ini.write(&cnf_path)?;
-            return Ok(cnf_path);
-        };
-
-        if self.log_service.is_some() {
-            self.build_log_config()
-                .into_iter()
-                .for_each(|(key, conf_val)| {
-                    my_ini.set(SECTION_MARIADB, &key, Some(conf_val));
-                });
-        }
-        my_ini.set(
-            SECTION_MARIADB,
-            "eloq_local_ip",
-            Some(format!("{}:{}", host, port)),
-        );
-        let opt_hw = self.get_hardware(&host);
-        if opt_hw.is_none() {
-            warn!("hardware information for {host} is missing");
-        }
-
-        let union_cass = self
-            .topology()
-            .get(&host)
-            .unwrap()
-            .contains(&DeploymentPackage::Storage);
-
-        let mut core = 1;
-        if let Some(hw) = opt_hw {
-            if self.tx_service.tx_host_ports.len() == 1 {
-                core = core.max((hw.cpu * 3) / 4);
-            } else {
-                core = core.max((hw.cpu * 2) / 5);
-            }
-            if union_cass {
-                core = core.div_ceil(2);
-            }
-        }
-        let key = "thread_pool_size";
-        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
-        if val.is_none() {
-            my_ini.set(SECTION_MARIADB, key, Some(core.to_string()));
-        }
-        let key = "eloq_core_num";
-        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u16);
-        if val.is_none() {
-            my_ini.set(SECTION_MARIADB, key, Some(core.to_string()));
-        }
-
-        let key = "eloq_node_memory_limit_mb";
-        let val = set_by_user!(my_ini.get(SECTION_MARIADB, key), u32);
-        if val.is_none() {
-            let mut limit = opt_hw.map(|hw| (hw.memory * 3) / 5).unwrap_or(GB);
-            if union_cass {
-                limit /= 2;
-            }
-            assert!(limit > 0);
-            my_ini.set(SECTION_MARIADB, key, Some(limit.to_string()));
-        }
-        my_ini.write(cnf_path.as_path())?;
-        Ok(cnf_path)
     }
 
     pub fn build_eloqkv_config(&self, set_ip_list: bool, port: String) -> anyhow::Result<Ini> {
@@ -1537,8 +1285,7 @@ impl Deployment {
                     self.monitor
                         .as_ref()
                         .and_then(|monitor| {
-                            if monitor.monograph_metrics.is_some() || monitor.eloq_metrics.is_some()
-                            {
+                            if monitor.eloq_metrics.is_some() {
                                 Some(true)
                             } else {
                                 None
@@ -2367,64 +2114,19 @@ impl Deployment {
         Ok(ini)
     }
 
-    // generate proxy config file
-    pub fn codis_proxy_config(&self) -> anyhow::Result<PathBuf> {
-        let temp = fs::read_to_string(config_template(CODIS_PROXY_CNF)?)?;
-        let mut cnf = toml::Table::from_str(&temp)?;
-        cnf.insert(
-            "product_name".to_owned(),
-            toml::Value::String(self.cluster_name.clone()),
-        );
-        // calculate backend_primary_parallel
-        let ncpu = &self
-            .tx_service
-            .tx_host_ports
-            .iter()
-            .map(|host_port| {
-                let parts: Vec<&str> = host_port.split(':').collect();
-                let host = parts[0];
-                if let Some(hw) = self.get_hardware(host) {
-                    hw.cpu
-                } else {
-                    4
-                }
-            })
-            .max()
-            .expect("tx-service hosts can't be empty");
-        cnf.insert(
-            "backend_primary_parallel".to_owned(),
-            toml::Value::Integer(*ncpu as i64),
-        );
-        // write toml
-        let path_proxy = upload_dir().join(CODIS_PROXY_CNF);
-        fs::File::create(path_proxy.as_path())?.write_all(cnf.to_string().as_bytes())?;
-        Ok(path_proxy)
-    }
-
-    // generate dashboard config file
-    pub fn codis_dashboard_config(&self) -> anyhow::Result<PathBuf> {
-        let _ = self;
-        Err(anyhow!(
-            "Codis configuration is not supported because the legacy coordinator flow has been removed"
-        ))
-    }
-
-    pub fn monograph_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
+    pub fn eloq_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
         let mut links = HashMap::new();
-        download_urls!(links,{MONOGRAPH_FILE_KEY, self.tx_image()});
+        download_urls!(links,{ELOQ_FILE_KEY, self.tx_image()});
         if let Some(img) = self.log_image() {
-            download_urls!(links,{MONOGRAPH_LOG_FILE_KEY, img});
+            download_urls!(links,{ELOQ_LOG_FILE_KEY, img});
         }
         Ok(links)
     }
 
     pub fn all_download_links(&self) -> anyhow::Result<HashMap<String, DownloadUrl>> {
-        let mut db_image_download_links = self.monograph_download_links()?;
+        let mut db_image_download_links = self.eloq_download_links()?;
         if let Some(monitor_srv) = self.monitor.as_ref() {
             db_image_download_links.extend(monitor_srv.download_links_as_map()?);
-        }
-        if self.codis.is_some() {
-            download_urls!(db_image_download_links, {"codis", &Codis::download_url()});
         }
         Ok(db_image_download_links)
     }
@@ -2447,20 +2149,20 @@ impl Deployment {
     pub fn get_host_list(&self, service: DeploymentPackage) -> Vec<String> {
         match service {
             DeploymentPackage::Storage => vec![],
-            DeploymentPackage::MonographLog => {
+            DeploymentPackage::EloqLog => {
                 if let Some(ref log_srv) = self.log_service {
                     log_srv.log_host_unique()
                 } else {
                     vec![]
                 }
             }
-            DeploymentPackage::MonographTx => {
+            DeploymentPackage::EloqTx => {
                 self.get_host_list_internal(&Some(self.tx_service.tx_host_ports.clone()))
             }
-            DeploymentPackage::MonographStandby => {
+            DeploymentPackage::EloqStandby => {
                 self.get_host_list_internal(&self.tx_service.standby_host_ports)
             }
-            DeploymentPackage::MonographVoter => {
+            DeploymentPackage::EloqVoter => {
                 self.get_host_list_internal(&self.tx_service.voter_host_ports)
             }
             DeploymentPackage::Prometheus => {
@@ -2468,15 +2170,6 @@ impl Deployment {
             }
             DeploymentPackage::Grafana => {
                 extract_monitor_host!(self, grafana)
-            }
-            DeploymentPackage::Codis => {
-                if let Some(codis) = &self.codis {
-                    let mut hosts = codis.proxy.clone();
-                    hosts.push(codis.dashboard.clone());
-                    hosts
-                } else {
-                    vec![]
-                }
             }
             DeploymentPackage::Proxy => unreachable!(),
         }
@@ -2499,19 +2192,18 @@ impl Deployment {
     pub fn get_host_port_list(&self, service: DeploymentPackage) -> Vec<String> {
         match service {
             DeploymentPackage::Storage => vec![],
-            DeploymentPackage::MonographLog => vec![],
-            DeploymentPackage::MonographTx => {
+            DeploymentPackage::EloqLog => vec![],
+            DeploymentPackage::EloqTx => {
                 self.get_host_port_list_internal(&Some(self.tx_service.tx_host_ports.clone()))
             }
-            DeploymentPackage::MonographStandby => {
+            DeploymentPackage::EloqStandby => {
                 self.get_host_port_list_internal(&self.tx_service.standby_host_ports.clone())
             }
-            DeploymentPackage::MonographVoter => {
+            DeploymentPackage::EloqVoter => {
                 self.get_host_port_list_internal(&self.tx_service.voter_host_ports)
             }
             DeploymentPackage::Prometheus => vec![],
             DeploymentPackage::Grafana => vec![],
-            DeploymentPackage::Codis => vec![],
             DeploymentPackage::Proxy => unreachable!(),
         }
     }
@@ -2534,13 +2226,12 @@ impl Deployment {
 
     pub fn topology(&self) -> HashMap<String, Vec<DeploymentPackage>> {
         let mut topo: HashMap<String, Vec<DeploymentPackage>> = HashMap::new();
-        self.populate_topo(&mut topo, DeploymentPackage::MonographTx);
-        self.populate_topo(&mut topo, DeploymentPackage::MonographStandby);
-        self.populate_topo(&mut topo, DeploymentPackage::MonographVoter);
+        self.populate_topo(&mut topo, DeploymentPackage::EloqTx);
+        self.populate_topo(&mut topo, DeploymentPackage::EloqStandby);
+        self.populate_topo(&mut topo, DeploymentPackage::EloqVoter);
         self.populate_topo(&mut topo, DeploymentPackage::Prometheus);
         self.populate_topo(&mut topo, DeploymentPackage::Grafana);
-        self.populate_topo(&mut topo, DeploymentPackage::MonographLog);
-        self.populate_topo(&mut topo, DeploymentPackage::Codis);
+        self.populate_topo(&mut topo, DeploymentPackage::EloqLog);
         topo
     }
 
@@ -2592,24 +2283,9 @@ impl Deployment {
         // Format the datetime as "YYYYMMDD-HHMMSS.microseconds"
         let datetime = now.format("%Y%m%d-%H%M%S.%6f").to_string();
 
-        match self.product() {
-            Product::EloqSQL => {
-                let mut logout = "/dev/null".to_owned();
-                if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("0.4.2").unwrap() {
-                        logout = format!("{tx_dir}/logs/eloqsql.log")
-                    }
-                }
-                format!(
-                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={ini_file} > {logout} 2>&1 &"
-                )
-            }
-            Product::EloqKV => {
-                format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
-                )
-            }
-        }
+        format!(
+            "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+        )
     }
 
     // only used in `start --nodes`
@@ -2651,24 +2327,9 @@ impl Deployment {
         // Format the datetime as "YYYYMMDD-HHMMSS.microseconds"
         let datetime = now.format("%Y%m%d-%H%M%S.%6f").to_string();
 
-        match self.product() {
-            Product::EloqSQL => {
-                let mut logout = "/dev/null".to_owned();
-                if let Some(Version::Tag(nums)) = self.version() {
-                    if nums <= version_digits("0.4.2").unwrap() {
-                        logout = format!("{tx_dir}/logs/eloqsql.log")
-                    }
-                }
-                format!(
-                    "cd {tx_dir}; {glog}; {ld_lib} ; {tx_bin} --defaults-file={ini_file} > {logout} 2>&1 &"
-                )
-            }
-            Product::EloqKV => {
-                format!(
-                    "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
-                )
-            }
-        }
+        format!(
+            "cd {tx_dir}; mkdir -p logs/std-output; {env_exports}{glog}; {ld_lib} ; {tx_bin} --config={ini_file} --graceful_quit_on_sigterm=true > logs/std-output/std-out-{port}-{datetime} 2>&1 & cd logs/std-output ; ln -sf std-out-{port}-{datetime} std-out-{port} "
+        )
     }
 }
 

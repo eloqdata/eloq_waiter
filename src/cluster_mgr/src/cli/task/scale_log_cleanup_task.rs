@@ -1,4 +1,4 @@
-use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
+use crate::cli::task::eloq_log_ctl_task::EloqLogCtlTask;
 use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
 };
@@ -48,7 +48,7 @@ impl ScaleLogCleanupTask {
             });
         }
 
-        // Use MonographLogCtlTask to stop the nodes properly
+        // Use EloqLogCtlTask to stop the nodes properly
         let stop_cmd = SubCommand::Stop {
             cluster: temp_config.deployment.cluster_name.clone(),
             tx: Some(false),
@@ -61,7 +61,7 @@ impl ScaleLogCleanupTask {
             nodes: Vec::new(),
         };
 
-        let stop_tasks = MonographLogCtlTask::from_config(stop_cmd, &temp_config);
+        let stop_tasks = EloqLogCtlTask::from_config(stop_cmd, &temp_config);
 
         if stop_tasks.is_empty() {
             warn!("No log services to stop");

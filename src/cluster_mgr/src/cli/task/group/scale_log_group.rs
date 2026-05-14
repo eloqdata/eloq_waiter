@@ -1,11 +1,12 @@
 use crate::cli::task::db_update_log_task::DbDeploymentUpdateLogTask;
+use crate::cli::task::eloq_log_ctl_task::{EloqLogCtlTask, LogCtlCmd};
+use crate::cli::task::eloq_log_probe_task::EloqLogProbeTask;
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleLogTaskGroup, TaskGroup};
-use crate::cli::task::monograph_log_ctl_task::{LogCtlCmd, MonographLogCtlTask};
-use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::scale_log_cleanup_task::ScaleLogCleanupTask;
 use crate::cli::task::scale_log_op_task::ScaleLogOpTask;
+use crate::cli::task::ssh_check_task::SshCheckTask;
 use crate::cli::task::task_base::{
     TaskArgValue, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
@@ -17,7 +18,6 @@ use crate::cli::SubCommand;
 use crate::config::config_base::{UploadFile, LOG_SERVICE_HOME};
 use crate::config::log_service::{LogProcessKey, LogServiceNode};
 use crate::config::DownloadUrl;
-use crate::config::{config_template, SSH_PYTHON_SCRIPT};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -62,7 +62,7 @@ impl TaskGroup for ScaleLogTaskGroup {
             }
 
             // Determine operation type and nodes list
-            let (operation_type, scale_node_list) = if !add_nodes.is_empty() {
+            let (operation_type, mut scale_node_list) = if !add_nodes.is_empty() {
                 info!("Scaling log cluster by adding nodes: {:?}", add_nodes);
                 (ScaleOperationType::AddNodes, add_nodes)
             } else {
@@ -99,6 +99,51 @@ impl TaskGroup for ScaleLogTaskGroup {
                 None => return Err(anyhow!("Log service configuration not found")),
             };
 
+            match operation_type {
+                ScaleOperationType::AddNodes => {
+                    scale_node_list.retain(|node| {
+                        if let Some((host, port_str)) = node.split_once(':') {
+                            if let Ok(port) = port_str.parse::<u16>() {
+                                let exists = temp_log_service
+                                    .nodes
+                                    .iter()
+                                    .any(|existing| existing.host == host && existing.port == port);
+                                if exists {
+                                    info!("Scale log add no-op for existing node {node}");
+                                }
+                                return !exists;
+                            }
+                        }
+                        true
+                    });
+                    if scale_node_list.is_empty() {
+                        println!("All requested log nodes already exist; scalelog add is a no-op.");
+                        return Ok(TaskExecutionContext::dummy());
+                    }
+                }
+                ScaleOperationType::RemoveNodes => {
+                    scale_node_list.retain(|node| {
+                        if let Some((host, port_str)) = node.split_once(':') {
+                            if let Ok(port) = port_str.parse::<u16>() {
+                                let exists = temp_log_service
+                                    .nodes
+                                    .iter()
+                                    .any(|existing| existing.host == host && existing.port == port);
+                                if !exists {
+                                    info!("Scale log remove no-op for absent node {node}");
+                                }
+                                return exists;
+                            }
+                        }
+                        false
+                    });
+                    if scale_node_list.is_empty() {
+                        println!("All requested log nodes are already absent; scalelog remove is a no-op.");
+                        return Ok(TaskExecutionContext::dummy());
+                    }
+                }
+            }
+
             let mut temp_config = deploy_cfg.clone();
 
             match operation_type {
@@ -116,26 +161,12 @@ impl TaskGroup for ScaleLogTaskGroup {
                         .collect::<Vec<String>>();
 
                     if !newly_added_hosts.is_empty() {
-                        // Add SSH setup for new nodes with Python SSH script
-                        let ssh_python_bin = config_template(SSH_PYTHON_SCRIPT)?
-                            .to_string_lossy()
-                            .into_owned();
-
-                        // Merge existing hosts with new hosts
                         let mut all_hosts = config.get_unique_host_list();
                         all_hosts.extend(newly_added_hosts.clone());
-                        // Join the hostnames with spaces
-                        let host_values = all_hosts.join(" ");
-
-                        // Create SSH setup task for added nodes with --new-nodes flag
-                        let ssh_python_task = ExecCustomCommand::build_local_task(
-                            format!("python3 {} {}", ssh_python_bin, host_values),
-                            config,
-                            "ssh setup for new nodes",
-                        );
-
-                        barrier.push(ssh_python_task.len());
-                        executable.extend(ssh_python_task);
+                        let ssh_check_tasks =
+                            SshCheckTask::from_hosts(&deploy_cfg, all_hosts, "ssh-connectivity");
+                        barrier.push(ssh_check_tasks.len());
+                        executable.extend(ssh_check_tasks);
                     }
 
                     // Update log service configuration with new nodes (for add operation)
@@ -148,19 +179,6 @@ impl TaskGroup for ScaleLogTaskGroup {
                     for node in &scale_node_list {
                         if let Some((host, port_str)) = node.split_once(':') {
                             if let Ok(port) = port_str.parse::<u16>() {
-                                // Check if this node already exists in the configuration
-                                let node_exists =
-                                    temp_log_service.nodes.iter().any(|existing_node| {
-                                        existing_node.host == host && existing_node.port == port
-                                    });
-
-                                if node_exists {
-                                    return Err(anyhow!(
-                                        "Node {}:{} already exists in log service configuration. Aborting operation.",
-                                        host, port
-                                    ));
-                                }
-
                                 let storage_path =
                                     format!("{}/wal_eloqkv/{}", deploy_cfg.install_dir(), port);
 
@@ -345,7 +363,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                             upload_file,
                             config,
                             "deploy",
-                            "deploy_monograph_all_gz",
+                            "deploy_eloq_all_gz",
                         );
 
                         barrier.push(1);
@@ -387,10 +405,10 @@ impl TaskGroup for ScaleLogTaskGroup {
                         info!("No new log hosts to unpack");
                     }
 
-                    // Step 7: Use MonographLogCtlTask to start the new log nodes
+                    // Step 7: Use EloqLogCtlTask to start the new log nodes
                     info!("Setting up tasks to start new log nodes");
 
-                    // Create start command for all new nodes using MonographLogCtlTask
+                    // Create start command for all new nodes using EloqLogCtlTask
                     let mut log_cmd_by_key = HashMap::new();
 
                     for node in &scale_node_list {
@@ -413,22 +431,16 @@ impl TaskGroup for ScaleLogTaskGroup {
                         }
                     }
 
-                    // Create MonographLogCtlTask for each host
+                    // Create EloqLogCtlTask for each host
                     log_cmd_by_key
                         .iter()
                         .into_group_map_by(|(process_key, _cmd)| process_key.host.clone())
                         .into_iter()
                         .for_each(|(host, key_cmd_pair)| {
-                            let user = &deploy_cfg.connection.username;
-                            let port = deploy_cfg.connection.ssh_port() as usize;
-                            let task_host = TaskHost::Remote {
-                                user: user.to_string(),
-                                port,
-                                host: host.to_string(),
-                            };
+                            let task_host = TaskHost::remote(&deploy_cfg.connection, &host);
 
                             let task_id = TaskId {
-                                cmd: "monograph_log_start".to_string(),
+                                cmd: "eloq_log_start".to_string(),
                                 task: "start".to_string(),
                                 host: host.clone(),
                             };
@@ -438,11 +450,8 @@ impl TaskGroup for ScaleLogTaskGroup {
                                 .map(|(key, cmd)| ((*key).clone(), (*cmd).clone()))
                                 .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
 
-                            let task = MonographLogCtlTask::new(
-                                temp_config.clone(),
-                                task_id.clone(),
-                                log_cmd,
-                            );
+                            let task =
+                                EloqLogCtlTask::new(temp_config.clone(), task_id.clone(), log_cmd);
 
                             let instance = TaskInstance {
                                 task_input: HashMap::from([(
@@ -571,7 +580,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                     barrier.push(1);
                     executable.insert(scale_task_id, scale_instance);
 
-                    // Step 3: Use MonographLogCtlTask to stop the nodes that will be removed
+                    // Step 3: Use EloqLogCtlTask to stop the nodes that will be removed
                     info!("Setting up tasks to stop log nodes that will be removed");
 
                     // Create stop commands for all nodes to be removed
@@ -597,22 +606,16 @@ impl TaskGroup for ScaleLogTaskGroup {
                         }
                     }
 
-                    // Create MonographLogCtlTask for each host
+                    // Create EloqLogCtlTask for each host
                     log_cmd_by_key
                         .iter()
                         .into_group_map_by(|(process_key, _cmd)| process_key.host.clone())
                         .into_iter()
                         .for_each(|(host, key_cmd_pair)| {
-                            let user = &deploy_cfg.connection.username;
-                            let port = deploy_cfg.connection.ssh_port() as usize;
-                            let task_host = TaskHost::Remote {
-                                user: user.to_string(),
-                                port,
-                                host: host.to_string(),
-                            };
+                            let task_host = TaskHost::remote(&deploy_cfg.connection, &host);
 
                             let task_id = TaskId {
-                                cmd: "monograph_log_stop".to_string(),
+                                cmd: "eloq_log_stop".to_string(),
                                 task: "stop".to_string(),
                                 host: host.clone(),
                             };
@@ -623,11 +626,8 @@ impl TaskGroup for ScaleLogTaskGroup {
                                 .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
 
                             // Stop cmd needs the old configuration
-                            let task = MonographLogCtlTask::new(
-                                temp_config.clone(),
-                                task_id.clone(),
-                                log_cmd,
-                            );
+                            let task =
+                                EloqLogCtlTask::new(temp_config.clone(), task_id.clone(), log_cmd);
 
                             let instance = TaskInstance {
                                 task_input: HashMap::from([(
@@ -858,7 +858,7 @@ impl TaskGroup for ScaleLogTaskGroup {
 
             // Step 9: Insert a task to probe that all log nodes are started
             info!("Setting up task to probe log nodes readiness");
-            let probe_tasks = MonographLogProbeTask::from_config(&temp_config);
+            let probe_tasks = EloqLogProbeTask::from_config(&temp_config);
             for (task_id, instance) in probe_tasks {
                 barrier.push(1);
                 executable.insert(task_id, instance);
@@ -906,8 +906,7 @@ impl TaskGroup for ScaleLogTaskGroup {
             };
 
             // Get all tx nodes from deployment config
-            let tx_nodes =
-                temp_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx);
+            let tx_nodes = temp_config.get_host_port_list(crate::config::DeploymentPackage::EloqTx);
 
             let final_topology_task = RedisOpTask::new(
                 final_topology_task_id.clone(),
@@ -916,7 +915,8 @@ impl TaskGroup for ScaleLogTaskGroup {
                 final_topology_tx.clone(),
                 temp_config.redis_password(None),
                 true, // Skip checkpoint
-            );
+            )
+            .with_service_endpoints(temp_config.connection.service_endpoints.clone());
 
             let final_topology_instance = TaskInstance {
                 task_input: HashMap::default(),

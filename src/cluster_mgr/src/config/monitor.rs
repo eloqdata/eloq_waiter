@@ -1,15 +1,11 @@
 use crate::cli::upload_dir;
-use crate::config::config_base::{
-    GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
-};
+use crate::config::config_base::{GRAFANA_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY};
 use crate::config::{
-    config_template, load_yaml_config_template, DownloadUrl, CREATE_MONITOR_USER_SQL_FILE,
-    GRAFANA_CONFIG_FILE, GRAFANA_CONFIG_TEMPLATE, GRAFANA_DASHBOARDS_CONFIG_TEMPLATE,
-    GRAFANA_PROMETHEUS_DS_FILE, MONITOR_DIR, MYSQL_EXPORTER_CLIENT_CONFIG, PROMETHEUS_CONFIG_FILE,
-    PROMETHEUS_CONFIG_TEMPLATE,
+    config_template, load_yaml_config_template, DownloadUrl, GRAFANA_CONFIG_FILE,
+    GRAFANA_CONFIG_TEMPLATE, GRAFANA_DASHBOARDS_CONFIG_TEMPLATE, GRAFANA_PROMETHEUS_DS_FILE,
+    MONITOR_DIR, PROMETHEUS_CONFIG_FILE, PROMETHEUS_CONFIG_TEMPLATE,
 };
 use crate::download_urls;
-use configparser::ini::Ini;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -18,15 +14,12 @@ use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 
-pub const MONO_MONITOR_USER: &str = "mono_monitor";
-
 pub const GRAFANA_CONFIG_DIR: &str = "grafana/conf";
 pub const GRAFANA_DATASOURCE_CONFIG_DIR: &str = "grafana/conf/provisioning/datasources";
 pub const GRAFANA_DASHBOARD_CONFIG_DIR: &str = "grafana/conf/provisioning/dashboards";
 pub const PROMETHEUS_CONFIG_DIR: &str = "prometheus";
 
-pub const MYSQL_EXPORTER_JOB_NAME: &str = "monograph-myslqd";
-pub const NODE_EXPORTER_JOB_NAME: &str = "monograph-node";
+pub const NODE_EXPORTER_JOB_NAME: &str = "eloq-node";
 
 pub const MONITOR_JOB_NAME: &str = "eloq-monitor";
 
@@ -36,7 +29,6 @@ macro_rules! monitor_component_config_dir {
         match $component.to_lowercase().as_str() {
             "prometheus" => "prometheus".to_string(),
             "grafana" => "grafana/conf/provisioning/datasources".to_string(),
-            "mysql_exporter" => "mysqld_exporter".to_string(),
             _ => unreachable!(),
         }
     }};
@@ -86,12 +78,6 @@ impl Prometheus {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct MonographMetrics {
-    pub path: Option<String>,
-    pub port: Option<u16>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct EloqMetrics {
     pub path: Option<String>,
     pub port: Option<u16>,
@@ -110,8 +96,6 @@ pub struct Monitor {
     pub prometheus: Option<Prometheus>,
     pub grafana: Option<Grafana>,
     pub node_exporter: Option<Exporter>,
-    pub mysql_exporter: Option<Exporter>,
-    pub monograph_metrics: Option<MonographMetrics>,
     pub eloq_metrics: Option<EloqMetrics>,
 }
 
@@ -132,26 +116,7 @@ impl Monitor {
         if let Some(noex) = &self.node_exporter {
             download_urls!(links, {NODE_EXPORTER_FILE_KEY, &noex.url});
         }
-        if let Some(myex) = &self.mysql_exporter {
-            download_urls!(links, {MYSQL_EXPORTER_FILE_KEY, &myex.url});
-        }
         Ok(links)
-    }
-
-    pub fn gen_monitor_user_sql_file(&self, cluster_name: &str) -> anyhow::Result<PathBuf> {
-        let create_monitor_user = config_template(CREATE_MONITOR_USER_SQL_FILE)?;
-        let sql_file_template = fs::read_to_string(create_monitor_user)?;
-        let create_sql_script = sql_file_template.replace("_MONITOR_", MONO_MONITOR_USER);
-        let script_path = upload_dir()
-            .join(cluster_name)
-            .join(MONITOR_DIR)
-            .join(CREATE_MONITOR_USER_SQL_FILE);
-        if let Some(parent) = script_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(script_path.clone(), create_sql_script)
-            .expect("unable write create_monitor_user.sql");
-        Ok(script_path)
     }
 
     pub fn gen_grafana_dashboard_config(
@@ -204,35 +169,6 @@ impl Monitor {
         } else {
             panic!("graf config not found");
         }
-    }
-
-    pub fn gen_mysql_exporter_connect_config(
-        &self,
-        cluster_name: &str,
-        host: String,
-        mysql_port: u16,
-    ) -> anyhow::Result<PathBuf> {
-        let mysql_exporter_conf_template = config_template(MYSQL_EXPORTER_CLIENT_CONFIG)?;
-        let mut mysql_exporter_conf = Ini::new();
-        mysql_exporter_conf
-            .load(mysql_exporter_conf_template)
-            .expect("unable load mysql_exporter connect config");
-        mysql_exporter_conf.set("client", "user", Some(MONO_MONITOR_USER.to_string()));
-        mysql_exporter_conf.set("client", "password", Some(MONO_MONITOR_USER.to_string()));
-        mysql_exporter_conf.set("client", "host", Some(host.clone()));
-        mysql_exporter_conf.set("client", "port", Some(mysql_port.to_string()));
-
-        let final_exporter_path = upload_dir()
-            .join(cluster_name)
-            .join(MONITOR_DIR)
-            .join(format!("mysql_exporter_{host}.cnf"));
-
-        if let Some(parent) = final_exporter_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        mysql_exporter_conf.write(final_exporter_path.as_path())?;
-        Ok(final_exporter_path)
     }
 
     fn build_prometheus_target_value(
@@ -295,14 +231,13 @@ impl Monitor {
         Value::Mapping(target_job_yaml_value)
     }
 
-    // node_exporter, mysql_exporter, prometheus
+    // node_exporter, prometheus
     pub fn gen_prometheus_config(
         &self,
         cluster_name: &str,
         job_hosts: HashMap<String, Vec<String>>,
     ) -> anyhow::Result<PathBuf> {
         let node_exporter_port = self.node_exporter.as_ref().unwrap().port;
-        let monograph_metrics_opt = self.monograph_metrics.as_ref();
         let eloq_metrics_opt = self.eloq_metrics.as_ref();
 
         let mut scrape_configs: Vec<Value> = vec![];
@@ -311,15 +246,7 @@ impl Monitor {
             let mut url = None;
             hosts.iter().for_each(|host| match job_name.as_str() {
                 MONITOR_JOB_NAME => {
-                    // Try monograph_metrics first
-                    if let Some(monograph_metrics) = monograph_metrics_opt {
-                        if let Some(port) = monograph_metrics.port {
-                            target_hosts.push(format!("{host}:{port}"));
-                            url = monograph_metrics.path.clone();
-                        }
-                    }
-                    // If monograph_metrics not available, try eloq_metrics
-                    else if let Some(eloq_metrics) = eloq_metrics_opt {
+                    if let Some(eloq_metrics) = eloq_metrics_opt {
                         if let Some(port) = eloq_metrics.port {
                             target_hosts.push(format!("{host}:{port}"));
                             url = eloq_metrics.path.clone();
@@ -328,10 +255,6 @@ impl Monitor {
                 }
                 NODE_EXPORTER_JOB_NAME => {
                     target_hosts.push(format!("{host}:{node_exporter_port}"));
-                }
-                MYSQL_EXPORTER_JOB_NAME => {
-                    let port = self.mysql_exporter.as_ref().unwrap().port;
-                    target_hosts.push(format!("{host}:{port}"));
                 }
                 _ => unreachable!(),
             });

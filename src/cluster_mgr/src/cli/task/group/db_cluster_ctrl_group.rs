@@ -1,11 +1,10 @@
-use crate::cli::task::codis_task::{self, CodisTask};
+use crate::cli::task::eloq_dss_ctl_task::EloqDssCtlTask;
+use crate::cli::task::eloq_log_ctl_task::EloqLogCtlTask;
+use crate::cli::task::eloq_log_probe_task::EloqLogProbeTask;
 use crate::cli::task::eloq_store_data_clean_task::EloqStoreDataCleanTask;
+use crate::cli::task::eloq_tx_ctl_task::{EloqTxCtlTask, ServerType};
 use crate::cli::task::group::{Config, CtrlDBTaskGroup, MonitorCtlTaskGroup, TaskGroup};
 use crate::cli::task::monitor_ctl_task::MonitorCtlTask;
-use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
-use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
-use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
-use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{stop_with_failover, stop_with_hot_standby};
@@ -13,6 +12,8 @@ use crate::cli::task::topology_display_task::TopologyDisplayTask;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::SubCommand;
 use crate::config::config_base::DeployConfig;
+use crate::config::deployment::Product;
+use crate::config::DeploymentPackage;
 use anyhow::Result;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -194,7 +195,8 @@ impl TaskGroup for CtrlDBTaskGroup {
                         redis_tx.clone(),
                         cluster_config.redis_password(None),
                         true,
-                    );
+                    )
+                    .with_service_endpoints(cluster_config.connection.service_endpoints.clone());
                     barrier.push(1);
                     executable.insert(
                         redis_task_id.clone(),
@@ -250,14 +252,6 @@ impl CtrlDBTaskGroup {
         let mut barrier = vec![];
         let mut executable = IndexMap::new();
 
-        if deployment.codis.is_some() {
-            let codis_tasks = CodisTask::from_config(config, codis_task::Operation::Stop);
-            if !codis_tasks.is_empty() {
-                barrier.push(codis_tasks.len());
-                executable.extend(codis_tasks);
-            }
-        }
-
         // stop order: (standby-server -> voter-server ->) tx-server -> log-server -> kv-store
         if tx {
             let mut is_force_stop = false;
@@ -284,30 +278,30 @@ impl CtrlDBTaskGroup {
                 // - The majority of nodes are unresponsive, making cluster information unavailable.
                 if config.deployment.tx_service.standby_host_ports.is_some() {
                     let stop_standby =
-                        MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Standby);
+                        EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Standby);
                     barrier.push(stop_standby.len());
                     executable.extend(stop_standby);
                 }
                 if config.deployment.tx_service.voter_host_ports.is_some() {
                     let stop_voter =
-                        MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
+                        EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
                     barrier.push(stop_voter.len());
                     executable.extend(stop_voter);
                 }
-                let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
+                let stop_tx = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
                 barrier.push(stop_tx.len());
                 executable.extend(stop_tx);
             } else if config.deployment.tx_service.standby_host_ports.is_some() {
                 stop_with_hot_standby(cmd.clone(), config, &mut barrier, &mut executable).await;
             } else {
-                let stop_tx = MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
+                let stop_tx = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
                 barrier.push(stop_tx.len());
                 executable.extend(stop_tx);
             }
         }
 
         if log && deployment.log_service.is_some() {
-            let stop_log = MonographLogCtlTask::from_config(cmd.clone(), config);
+            let stop_log = EloqLogCtlTask::from_config(cmd.clone(), config);
             barrier.push(stop_log.len());
             executable.extend(stop_log);
         }
@@ -317,7 +311,7 @@ impl CtrlDBTaskGroup {
                     // EloqDSS storage provider
                     // Stop DSS if in Remote Internal mode (not external)
                     if dss.is_remote_mode() && !dss.is_external() {
-                        let stop_dss = MonographDssCtlTask::from_config(cmd.clone(), config);
+                        let stop_dss = EloqDssCtlTask::from_config(cmd.clone(), config);
                         if !stop_dss.is_empty() {
                             barrier.push(stop_dss.len());
                             executable.extend(stop_dss);
@@ -336,7 +330,7 @@ impl CtrlDBTaskGroup {
                     Some(crate::config::storage_service_config::RocksDB::EloqDssRocksdb(_))
                 ) {
                     // RocksDB storage provider (EloqDssRocksdb)
-                    let stop_dss = MonographDssCtlTask::from_config(cmd.clone(), config);
+                    let stop_dss = EloqDssCtlTask::from_config(cmd.clone(), config);
                     if !stop_dss.is_empty() {
                         barrier.push(stop_dss.len());
                         executable.extend(stop_dss);
@@ -362,7 +356,7 @@ impl CtrlDBTaskGroup {
                 // Generate node-start tasks once for the provided node list to avoid
                 // duplicate TaskIds and mismatched barrier sizes
                 let start_nodes =
-                    MonographTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Node);
+                    EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Node);
                 barrier.push(start_nodes.len());
                 executable.extend(start_nodes);
             } else {
@@ -419,8 +413,8 @@ impl CtrlDBTaskGroup {
                         .as_ref()
                         .is_some_and(|ds| ds.is_remote_mode() && !ds.is_external())
                     {
-                        use crate::cli::task::monograph_dss_ctl_task::MonographDssCtlTask;
-                        let start_dss = MonographDssCtlTask::from_config(start_cmd.clone(), config);
+                        use crate::cli::task::eloq_dss_ctl_task::EloqDssCtlTask;
+                        let start_dss = EloqDssCtlTask::from_config(start_cmd.clone(), config);
                         barrier.push(start_dss.len());
                         executable.extend(start_dss);
                     }
@@ -440,7 +434,7 @@ impl CtrlDBTaskGroup {
                             "Log service is configured with {} node(s): {:?}. Starting log service...",
                             log_nodes_count, log_hosts
                         );
-                        let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), config);
+                        let start_log = EloqLogCtlTask::from_config(start_cmd.clone(), config);
                         if start_log.is_empty() {
                             warn!(
                                 "Log service is configured but no start tasks were generated. \
@@ -453,7 +447,7 @@ impl CtrlDBTaskGroup {
                             info!("Added log service start task(s) to execution plan");
                         }
 
-                        let probe = MonographLogProbeTask::from_config(config);
+                        let probe = EloqLogProbeTask::from_config(config);
                         if !probe.is_empty() {
                             let probe_len = probe.len();
                             barrier.push(probe_len);
@@ -474,52 +468,72 @@ impl CtrlDBTaskGroup {
                 }
 
                 let start_tx =
-                    MonographTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Tx);
+                    EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Tx);
                 barrier.push(start_tx.len());
                 executable.extend(start_tx);
 
                 if config.deployment.tx_service.standby_host_ports.is_some() {
-                    let start_standby = MonographTxCtlTask::from_config(
-                        start_cmd.clone(),
-                        config,
-                        ServerType::Standby,
-                    );
+                    let start_standby =
+                        EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Standby);
                     barrier.push(start_standby.len());
                     executable.extend(start_standby);
                 }
 
                 if config.deployment.tx_service.voter_host_ports.is_some() {
-                    let start_voter = MonographTxCtlTask::from_config(
-                        start_cmd.clone(),
-                        config,
-                        ServerType::Voter,
-                    );
+                    let start_voter =
+                        EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Voter);
                     barrier.push(start_voter.len());
                     executable.extend(start_voter);
                 }
-
-                if deployment.codis.is_some() {
-                    let codis_tasks = CodisTask::from_config(config, codis_task::Operation::Start);
-                    if !codis_tasks.is_empty() {
-                        // Start dashboard first, then start all proxy servers
-                        barrier.push(1);
-                        barrier.push(codis_tasks.len() - 1);
-                        executable.extend(codis_tasks);
-                    }
-                }
             }
 
-            // Wait until cluster is ready for connection after start
+            // Wait until service processes are up after start. Redis cluster readiness is
+            // checked separately through topology so we do not pin readiness to one tx port.
             let status_cmd = SubCommand::Status {
                 cluster: cluster.clone(),
                 user: None,
                 password: None,
-                wait: Some(60),
+                wait: None,
                 detail: false,
             };
             let status_tasks = self.status_tasks(status_cmd, config);
             barrier.push(status_tasks.len());
             executable.extend(status_tasks);
+
+            if config.deployment.product == Product::EloqKV
+                && config.deployment.cluster_mode.unwrap_or(false)
+            {
+                let topology_task_id = TaskId {
+                    cmd: "topology".to_string(),
+                    task: "wait-current-master".to_string(),
+                    host: "_local".to_string(),
+                };
+                let (topology_tx, _) = watch::channel(ClusterNodes {
+                    masters: Vec::new(),
+                    replicas: Vec::new(),
+                });
+                let mut topology_nodes = config.get_host_port_list(DeploymentPackage::EloqTx);
+                topology_nodes.extend(config.get_host_port_list(DeploymentPackage::EloqStandby));
+                executable.insert(
+                    topology_task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::default(),
+                        task: Box::new(
+                            RedisOpTask::new(
+                                topology_task_id,
+                                topology_nodes,
+                                "cluster topology".to_string(),
+                                topology_tx,
+                                config.redis_password(None),
+                                true,
+                            )
+                            .with_service_endpoints(config.connection.service_endpoints.clone()),
+                        ),
+                        task_host: TaskHost::Local,
+                    },
+                );
+                barrier.push(1);
+            }
         }
 
         (barrier, executable)
@@ -543,7 +557,7 @@ impl CtrlDBTaskGroup {
                 .as_ref()
                 .is_some_and(|ds| ds.is_remote_mode() && !ds.is_external())
             {
-                let dss_tasks = MonographDssCtlTask::from_config(cmd.clone(), config);
+                let dss_tasks = EloqDssCtlTask::from_config(cmd.clone(), config);
                 if !dss_tasks.is_empty() {
                     executable.extend(dss_tasks);
                 }
@@ -551,20 +565,19 @@ impl CtrlDBTaskGroup {
         }
 
         if deployment.log_service.is_some() {
-            let tasks = MonographLogCtlTask::from_config(cmd.clone(), config);
+            let tasks = EloqLogCtlTask::from_config(cmd.clone(), config);
             executable.extend(tasks);
         }
         if config.deployment.tx_service.standby_host_ports.is_some() {
             let status_standby =
-                MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Standby);
+                EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Standby);
             executable.extend(status_standby);
         }
         if config.deployment.tx_service.voter_host_ports.is_some() {
-            let status_voter =
-                MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
+            let status_voter = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
             executable.extend(status_voter);
         }
-        let status_tx = MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
+        let status_tx = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Tx);
         executable.extend(status_tx);
 
         if deployment.monitor.is_some() {
@@ -581,10 +594,6 @@ impl CtrlDBTaskGroup {
                 config,
             ));
             executable.extend(MonitorCtlTask::grafana_ctl_task(monitor_status_cmd, config));
-        }
-
-        if deployment.codis.is_some() {
-            //TODO
         }
 
         executable

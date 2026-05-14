@@ -58,8 +58,6 @@ impl TaskGroup for RemoveTaskGroup {
         if !force_remove {
             if let Some(logsv) = &cluster_config.deployment.log_service {
                 // clean log service data
-                let conn_user = &cluster_config.connection.username;
-                let ssh_port = cluster_config.connection.ssh_port();
                 let clean_tasks = logsv
                     .log_directories()
                     .into_iter()
@@ -69,11 +67,7 @@ impl TaskGroup for RemoveTaskGroup {
                             .map(|d| format!("rm -r {}", d))
                             .join(" && ");
 
-                        let task_host = TaskHost::Remote {
-                            user: conn_user.clone(),
-                            port: ssh_port as usize,
-                            host: host.clone(),
-                        };
+                        let task_host = TaskHost::remote(&cluster_config.connection, &host);
                         let task_id = TaskId {
                             cmd: cmd_arg.as_ref().to_string(),
                             task: format!("clean_log@{host}"),

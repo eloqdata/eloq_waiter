@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 pub struct DataDirUploadBuilder;
 
 impl UploadTaskBuilder for DataDirUploadBuilder {
-    /// Upload the MonographDB data_dir to the remote host.
+    /// Upload the EloqDB data_dir to the remote host.
     fn build(&self, config: &Config) -> IndexMap<TaskId, TaskInstance> {
         let cluster_config = match config {
             Config::Cluster(cfg) => cfg,

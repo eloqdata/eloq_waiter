@@ -21,20 +21,12 @@ pub mod proxy_config_base;
 pub mod proxy_service;
 pub mod storage_service_config;
 
-pub const ELOQSQL_TEMPLATE_INI: &str = "EloqSql.ini";
-pub const ELOQSQL_DYNAMO_TEMPLATE_INI: &str = "EloqSqlDynamo.ini";
-pub const ELOQSQL_CLIENT_PORT: u16 = 3316;
 pub const ELOQKV_TEMPLATE_INI: &str = "EloqKv.ini";
 pub const ELOQDSS_TEMPLATE_INI: &str = "EloqDss.ini";
-pub const SSH_PYTHON_SCRIPT: &str = "ssh.py";
 pub const PROXY_CONF_TEMPLATE: &str = "eloqproxy.ini";
 pub const PROXY_BIN: &str = "eloqkv-proxy";
 pub const ELOQKV_NODE_INI: &str = "EloqKv-node";
-pub const CODIS_PROXY_CNF: &str = "codis_proxy.toml";
-pub const CODIS_DASHBOARD_CNF: &str = "codis_dashboard.toml";
-
 pub const START_LOG_TEMPLATE: &str = "start_tx_log.bash";
-pub const MONOGRAPH_INSTALL_SCRIPT: &str = "monograph_install_db.bash";
 pub const JVM_SETTING_HOLDER: &str = "_GC_SETTINGS_PLACEHOLDER_";
 pub const PROMETHEUS_CONFIG_TEMPLATE: &str = "mono_prometheus.yaml";
 pub const MONITOR_DIR: &str = "monitor";
@@ -48,39 +40,8 @@ pub const GRAFANA_PROMETHEUS_DS_FILE: &str = "prometheus-datasource.yml";
 pub const GRAFANA_CONFIG_TEMPLATE: &str = "grafana_config.ini";
 pub const GRAFANA_CONFIG_FILE: &str = "defaults.ini";
 
-pub const CREATE_MONITOR_USER_SQL_FILE: &str = "create_monitor_user.sql";
-pub const MYSQL_EXPORTER_CLIENT_CONFIG: &str = "mysql_exporter.cnf";
-
 pub const CLOUDFRONT: &str = "download.eloqdata.com";
 pub const CDN: &str = "https://download.eloqdata.com";
-
-#[macro_export]
-macro_rules! gen_db_script {
-    ($script_name:expr, $build_script_func:expr) => {{
-        let script_rs = $build_script_func;
-        if let Ok(script) = script_rs {
-            let script_location = $crate::cli::download_dir().join($script_name);
-            std::fs::write(script_location.clone(), script).unwrap();
-            Ok(script_location)
-        } else {
-            Err(script_rs.err().unwrap())
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! gen_db_misc_files {
-    ($self:ident, $build_func:ident, $script_template:expr, $cluster_name:expr) => {{
-        let script = $self.$build_func()?;
-        let cluster_dir = upload_dir().join($cluster_name);
-        if !cluster_dir.exists() {
-            std::fs::create_dir_all(&cluster_dir).unwrap();
-        }
-        let script_location = cluster_dir.join($script_template);
-        std::fs::write(script_location.clone(), script).unwrap();
-        Ok(script_location)
-    }};
-}
 
 #[macro_export]
 macro_rules! all_hosts_merge {
@@ -98,7 +59,7 @@ macro_rules! all_hosts_merge {
 
 #[derive(PartialEq, Eq, Clone, Error, Debug)]
 pub enum ConfigErr {
-    #[error("MonographDB storage provider config error [{0}].")]
+    #[error("EloqDB storage provider config error [{0}].")]
     StorageConfigErr(String),
     #[error("The download url format is incorrect. Storage Provider is {0}")]
     DownloadUrlFormatErr(String),
@@ -107,18 +68,11 @@ pub enum ConfigErr {
 pub const CONFIG_PATH_DIR: &str = "DEFAULT_CLUSTER_MGR_CLI_CONFIG";
 pub const UPLOAD_PATH_DIR: &str = "DEFAULT_CLUSTER_MGR_CLI_UPLOAD";
 
-pub const SECTION_MARIADB: &str = "mariadb";
 pub const SECTION_LOCAL: &str = "local";
 pub const SECTION_CLUSTER: &str = "cluster";
 pub const SECTION_STORE: &str = "store";
 pub const SECTION_METRIC: &str = "metrics";
 pub const SECTION_PROXY: &str = "proxy";
-
-#[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
-pub enum TopoFormat {
-    Yaml,
-    Json,
-}
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr, Display, clap::ValueEnum)]
 pub enum StorageProvider {
@@ -207,22 +161,20 @@ impl DownloadUrl {
 
 #[derive(Hash, Debug, Clone, PartialEq, Eq, AsRefStr)]
 pub enum DeploymentPackage {
-    #[strum(serialize = "monograph")]
-    MonographTx,
+    #[strum(serialize = "eloq")]
+    EloqTx,
     #[strum(serialize = "storage")]
     Storage,
     #[strum(serialize = "prometheus")]
     Prometheus,
     #[strum(serialize = "grafana")]
     Grafana,
-    #[strum(serialize = "monograph_log")]
-    MonographLog,
-    #[strum(serialize = "codis")]
-    Codis,
-    #[strum(serialize = "monograph_standby")]
-    MonographStandby,
-    #[strum(serialize = "monograph_voter")]
-    MonographVoter,
+    #[strum(serialize = "eloq_log")]
+    EloqLog,
+    #[strum(serialize = "eloq_standby")]
+    EloqStandby,
+    #[strum(serialize = "eloq_voter")]
+    EloqVoter,
     #[strum(serialize = "proxy")]
     Proxy,
 }
@@ -261,10 +213,7 @@ pub fn config_template(file_name: &str) -> anyhow::Result<PathBuf> {
     if path_buf.exists() {
         Ok(path_buf)
     } else {
-        Err(anyhow!(
-            "MonographDB config not found in the {:?}",
-            path_buf
-        ))
+        Err(anyhow!("EloqDB config not found in the {:?}", path_buf))
     }
 }
 

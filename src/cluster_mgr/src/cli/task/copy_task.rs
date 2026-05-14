@@ -6,6 +6,7 @@ use crate::config::config_base::DeployConfig;
 use crate::config::connection::Connection;
 use anyhow::bail;
 use std::collections::HashMap;
+use tokio::time::{timeout, Duration};
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -70,28 +71,41 @@ impl TaskExecutor for CopyTask {
         _task_host: TaskHost,
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
-        let source = format!("{}@{}:{}", self.conn.username, self.src_host, self.src_path);
+        let (ssh_host, ssh_port) = self.conn.ssh_endpoint(&self.src_host);
+        let source = format!("{}@{}:{}", self.conn.username, ssh_host, self.src_path);
         let mut cmd = tokio::process::Command::new("scp");
         cmd.args([
             "-o",
             "UserKnownHostsFile=/dev/null",
             "-o",
             "StrictHostKeyChecking=no",
+            "-o",
+            "PasswordAuthentication=no",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
             "-i",
             &self.conn.ssh_auth_key().unwrap(),
             "-P",
-            &self.conn.ssh_port().to_string(),
+            &ssh_port.to_string(),
             "-r",
             &source,
             &self.dst_path,
         ]);
-        let out = cmd.output().await?;
+        let out = timeout(Duration::from_secs(120), cmd.output()).await??;
         info!("CopyTask {source} -> {}:\n{:#?}", self.dst_path, out);
         if !out.status.success() {
+            let command_output = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
             bail!(
-                "CopyTask {source} -> {}: {:?}",
+                "CopyTask {source} -> {} failed with {:?}: {}",
                 self.dst_path,
-                out.status.code()
+                out.status.code(),
+                command_output.trim()
             );
         }
         Ok(None)

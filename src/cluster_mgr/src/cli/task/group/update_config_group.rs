@@ -95,9 +95,9 @@ fn build_config_update(
 
     if let Some(node_id) = tx_node_id {
         let mut candidate_nodes =
-            deploy_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx);
+            deploy_config.get_host_port_list(crate::config::DeploymentPackage::EloqTx);
         let standby_host_ports =
-            deploy_config.get_host_port_list(crate::config::DeploymentPackage::MonographStandby);
+            deploy_config.get_host_port_list(crate::config::DeploymentPackage::EloqStandby);
         candidate_nodes.extend(standby_host_ports);
 
         let (redis_op_tx, redis_op_rx) = watch::channel(ClusterNodes {
@@ -114,14 +114,17 @@ fn build_config_update(
             redis_task_id.clone(),
             TaskInstance {
                 task_input: HashMap::default(),
-                task: Box::new(RedisOpTask::new(
-                    redis_task_id,
-                    candidate_nodes,
-                    "cluster topology".to_string(),
-                    redis_op_tx,
-                    deploy_config.redis_password(password.clone()),
-                    true,
-                )),
+                task: Box::new(
+                    RedisOpTask::new(
+                        redis_task_id,
+                        candidate_nodes,
+                        "cluster topology".to_string(),
+                        redis_op_tx,
+                        deploy_config.redis_password(password.clone()),
+                        true,
+                    )
+                    .with_service_endpoints(deploy_config.connection.service_endpoints.clone()),
+                ),
                 task_host: TaskHost::Local,
             },
         );

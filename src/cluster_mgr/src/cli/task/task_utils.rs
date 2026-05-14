@@ -1,8 +1,10 @@
 use crate::cli::ssh::SSHCommandOption::CollectOutput;
 use crate::cli::ssh::SSHSession;
-use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
+use crate::cli::task::eloq_tx_ctl_task::{EloqTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
-use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance};
+use crate::cli::task::task_base::{
+    is_verbose_task_output, ExecutionValue, TaskArgValue, TaskHost, TaskId, TaskInstance,
+};
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::{config_base::DeployConfig, DeploymentPackage};
 use crate::state::state_base::{QueryCondition, StateOperation};
@@ -215,11 +217,13 @@ where
     loop {
         if timeout_remaining.as_secs() == 0 {
             info!("CheckStatus timeout");
-            println!("  [wait] timeout after {}s", total_secs);
+            if is_verbose_task_output() {
+                println!("  [wait] timeout after {}s", total_secs);
+            }
             break;
         }
         let elapsed = total_secs - timeout_remaining.as_secs();
-        if elapsed.is_multiple_of(10) || elapsed < 5 {
+        if is_verbose_task_output() && (elapsed.is_multiple_of(10) || elapsed < 5) {
             println!(
                 "  [wait] {}s elapsed (timeout {}s): {}",
                 elapsed,
@@ -300,28 +304,23 @@ pub async fn stop_with_hot_standby(
 
     if is_force_stop {
         // Set up standby tasks
-        let stop_standby = MonographTxCtlTask::from_config_with_channel(
-            cmd.clone(),
-            config,
-            ServerType::Standby,
-            None,
-        )
-        .expect("stop standby error");
+        let stop_standby =
+            EloqTxCtlTask::from_config_with_channel(cmd.clone(), config, ServerType::Standby, None)
+                .expect("stop standby error");
 
         barrier.push(stop_standby.len());
         executable.extend(stop_standby);
 
         // Set up voter tasks if applicable
         if config.deployment.tx_service.voter_host_ports.is_some() {
-            let stop_voter =
-                MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
+            let stop_voter = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
             barrier.push(stop_voter.len());
             executable.extend(stop_voter);
         }
 
         // Set up transaction tasks
         let stop_tx =
-            MonographTxCtlTask::from_config_with_channel(cmd.clone(), config, ServerType::Tx, None)
+            EloqTxCtlTask::from_config_with_channel(cmd.clone(), config, ServerType::Tx, None)
                 .expect("stop tx error");
 
         barrier.push(stop_tx.len());
@@ -331,8 +330,8 @@ pub async fn stop_with_hot_standby(
         let skip_checkpoint =
             check_whether_to_skip_checkpoint(&config.deployment.cluster_name).await;
 
-        let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::MonographTx);
-        let standby_host_ports = config.get_host_port_list(DeploymentPackage::MonographStandby);
+        let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::EloqTx);
+        let standby_host_ports = config.get_host_port_list(DeploymentPackage::EloqStandby);
         redis_host_ports.extend(standby_host_ports);
 
         let task_id = TaskId {
@@ -343,7 +342,7 @@ pub async fn stop_with_hot_standby(
 
         let redis_cmd = "cluster topology".to_string();
 
-        // Use a channel to pass the result of RedisOpTask to MonographTxCtlTask
+        // Use a channel to pass the result of RedisOpTask to EloqTxCtlTask
         let (tx_channel, rx_standby) = watch::channel::<ClusterNodes>(ClusterNodes {
             masters: Vec::new(),
             replicas: Vec::new(),
@@ -358,7 +357,8 @@ pub async fn stop_with_hot_standby(
             tx_channel,
             redis_op_password,
             skip_checkpoint,
-        );
+        )
+        .with_service_endpoints(config.connection.service_endpoints.clone());
 
         let task_instance = TaskInstance {
             task_input: HashMap::default(),
@@ -370,7 +370,7 @@ pub async fn stop_with_hot_standby(
         executable.insert(task_id, task_instance);
 
         // Set up standby tasks
-        let stop_standby = MonographTxCtlTask::from_config_with_channel(
+        let stop_standby = EloqTxCtlTask::from_config_with_channel(
             cmd.clone(),
             config,
             ServerType::Standby,
@@ -383,14 +383,13 @@ pub async fn stop_with_hot_standby(
 
         // Set up voter tasks if applicable
         if config.deployment.tx_service.voter_host_ports.is_some() {
-            let stop_voter =
-                MonographTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
+            let stop_voter = EloqTxCtlTask::from_config(cmd.clone(), config, ServerType::Voter);
             barrier.push(stop_voter.len());
             executable.extend(stop_voter);
         }
 
         // Set up transaction tasks
-        let stop_tx = MonographTxCtlTask::from_config_with_channel(
+        let stop_tx = EloqTxCtlTask::from_config_with_channel(
             cmd.clone(),
             config,
             ServerType::Tx,
@@ -447,7 +446,8 @@ pub async fn stop_with_failover(
         topology_tx,
         redis_op_password.clone(),
         skip_checkpoint,
-    );
+    )
+    .with_service_endpoints(config.connection.service_endpoints.clone());
 
     let topology_instance = TaskInstance {
         task_input: HashMap::default(),
@@ -485,7 +485,8 @@ pub async fn stop_with_failover(
                     0,              // Will be filled by the task if needed
                     failover_rx.clone(),
                     redis_op_password.clone(),
-                );
+                )
+                .with_service_endpoints(config.connection.service_endpoints.clone());
 
                 let failover_instance = TaskInstance {
                     task_input: HashMap::default(),
@@ -503,7 +504,7 @@ pub async fn stop_with_failover(
 
     // Add stop tasks for the nodes
     // These tasks will execute after the failover tasks have completed
-    let stop_nodes = MonographTxCtlTask::from_config_with_channel(
+    let stop_nodes = EloqTxCtlTask::from_config_with_channel(
         cmd.clone(),
         config,
         ServerType::Node,

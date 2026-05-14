@@ -9,10 +9,8 @@ use crate::cli::task::task_utils::{
 };
 use crate::cli::{SubCommand, CMD_OUTPUT};
 use crate::config::config_base::{
-    DeployConfig, GRAFANA_FILE_KEY, MYSQL_EXPORTER_FILE_KEY, NODE_EXPORTER_FILE_KEY,
-    PROMETHEUS_FILE_KEY,
+    DeployConfig, GRAFANA_FILE_KEY, NODE_EXPORTER_FILE_KEY, PROMETHEUS_FILE_KEY,
 };
-use crate::config::deployment::Product;
 use crate::config::monitor::Monitor;
 use crate::config::DeploymentPackage;
 use crate::config::PROMETHEUS_CONFIG_FILE;
@@ -25,7 +23,6 @@ use tracing::{debug, info};
 #[derive(Clone, Debug)]
 pub enum MonitorComponentCommand {
     NodeExporter { home: String },
-    MySqlExporter { home: String, mysql_conf: String },
     Prometheus { home: String },
     Grafana { home: String },
 }
@@ -39,19 +36,6 @@ impl MonitorComponentCommand {
                         r#"{home}/node_exporter --web.listen-address=:{port} > /tmp/mono_node_exporter.log 2>&1 &"#,
                         home = home,
                         port = noex.port
-                    )
-                })
-            }
-            MonitorComponentCommand::MySqlExporter {
-                home,
-                mysql_conf: my_conf,
-            } => {
-                monitor.mysql_exporter.as_ref().map(|mysql_expt| {
-                    format!(
-                        r#"{home}/mysqld_exporter --web.listen-address=:{port} --config.my-cnf {my_conf} --log.level=info > /tmp/mono_mysql_exporter.log 2>&1 &"#,
-                        home = home,
-                        port = mysql_expt.port,
-                        my_conf = my_conf,
                     )
                 })
             }
@@ -88,10 +72,6 @@ impl MonitorComponentCommand {
     pub fn process_info(&self) -> String {
         let monitor_component_home = match &self {
             MonitorComponentCommand::NodeExporter { home } => home,
-            MonitorComponentCommand::MySqlExporter {
-                home,
-                mysql_conf: _,
-            } => home,
             MonitorComponentCommand::Prometheus { home } => home,
             MonitorComponentCommand::Grafana { home } => home,
         };
@@ -120,8 +100,6 @@ mod tests {
             }),
             grafana: None,
             node_exporter: None,
-            mysql_exporter: None,
-            monograph_metrics: None,
             eloq_metrics: None,
         };
         let cmd = MonitorComponentCommand::Prometheus {
@@ -194,13 +172,7 @@ impl MonitorCtlTask {
         monitor_component_host: String,
         task_name: String,
     ) -> IndexMap<TaskId, TaskInstance> {
-        let conn_user = &config.connection.username;
-        let ssh_port = config.connection.ssh_port();
-        let task_host = TaskHost::Remote {
-            user: conn_user.clone(),
-            port: ssh_port as usize,
-            host: monitor_component_host,
-        };
+        let task_host = TaskHost::remote(&config.connection, monitor_component_host);
         let (task_id, task_instance) = MonitorCtlTask::build_monitor_task_instance(
             config.clone(),
             cmd_component,
@@ -280,66 +252,37 @@ impl MonitorCtlTask {
         let cmd_str_ref = cmd_arg.as_ref();
         let monitor = config.deployment.monitor.as_ref().unwrap();
         let install_dir = config.install_dir();
-        let conn_user = &config.connection.username;
-        let ssh_port = config.connection.ssh_port();
         let all_hosts = config.get_host_as_map();
         all_hosts
             .iter()
             .filter(|(pkg, _hosts)| {
                 matches!(
                     pkg,
-                    DeploymentPackage::MonographTx
-                        | DeploymentPackage::MonographStandby
-                        | DeploymentPackage::MonographLog
+                    DeploymentPackage::EloqTx
+                        | DeploymentPackage::EloqStandby
+                        | DeploymentPackage::EloqLog
                         | DeploymentPackage::Storage
                 )
             })
-            .flat_map(|(pkg, hosts)| {
-                let mysql_expt = (pkg == &DeploymentPackage::MonographTx
-                    || pkg == &DeploymentPackage::MonographStandby)
-                    && config.product() == Product::EloqSQL
-                    && monitor.mysql_exporter.is_some();
-
+            .flat_map(|(_pkg, hosts)| {
                 hosts
                     .iter()
                     .unique()
                     .map(|host| {
-                        let task_remote_host = TaskHost::Remote {
-                            user: conn_user.clone(),
-                            port: ssh_port as usize,
-                            host: host.clone(),
-                        };
+                        let task_remote_host = TaskHost::remote(&config.connection, host);
                         let node_exporter_cmd = MonitorComponentCommand::NodeExporter {
                             home: format!("{install_dir}/{NODE_EXPORTER_FILE_KEY}"),
                         };
-                        let mut exporter_cmd_vec =
-                            vec![MonitorCtlTask::build_monitor_task_instance(
-                                config.clone(),
-                                node_exporter_cmd,
-                                format!(
-                                    "node_exporter-{cmd_str_ref}-{}",
-                                    monitor.node_exporter.as_ref().unwrap().port
-                                ),
-                                task_remote_host.clone(),
-                                cmd_arg.clone(),
-                            )];
-                        if mysql_expt {
-                            let mysql_exporter_cmd = MonitorComponentCommand::MySqlExporter {
-                                home: format!("{install_dir}/{MYSQL_EXPORTER_FILE_KEY}"),
-                                mysql_conf: format!("{install_dir}/mysql_exporter_{host}.cnf"),
-                            };
-                            exporter_cmd_vec.push(MonitorCtlTask::build_monitor_task_instance(
-                                config.clone(),
-                                mysql_exporter_cmd,
-                                format!(
-                                    "mysql_exporter-{cmd_str_ref}-{}",
-                                    monitor.mysql_exporter.as_ref().unwrap().port
-                                ),
-                                task_remote_host,
-                                cmd_arg.clone(),
-                            ));
-                        }
-                        exporter_cmd_vec
+                        vec![MonitorCtlTask::build_monitor_task_instance(
+                            config.clone(),
+                            node_exporter_cmd,
+                            format!(
+                                "node_exporter-{cmd_str_ref}-{}",
+                                monitor.node_exporter.as_ref().unwrap().port
+                            ),
+                            task_remote_host,
+                            cmd_arg.clone(),
+                        )]
                     })
                     .collect_vec()
             })
@@ -427,7 +370,6 @@ impl TaskExecutor for MonitorCtlTask {
             );
             let service_name = match &self.monitor_ctl {
                 MonitorComponentCommand::NodeExporter { .. } => "node_exporter",
-                MonitorComponentCommand::MySqlExporter { .. } => "mysql_exporter",
                 MonitorComponentCommand::Prometheus { .. } => "prometheus",
                 MonitorComponentCommand::Grafana { .. } => "grafana",
             };

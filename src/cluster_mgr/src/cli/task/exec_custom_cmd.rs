@@ -8,6 +8,7 @@ use crate::task_return_value;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use tokio::process::Command;
 use tracing::{debug, info};
 
 #[derive(Clone, Debug)]
@@ -25,13 +26,7 @@ impl ExecCustomCommand {
     ) -> IndexMap<TaskId, TaskInstance> {
         let mut task_map = IndexMap::new();
 
-        let conn_user = config.conn_user();
-        let ssh_port = config.ssh_port();
-        let task_host = TaskHost::Remote {
-            user: conn_user.to_string(),
-            port: ssh_port as usize,
-            host: "localhost".to_string(),
-        };
+        let task_host = TaskHost::Local;
         let task_id = TaskId {
             cmd: "exec_local_cmd".to_string(),
             task: format!("{task_name}@localhost"),
@@ -60,15 +55,15 @@ impl ExecCustomCommand {
         task_name: Option<String>,
     ) -> IndexMap<TaskId, TaskInstance> {
         let conn_user = config.conn_user();
-        let ssh_port = config.ssh_port();
 
         hosts
             .iter()
             .map(|host| {
+                let (ssh_host, ssh_port) = config.ssh_endpoint(host);
                 let task_host = TaskHost::Remote {
                     user: conn_user.to_string(),
                     port: ssh_port as usize,
-                    host: host.clone(),
+                    host: ssh_host,
                 };
                 let task = task_name
                     .clone()
@@ -102,16 +97,16 @@ impl ExecCustomCommand {
         config: &Config,
     ) -> IndexMap<TaskId, TaskInstance> {
         let conn_user = config.conn_user();
-        let ssh_port = config.ssh_port();
         let all_hosts = config.get_unique_host_list();
 
         all_hosts
             .iter()
             .map(|host_val| {
+                let (ssh_host, ssh_port) = config.ssh_endpoint(host_val);
                 let task_host = TaskHost::Remote {
                     user: conn_user.to_string(),
                     port: ssh_port as usize,
-                    host: host_val.clone(),
+                    host: ssh_host,
                 };
                 let task_id = TaskId {
                     cmd: cmd.as_ref().to_string(),
@@ -150,10 +145,10 @@ impl ExecCustomCommand {
                 (conn_user.to_string(), "localhost".to_string())
             };
 
-        let ssh_port = config.ssh_port() as usize;
+        let (host, ssh_port) = config.ssh_endpoint(&host);
         let task_host = TaskHost::Remote {
             user,
-            port: ssh_port,
+            port: ssh_port as usize,
             host,
         };
 
@@ -197,6 +192,30 @@ impl TaskExecutor for ExecCustomCommand {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.format_string());
+
+        if matches!(task_host, TaskHost::Local) {
+            let output = Command::new("sh").arg("-c").arg(&self.cmd).output().await?;
+            let status = output.status.code().unwrap_or(1);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let exec_cmd_rs = HashMap::from([
+                (
+                    crate::cli::CMD_STATUS.to_string(),
+                    TaskArgValue::Number(status),
+                ),
+                (
+                    CMD_OUTPUT.to_string(),
+                    TaskArgValue::Str(format!("{stdout}{stderr}")),
+                ),
+            ]);
+            task_return_value!(
+                exec_cmd_rs,
+                |status_code: i32| -> CmdErr {
+                    CmdErr::ExecUserCmdErr(self.cmd.clone(), status_code.to_string())
+                },
+                "ExecCustomCommand"
+            );
+        }
 
         let auth_key = self.config.conn_ssh_auth_key();
         let ssh_session = ssh::SSHSession::from_task_host(task_host, auth_key).await?;

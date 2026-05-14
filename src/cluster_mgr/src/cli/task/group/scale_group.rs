@@ -1,12 +1,13 @@
 use crate::cli::task::check_tx_cluster_scale_status_task::CheckTxClusterScaleStatusTask;
 use crate::cli::task::db_update_task::DbDeploymentUpdateTask;
 use crate::cli::task::download_task::DownloadTask;
+use crate::cli::task::eloq_tx_ctl_task::{EloqTxCtlTask, ServerType};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, ScaleTaskGroup};
 use crate::cli::task::install_dep_pkg::DepPkgTask;
-use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::scale_op_task::{ScaleOpConfig, ScaleOpTask};
+use crate::cli::task::ssh_check_task::SshCheckTask;
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::cli::task::topology_display_task::TopologyDisplayTask;
@@ -19,9 +20,7 @@ use crate::cli::task::upload::upload_task_builder::{
 };
 use crate::cli::{download_dir, SubCommand};
 use crate::config::config_base::UploadFile;
-use crate::config::deployment::Product;
 use crate::config::DeploymentPackage;
-use crate::config::{config_template, SSH_PYTHON_SCRIPT};
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -51,31 +50,87 @@ impl super::TaskGroup for ScaleTaskGroup {
         let mut barrier = Vec::new();
         let mut executable = IndexMap::new();
 
-        let (add_nodes, remove_nodes, is_candidate, cluster_name, ng_id, password, version) =
-            if let SubCommand::Scale {
-                add_nodes: add,
-                remove_nodes: remove,
-                is_candidate,
-                cluster,
-                ng_id,
-                password,
-                version,
-                ..
-            } = &cmd
-            {
-                (
-                    add.clone(),
-                    remove.clone(),
-                    is_candidate.clone(),
-                    cluster.clone(),
-                    *ng_id,
-                    password.clone(),
-                    version.clone(),
-                )
-            } else {
-                return Err(anyhow!("Invalid command for scale task group"));
-            };
+        let (
+            mut add_nodes,
+            mut remove_nodes,
+            mut is_candidate,
+            cluster_name,
+            ng_id,
+            password,
+            version,
+        ) = if let SubCommand::Scale {
+            add_nodes: add,
+            remove_nodes: remove,
+            is_candidate,
+            cluster,
+            ng_id,
+            password,
+            version,
+            ..
+        } = &cmd
+        {
+            (
+                add.clone(),
+                remove.clone(),
+                is_candidate.clone(),
+                cluster.clone(),
+                *ng_id,
+                password.clone(),
+                version.clone(),
+            )
+        } else {
+            return Err(anyhow!("Invalid command for scale task group"));
+        };
         let redis_password = deploy_config.redis_password(password);
+
+        let mut existing_config_nodes = deploy_config.get_host_port_list(DeploymentPackage::EloqTx);
+        existing_config_nodes
+            .extend(deploy_config.get_host_port_list(DeploymentPackage::EloqStandby));
+        existing_config_nodes
+            .extend(deploy_config.get_host_port_list(DeploymentPackage::EloqVoter));
+        if !add_nodes.is_empty() {
+            let original_add_nodes = add_nodes.clone();
+            if let Some(candidate_flags) = is_candidate.clone() {
+                let mut filtered_nodes = Vec::new();
+                let mut filtered_flags = Vec::new();
+                for (node, flag) in original_add_nodes.iter().zip(candidate_flags.iter()) {
+                    if existing_config_nodes.contains(node) {
+                        info!("Scale add no-op for existing node {node}");
+                    } else {
+                        filtered_nodes.push(node.clone());
+                        filtered_flags.push(*flag);
+                    }
+                }
+                add_nodes = filtered_nodes;
+                is_candidate = Some(filtered_flags);
+            } else {
+                add_nodes.retain(|node| {
+                    let exists = existing_config_nodes.contains(node);
+                    if exists {
+                        info!("Scale add no-op for existing node {node}");
+                    }
+                    !exists
+                });
+            }
+            if add_nodes.is_empty() {
+                println!("All requested nodes already exist; scale add is a no-op.");
+                return Ok(TaskExecutionContext::dummy());
+            }
+        }
+
+        if !remove_nodes.is_empty() {
+            remove_nodes.retain(|node| {
+                let exists = existing_config_nodes.contains(node);
+                if !exists {
+                    info!("Scale remove no-op for absent node {node}");
+                }
+                exists
+            });
+            if remove_nodes.is_empty() {
+                println!("All requested nodes are already absent; scale remove is a no-op.");
+                return Ok(TaskExecutionContext::dummy());
+            }
+        }
 
         if version.is_some() && add_nodes.is_empty() {
             return Err(anyhow!(
@@ -134,7 +189,7 @@ impl super::TaskGroup for ScaleTaskGroup {
             .cloned();
 
         if let Some(ver) = effective_version.as_ref() {
-            info!("Using Monograph version {} for new nodes", ver);
+            info!("Using Eloq version {} for new nodes", ver);
         }
 
         // Channel for getting candidate nodes, RedisOpTask to ScaleOpTask
@@ -145,12 +200,11 @@ impl super::TaskGroup for ScaleTaskGroup {
 
         // Get all Redis host:port combinations from the config
         let mut candidate_nodes_before_scale =
-            deploy_config.get_host_port_list(DeploymentPackage::MonographTx);
-        let standby_host_ports =
-            deploy_config.get_host_port_list(DeploymentPackage::MonographStandby);
+            deploy_config.get_host_port_list(DeploymentPackage::EloqTx);
+        let standby_host_ports = deploy_config.get_host_port_list(DeploymentPackage::EloqStandby);
         candidate_nodes_before_scale.extend(standby_host_ports);
 
-        let voter_host_ports = deploy_config.get_host_port_list(DeploymentPackage::MonographVoter);
+        let voter_host_ports = deploy_config.get_host_port_list(DeploymentPackage::EloqVoter);
         let mut all_nodes_before_scale = candidate_nodes_before_scale.clone();
         all_nodes_before_scale.extend(voter_host_ports);
 
@@ -169,19 +223,12 @@ impl super::TaskGroup for ScaleTaskGroup {
                 .collect::<Vec<String>>();
 
             if !newly_added_hosts.is_empty() {
-                let ssh_python_bin = config_template(SSH_PYTHON_SCRIPT)?
-                    .to_string_lossy()
-                    .into_owned();
                 let mut all_hosts = config.get_unique_host_list();
                 all_hosts.extend(newly_added_hosts.clone());
-                let host_values = all_hosts.join(" ");
-                let ssh_python_task = ExecCustomCommand::build_local_task(
-                    format!("python3 {} {}", ssh_python_bin, host_values),
-                    config,
-                    "ssh setup for new nodes",
-                );
-                barrier.push(ssh_python_task.len());
-                executable.extend(ssh_python_task);
+                let ssh_check_tasks =
+                    SshCheckTask::from_hosts(deploy_config, all_hosts, "ssh-connectivity");
+                barrier.push(ssh_check_tasks.len());
+                executable.extend(ssh_check_tasks);
             }
             info!("Scaling cluster by adding nodes: {:?}", add_nodes);
         } else {
@@ -242,7 +289,8 @@ impl super::TaskGroup for ScaleTaskGroup {
             redis_op_tx.clone(),
             redis_password.clone(),
             true,
-        );
+        )
+        .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
 
         let redis_op_instance = TaskInstance {
             task_input: HashMap::default(),
@@ -274,36 +322,6 @@ impl super::TaskGroup for ScaleTaskGroup {
             }
         }
 
-        // ── gRPC scale operation (add_peers / remove_node) ──
-        let scale_task_id = TaskId {
-            cmd: "scale".to_string(),
-            task: "execute-scale".to_string(),
-            host: "_local".to_string(),
-        };
-        let scale_config = ScaleOpConfig {
-            operation_type: operation_type.clone(),
-            nodes_list: nodes_list.clone(),
-            is_candidate: is_candidate.clone(),
-            cluster_name: cluster_name.clone(),
-            ng_id,
-        };
-        let scale_task = ScaleOpTask::new(
-            scale_task_id.clone(),
-            scale_event_id.clone(),
-            scale_config,
-            redis_op_rx.clone(),
-            scale_op_tx.clone(),
-        );
-        let scale_instance = TaskInstance {
-            task_input: HashMap::default(),
-            task: Box::new(scale_task),
-            task_host: TaskHost::Local,
-        };
-        barrier.push(1);
-        executable.insert(scale_task_id, scale_instance);
-
-        // ── Common steps for both add and remove ──
-
         let all_hosts_before_scale: Vec<String> = all_nodes_before_scale
             .clone()
             .iter()
@@ -329,61 +347,159 @@ impl super::TaskGroup for ScaleTaskGroup {
             })
             .collect();
 
-        // Create directories for each node in nodes_list
-        info!("Creating directories for each newly added host:port in nodes_list");
+        if let ScaleOperationType::AddNodes = operation_type {
+            // Prepare new nodes before mutating cluster topology. The node-specific
+            // config still waits until after the scale RPC because it needs the
+            // cluster_config returned by the server.
+            info!("Creating directories for newly added nodes");
+            for host_port in nodes_list.iter() {
+                let parts: Vec<&str> = host_port.split(':').collect();
+                if parts.len() != 2 {
+                    warn!("Invalid node format: {}, expected host:port", host_port);
+                    continue;
+                }
 
-        for host_port in nodes_list.iter() {
-            let parts: Vec<&str> = host_port.split(':').collect();
-            if parts.len() != 2 {
-                warn!("Invalid node format: {}, expected host:port", host_port);
-                continue;
+                let host = parts[0].to_string();
+                let port = parts[1];
+
+                let mkdir_remote_dir = ExecCustomCommand::build_task_by_host(
+                    format!(
+                        "mkdir -p {}/data/port-{}/tx_service",
+                        deploy_config.deployment.tx_srv_home(),
+                        port
+                    ),
+                    config,
+                    vec![host.clone()],
+                    Some(format!("mkdir-{}", port)),
+                );
+
+                barrier.push(mkdir_remote_dir.len());
+                executable.extend(mkdir_remote_dir);
             }
 
-            let host = parts[0].to_string();
-            let port = parts[1];
-
-            let mkdir_remote_dir = ExecCustomCommand::build_task_by_host(
-                format!(
-                    "mkdir -p {}/data/port-{}/tx_service",
-                    deploy_config.deployment.tx_srv_home(),
-                    port
-                ),
-                config,
-                vec![host.clone()],
-                Some(format!("mkdir-{}", port)),
-            );
-
-            barrier.push(mkdir_remote_dir.len());
-            executable.extend(mkdir_remote_dir);
-        }
-
-        // ── TLS cert directory creation ──
-        if deploy_config.deployment.tls_enabled() {
-            let tls_dir = deploy_config.deployment.tls_cert_install_dir();
-            let tls_hosts: Vec<String> = match operation_type {
-                ScaleOperationType::AddNodes => nodes_list
+            if deploy_config.deployment.tls_enabled() {
+                let tls_dir = deploy_config.deployment.tls_cert_install_dir();
+                let tls_hosts: Vec<String> = nodes_list
                     .iter()
                     .map(|hp| hp.split(':').next().unwrap_or("").to_string())
                     .filter(|h| !h.is_empty())
-                    .collect(),
-                ScaleOperationType::RemoveNodes => nodes_list
-                    .iter()
-                    .map(|hp| hp.split(':').next().unwrap_or("").to_string())
-                    .filter(|h| !h.is_empty())
-                    .collect(),
-            };
-            let tls_mkdir = ExecCustomCommand::build_task_by_host(
-                format!("mkdir -p {}", tls_dir),
-                config,
-                tls_hosts,
-                Some("mkdir-tls-dirs".to_string()),
-            );
-            if !tls_mkdir.is_empty() {
-                barrier.push(tls_mkdir.len());
-                executable.extend(tls_mkdir);
-                info!("Added TLS cert directory creation tasks");
+                    .collect();
+                let tls_mkdir = ExecCustomCommand::build_task_by_host(
+                    format!("mkdir -p {}", tls_dir),
+                    config,
+                    tls_hosts,
+                    Some("mkdir-tls-dirs".to_string()),
+                );
+                if !tls_mkdir.is_empty() {
+                    barrier.push(tls_mkdir.len());
+                    executable.extend(tls_mkdir);
+                    info!("Added TLS cert directory creation tasks");
+                }
+            }
+
+            if !new_nodes_to_upload_tarball.is_empty() {
+                if tx_image_filename.is_empty() {
+                    bail!(
+                        "Unable to determine TX service image filename from {}",
+                        effective_tx_image_url
+                    );
+                }
+
+                info!(
+                    "Preparing to upload TX service tarball '{}' to {} new hosts",
+                    tx_image_filename,
+                    new_nodes_to_upload_tarball.len()
+                );
+
+                let download_dir = download_dir();
+                let product_dir = "eloqkv";
+                let store = deploy_config
+                    .deployment
+                    .storage_service
+                    .as_ref()
+                    .map_or("rocksdb".to_string(), |s| s.pretty_name());
+                let tarball_path = download_dir
+                    .join(product_dir)
+                    .join(&store)
+                    .join(&tx_image_filename);
+
+                if tarball_path.exists() {
+                    for host in &new_hosts_to_upload_tarball {
+                        let source_host = get_source_host(None);
+                        let upload_file = UploadFile {
+                            source: tarball_path.to_string_lossy().to_string(),
+                            dest: deploy_config.install_dir(),
+                            extension: "gz".to_string(),
+                            host: host.clone(),
+                            copy_dir: false,
+                        };
+
+                        let (id, instance) = build_task_instance(
+                            source_host,
+                            upload_file,
+                            config,
+                            "deploy",
+                            "tx_service_upload",
+                        );
+                        barrier.push(1);
+                        executable.insert(id, instance);
+                        info!("Added upload task for TX service tarball to host {}", host);
+                    }
+
+                    let mut temp_config = deploy_config.clone();
+                    temp_config.deployment.tx_service.tx_host_ports =
+                        new_nodes_to_upload_tarball.clone();
+                    temp_config.deployment.tx_service.standby_host_ports = None;
+                    temp_config.deployment.tx_service.voter_host_ports = None;
+                    temp_config.deployment.log_service = None;
+                    temp_config.deployment.tx_service.image = Some(effective_tx_image_url.clone());
+                    temp_config.tx_image_override = Some(effective_tx_image_url.clone());
+
+                    let tx_unpack_tasks = UnpackFileTask::unpack_eloqservers(&temp_config);
+                    for (task_id, instance) in tx_unpack_tasks {
+                        info!("Added unpack task for TX service on host {}", task_id.host);
+                        barrier.push(1);
+                        executable.insert(task_id, instance);
+                    }
+                } else {
+                    bail!(
+                        "TX service tarball not found at expected path: {}",
+                        tarball_path.display()
+                    );
+                }
             }
         }
+
+        // ── gRPC scale operation (add_peers / remove_node) ──
+        let scale_task_id = TaskId {
+            cmd: "scale".to_string(),
+            task: "execute-scale".to_string(),
+            host: "_local".to_string(),
+        };
+        let scale_config = ScaleOpConfig {
+            operation_type: operation_type.clone(),
+            nodes_list: nodes_list.clone(),
+            is_candidate: is_candidate.clone(),
+            cluster_name: cluster_name.clone(),
+            ng_id,
+        };
+        let scale_task = ScaleOpTask::new(
+            scale_task_id.clone(),
+            scale_event_id.clone(),
+            scale_config,
+            redis_op_rx.clone(),
+            scale_op_tx.clone(),
+        )
+        .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
+        let scale_instance = TaskInstance {
+            task_input: HashMap::default(),
+            task: Box::new(scale_task),
+            task_host: TaskHost::Local,
+        };
+        barrier.push(1);
+        executable.insert(scale_task_id, scale_instance);
+
+        // ── Common steps for both add and remove ──
 
         // Update configuration files with the new topology in case the log node changed
         let conf_update_task_id = TaskId {
@@ -437,169 +553,6 @@ impl super::TaskGroup for ScaleTaskGroup {
             executable.insert(combined_id, instance);
         }
 
-        // Upload the tx-service tarball to new hosts
-        if let ScaleOperationType::AddNodes = operation_type {
-            if !new_nodes_to_upload_tarball.is_empty() {
-                if tx_image_filename.is_empty() {
-                    bail!(
-                        "Unable to determine TX service image filename from {}",
-                        effective_tx_image_url
-                    );
-                }
-
-                info!(
-                    "Preparing to upload TX service tarball '{}' to {} new hosts",
-                    tx_image_filename,
-                    new_nodes_to_upload_tarball.len()
-                );
-
-                let download_dir = download_dir();
-                let product_dir = match deploy_config.deployment.product() {
-                    Product::EloqSQL => "eloqsql",
-                    Product::EloqKV => "eloqkv",
-                };
-                let store = deploy_config
-                    .deployment
-                    .storage_service
-                    .as_ref()
-                    .map_or("rocksdb".to_string(), |s| s.pretty_name());
-                let tarball_path = download_dir
-                    .join(product_dir)
-                    .join(&store)
-                    .join(&tx_image_filename);
-
-                if tarball_path.exists() {
-                    // Upload TX service tarball to new hosts
-                    for host in &new_hosts_to_upload_tarball {
-                        let source_host = get_source_host(None);
-                        let upload_file = UploadFile {
-                            source: tarball_path.to_string_lossy().to_string(),
-                            dest: deploy_config.install_dir(),
-                            extension: "gz".to_string(),
-                            host: host.clone(),
-                            copy_dir: false,
-                        };
-
-                        let (id, instance) = build_task_instance(
-                            source_host,
-                            upload_file,
-                            config,
-                            "deploy",
-                            "tx_service_upload",
-                        );
-                        barrier.push(1);
-                        executable.insert(id, instance);
-                        info!("Added upload task for TX service tarball to host {}", host);
-                    }
-
-                    // Unpack TX service tarballs on new hosts
-                    let mut temp_config = deploy_config.clone();
-                    let mut temp_tx_hosts = Vec::new();
-
-                    // Extract just the needed hosts for the unpack
-                    for node in &new_nodes_to_upload_tarball {
-                        temp_tx_hosts.push(node.clone());
-                    }
-
-                    // Check the operation type and set appropriate host lists
-                    if operation_type == ScaleOperationType::AddNodes {
-                        // For add operation, set only the new nodes
-                        temp_config.deployment.tx_service.tx_host_ports = temp_tx_hosts;
-                        temp_config.deployment.tx_service.standby_host_ports = None;
-                        temp_config.deployment.tx_service.voter_host_ports = None;
-                        temp_config.deployment.log_service = None;
-                    }
-
-                    temp_config.deployment.tx_service.image = Some(effective_tx_image_url.clone());
-                    temp_config.tx_image_override = Some(effective_tx_image_url.clone());
-
-                    // Generate unpack tasks using the public unpack_eloqservers method
-                    let tx_unpack_tasks = UnpackFileTask::unpack_eloqservers(&temp_config);
-
-                    // Add the tasks to executable
-                    for (task_id, instance) in tx_unpack_tasks {
-                        info!("Added unpack task for TX service on host {}", task_id.host);
-                        barrier.push(1);
-                        executable.insert(task_id, instance);
-                    }
-                } else {
-                    bail!(
-                        "TX service tarball not found at expected path: {}",
-                        tarball_path.display()
-                    );
-                }
-            }
-        }
-
-        // ── Monitor exporter upload for new nodes (AddNodes only) ──
-        if let ScaleOperationType::AddNodes = operation_type {
-            if deploy_config.deployment.monitor.is_some() {
-                let new_hosts: Vec<String> = nodes_list
-                    .iter()
-                    .map(|hp| hp.split(':').next().unwrap_or("").to_string())
-                    .filter(|h| !h.is_empty())
-                    .dedup()
-                    .collect();
-
-                // Upload node_exporter tarball to new hosts
-                if let Some(node_exporter_url) = deploy_config
-                    .deployment
-                    .monitor
-                    .as_ref()
-                    .and_then(|m| m.node_exporter.as_ref())
-                    .map(|n| n.url.clone())
-                {
-                    let ne_file = node_exporter_url.split('/').next_back().unwrap_or("");
-                    let store = deploy_config
-                        .deployment
-                        .storage_service
-                        .as_ref()
-                        .map_or("rocksdb".to_string(), |s| s.pretty_name());
-                    let ne_tarball = download_dir().join("monitor").join(&store).join(ne_file);
-                    if ne_tarball.exists() {
-                        for host in &new_hosts {
-                            let source_host = get_source_host(None);
-                            let upload_file = UploadFile {
-                                source: ne_tarball.to_string_lossy().to_string(),
-                                dest: deploy_config.install_dir(),
-                                extension: "gz".to_string(),
-                                host: host.clone(),
-                                copy_dir: false,
-                            };
-                            let (id, instance) = build_task_instance(
-                                source_host,
-                                upload_file,
-                                config,
-                                "deploy",
-                                "node_exporter_upload",
-                            );
-                            barrier.push(1);
-                            executable.insert(id, instance);
-                            info!("Added node_exporter upload task for host {}", host);
-                        }
-
-                        // Unpack node_exporter on new hosts
-                        let mut temp_ne_config = deploy_config.clone();
-                        temp_ne_config.deployment.tx_service.tx_host_ports =
-                            nodes_list.iter().map(|n| n.to_string()).collect();
-                        temp_ne_config.deployment.tx_service.standby_host_ports = None;
-                        temp_ne_config.deployment.tx_service.voter_host_ports = None;
-                        temp_ne_config.deployment.log_service = None;
-                        temp_ne_config.deployment.tx_service.image =
-                            Some(node_exporter_url.clone());
-                        temp_ne_config.tx_image_override = Some(node_exporter_url);
-
-                        let ne_unpack = UnpackFileTask::unpack_eloqservers(&temp_ne_config);
-                        for (task_id, instance) in ne_unpack {
-                            info!("Added node_exporter unpack task for host {}", task_id.host);
-                            barrier.push(1);
-                            executable.insert(task_id, instance);
-                        }
-                    }
-                }
-            }
-        }
-
         // Channel for getting candidate nodes after scaling, RedisOpTask to CheckTxClusterScaleStatusTask
         let (redis_op_scaled_tx, redis_op_scaled_rx) = watch::channel(empty_cluster_nodes.clone());
 
@@ -620,7 +573,8 @@ impl super::TaskGroup for ScaleTaskGroup {
                 None, // no scale_status_tx needed here
                 None, // no redis_op_rx needed here
                 Some(candidate_nodes_after_scale.clone()),
-            );
+            )
+            .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
 
             let validate_config_instance = TaskInstance {
                 task_input: HashMap::default(),
@@ -649,13 +603,10 @@ impl super::TaskGroup for ScaleTaskGroup {
                     nodes: nodes_list.clone(),
                 };
 
-                info!(
-                    "Starting MonographTxCtlTask with start_cmd: {:?}",
-                    start_cmd
-                );
+                info!("Starting EloqTxCtlTask with start_cmd: {:?}", start_cmd);
 
                 // This old config is not used in `start --nodes` command
-                MonographTxCtlTask::from_config(start_cmd, deploy_config, ServerType::Node)
+                EloqTxCtlTask::from_config(start_cmd, deploy_config, ServerType::Node)
             }
             ScaleOperationType::RemoveNodes => {
                 let stop_cmd = SubCommand::Stop {
@@ -670,10 +621,10 @@ impl super::TaskGroup for ScaleTaskGroup {
                     nodes: nodes_list.clone(),
                 };
 
-                info!("Starting MonographTxCtlTask with stop_cmd: {:?}", stop_cmd);
+                info!("Starting EloqTxCtlTask with stop_cmd: {:?}", stop_cmd);
 
                 // Use from_config_with_channel for stop operations with nodes
-                match MonographTxCtlTask::from_config_with_channel(
+                match EloqTxCtlTask::from_config_with_channel(
                     stop_cmd,
                     deploy_config,
                     ServerType::Node,
@@ -712,7 +663,8 @@ impl super::TaskGroup for ScaleTaskGroup {
                 redis_op_scaled_tx.clone(),
                 redis_password.clone(),
                 true, // Skip checkpoint
-            );
+            )
+            .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
 
             let verify_instance = TaskInstance {
                 task_input: HashMap::default(),
@@ -737,7 +689,8 @@ impl super::TaskGroup for ScaleTaskGroup {
                 None,                             // no scale_status_tx needed here
                 Some(redis_op_scaled_rx.clone()), // Add redis_op_rx
                 None,
-            );
+            )
+            .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
 
             let validate_config_instance = TaskInstance {
                 task_input: HashMap::default(),
@@ -749,10 +702,10 @@ impl super::TaskGroup for ScaleTaskGroup {
             executable.insert(validate_config_task_id, validate_config_instance);
         }
 
-        // Update eloqctl database with new cluster configuration
+        // Update saved eloqctl topology with new cluster configuration
         let db_update_task_id = TaskId {
-            cmd: "db-update".to_string(),
-            task: "update-deployment-db".to_string(),
+            cmd: "topology-save".to_string(),
+            task: "save-cluster-topology".to_string(),
             host: "_local".to_string(),
         };
 
@@ -807,7 +760,8 @@ impl super::TaskGroup for ScaleTaskGroup {
             final_topology_tx.clone(),
             redis_password.clone(),
             true, // Skip checkpoint
-        );
+        )
+        .with_service_endpoints(deploy_config.connection.service_endpoints.clone());
 
         let final_topology_instance = TaskInstance {
             task_input: HashMap::default(),

@@ -1,20 +1,20 @@
 use indexmap::IndexMap;
 
-use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
+use crate::cli::task::eloq_log_ctl_task::EloqLogCtlTask;
+use crate::cli::task::eloq_log_probe_task::EloqLogProbeTask;
 use crate::cli::task::group::{
     CheckTaskGroup, Config, CtrlDBTaskGroup, DeploymentTaskGroup, InstallDBTaskGroup,
     InstallDepPkgTaskGroup, LaunchTaskGroup, MonitorCtlTaskGroup, TaskGroup,
 };
-use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
-use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
+use crate::cli::task::ssh_check_task::SshCheckTask;
 use crate::cli::task::task_base::{
     merge_execution, TaskExecutionContext, TaskHost, TaskId, TaskInstance,
 };
 use crate::cli::task::topology_display_task::TopologyDisplayTask;
 use crate::cli::task::topology_update_task::TopologyUpdateTask;
 use crate::cli::SubCommand;
-use crate::config::{config_template, CONFIG_PATH_DIR, SSH_PYTHON_SCRIPT};
+use crate::config::CONFIG_PATH_DIR;
 use std::collections::HashMap;
 use std::env;
 use tokio::sync::watch;
@@ -39,18 +39,13 @@ impl TaskGroup for LaunchTaskGroup {
         let mut executable = IndexMap::new();
         let mut barrier = vec![];
 
-        let ssh_python_bin = config_template(SSH_PYTHON_SCRIPT)?
-            .to_string_lossy()
-            .into_owned();
-        let host_values = config.get_unique_host_list().join(" ");
-        // This should execute locally.
-        let ssh_python_task = ExecCustomCommand::build_local_task(
-            format!("python3 {} {}", ssh_python_bin, host_values),
-            config,
-            "ssh check",
+        let ssh_check_tasks = SshCheckTask::from_hosts(
+            cluster_config,
+            config.get_unique_host_list(),
+            "ssh-connectivity",
         );
-        barrier.push(ssh_python_task.len());
-        executable.extend(ssh_python_task);
+        barrier.push(ssh_check_tasks.len());
+        executable.extend(ssh_check_tasks);
 
         let (skip_deps, topo_file) = match cmd_arg.clone() {
             SubCommand::Launch {
@@ -109,7 +104,7 @@ impl TaskGroup for LaunchTaskGroup {
             let mut log_barrier = vec![];
             let mut log_executable = IndexMap::new();
 
-            let start_log = MonographLogCtlTask::from_config(start_cmd.clone(), cluster_config);
+            let start_log = EloqLogCtlTask::from_config(start_cmd.clone(), cluster_config);
             if start_log.is_empty() {
                 warn!(
                     "Launch: Log service is configured but no start tasks were generated. \
@@ -125,7 +120,7 @@ impl TaskGroup for LaunchTaskGroup {
                 );
             }
 
-            let probe = MonographLogProbeTask::from_config(cluster_config);
+            let probe = EloqLogProbeTask::from_config(cluster_config);
             if !probe.is_empty() {
                 let probe_len = probe.len();
                 log_barrier.push(probe_len);
@@ -219,14 +214,21 @@ impl TaskGroup for LaunchTaskGroup {
             host: "_local".to_string(),
         };
 
+        let mut topology_nodes =
+            cluster_config.get_host_port_list(crate::config::DeploymentPackage::EloqTx);
+        topology_nodes.extend(
+            cluster_config.get_host_port_list(crate::config::DeploymentPackage::EloqStandby),
+        );
+
         let redis_op_task = RedisOpTask::new(
             redis_op_task_id.clone(),
-            cluster_config.get_host_port_list(crate::config::DeploymentPackage::MonographTx),
+            topology_nodes,
             "cluster topology".to_string(),
             redis_op_tx.clone(),
             cluster_config.redis_password(None),
             true, // Skip checkpoint
-        );
+        )
+        .with_service_endpoints(cluster_config.connection.service_endpoints.clone());
 
         let redis_op_instance = TaskInstance {
             task_input: HashMap::default(),

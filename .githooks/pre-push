@@ -1,11 +1,16 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
+set -eo pipefail
 
-echo "[pre-push] running strict clippy"
-cargo clippy --all-targets --all-features -- -D warnings
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+LOG_FILE="${REPO_ROOT}/.githooks/pre-push.log"
 
-echo "[pre-push] running tests"
-cargo test --tests -- --test-threads=1
+echo "[pre-push] Running full verification suite (output -> ${LOG_FILE})..." >&2
+if "${REPO_ROOT}/scripts/test-before-push.sh" > "${LOG_FILE}" 2>&1; then
+    echo "[pre-push] PASS" >&2
+    exit 0
+else
+    echo "[pre-push] FAIL — see ${LOG_FILE}" >&2
+    tail -n 40 "${LOG_FILE}" >&2
+    exit 1
+fi

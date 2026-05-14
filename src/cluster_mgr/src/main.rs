@@ -3,6 +3,7 @@ use cluster_mgr::cli::cmd_base::CmdExecutor;
 use cluster_mgr::cli::{Command, CompletionShell, SubCommand, HOME_DIR};
 use owo_colors::OwoColorize;
 use std::io;
+use std::panic;
 use std::process::exit;
 use tracing::{error, info};
 
@@ -24,7 +25,7 @@ _eloqctl() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    local commands="demo check proxy launch start stop restart status update update-conf remove inspect connect list versions upgrade monitor log-srv exec run-deps deploy install scale scalelog backup failover completion"
+    local commands="demo check proxy launch start stop restart status update update-conf apply plan remove export connect list versions upgrade monitor log-srv exec run-deps deploy install scale scalelog backup failover completion"
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
         return
@@ -47,7 +48,7 @@ _eloqctl() {
                 return
             fi
             ;;
-        start|stop|restart|status|update|update-conf|remove|inspect|connect|install|scale|scalelog|backup|failover)
+        start|stop|restart|status|update|update-conf|remove|export|connect|install|scale|scalelog|backup|failover)
             if [[ ${COMP_CWORD} -eq 2 ]]; then
                 COMPREPLY=( $(compgen -W "$(_eloqctl_clusters)" -- "${cur}") )
                 return
@@ -83,8 +84,10 @@ _eloqctl() {
         status
         update
         update-conf
+        apply
+        plan
         remove
-        inspect
+        export
         connect
         list
         versions
@@ -124,7 +127,7 @@ _eloqctl() {
                 return
             fi
             ;;
-        start|stop|restart|status|update|update-conf|remove|inspect|connect|install|scale|scalelog|backup|failover)
+        start|stop|restart|status|update|update-conf|remove|export|connect|install|scale|scalelog|backup|failover)
             if (( CURRENT == 3 )); then
                 _eloqctl_clusters
                 return
@@ -144,11 +147,11 @@ fn fish_completion_script() -> String {
 end
 
 complete -c eloqctl -f
-complete -c eloqctl -n '__fish_use_subcommand' -a 'demo check proxy launch start stop restart status update update-conf remove inspect connect list versions upgrade monitor log-srv exec run-deps deploy install scale scalelog backup failover completion'
+complete -c eloqctl -n '__fish_use_subcommand' -a 'demo check proxy launch start stop restart status update update-conf apply plan remove export connect list versions upgrade monitor log-srv exec run-deps deploy install scale scalelog backup failover completion'
 complete -c eloqctl -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
 complete -c eloqctl -n '__fish_seen_subcommand_from monitor log-srv; and not __fish_seen_subcommand_from start stop status' -a 'start stop status'
 
-for cmd in start stop restart status update update-conf remove inspect connect install scale scalelog backup failover
+for cmd in start stop restart status update update-conf remove export connect install scale scalelog backup failover
     complete -c eloqctl -n "__fish_seen_subcommand_from $cmd" -a '(__eloqctl_clusters)'
 end
 
@@ -158,8 +161,40 @@ complete -c eloqctl -n '__fish_seen_subcommand_from log-srv; and __fish_seen_sub
     .to_string()
 }
 
+fn install_panic_hook() {
+    panic::set_hook(Box::new(|panic_info| {
+        let message = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+            })
+            .unwrap_or("unexpected internal error");
+
+        if let Some(location) = panic_info.location() {
+            eprintln!(
+                "{}: {message}\nlocation: {}:{}\nRun again with --verbose and check the command log for details.",
+                "FAIL".red(),
+                location.file(),
+                location.line()
+            );
+        } else {
+            eprintln!(
+                "{}: {message}\nRun again with --verbose and check the command log for details.",
+                "FAIL".red()
+            );
+        }
+    }));
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
+    install_panic_hook();
+
     let cmd = Command::parse();
     if let Some(SubCommand::Completion { shell, output }) = &cmd.subcmd {
         let mut writer: Box<dyn io::Write> =

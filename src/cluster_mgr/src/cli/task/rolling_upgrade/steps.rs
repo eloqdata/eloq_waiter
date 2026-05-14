@@ -1,12 +1,12 @@
 use super::Step;
 use crate::cli::task::download_task::DownloadTask;
+use crate::cli::task::eloq_log_ctl_task::EloqLogCtlTask;
+use crate::cli::task::eloq_log_probe_task::EloqLogProbeTask;
 use crate::cli::task::eloq_store_data_clean_task::EloqStoreDataCleanTask;
+use crate::cli::task::eloq_tx_ctl_task::{EloqTxCtlTask, ServerType};
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::failover_op_task::FailoverOpTask;
 use crate::cli::task::group::Config;
-use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
-use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
-use crate::cli::task::monograph_tx_ctl_task::{MonographTxCtlTask, ServerType};
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::unpack_file_task::UnpackFileTask;
@@ -92,13 +92,22 @@ impl UpgradeContext {
     }
 
     pub fn tx_host_ports(&self) -> Vec<String> {
-        self.deploy
-            .get_host_port_list(DeploymentPackage::MonographTx)
+        self.deploy.get_host_port_list(DeploymentPackage::EloqTx)
     }
 
     pub fn standby_host_ports(&self) -> Vec<String> {
         self.deploy
-            .get_host_port_list(DeploymentPackage::MonographStandby)
+            .get_host_port_list(DeploymentPackage::EloqStandby)
+    }
+
+    pub fn voter_host_ports(&self) -> Vec<String> {
+        self.deploy.get_host_port_list(DeploymentPackage::EloqVoter)
+    }
+
+    pub fn redis_cluster_startup_nodes(&self) -> Vec<String> {
+        let mut host_ports = self.tx_host_ports();
+        host_ports.extend(self.standby_host_ports());
+        host_ports
     }
 }
 
@@ -129,14 +138,17 @@ fn build_round(
         topo_task_id.clone(),
         TaskInstance {
             task_input: HashMap::default(),
-            task: Box::new(RedisOpTask::new(
-                topo_task_id,
-                all_topology_nodes.to_vec(),
-                "cluster topology".to_string(),
-                topo_tx,
-                ctx.redis_password.clone(),
-                true,
-            )),
+            task: Box::new(
+                RedisOpTask::new(
+                    topo_task_id,
+                    all_topology_nodes.to_vec(),
+                    "cluster topology".to_string(),
+                    topo_tx,
+                    ctx.redis_password.clone(),
+                    true,
+                )
+                .with_service_endpoints(ctx.deploy.connection.service_endpoints.clone()),
+            ),
             task_host: TaskHost::Local,
         },
     );
@@ -159,15 +171,18 @@ fn build_round(
             fid.clone(),
             TaskInstance {
                 task_input: HashMap::default(),
-                task: Box::new(FailoverOpTask::new(
-                    fid,
-                    host.to_string(),
-                    port,
-                    String::new(),
-                    0u16,
-                    failover_rx.clone(),
-                    ctx.redis_password.clone(),
-                )),
+                task: Box::new(
+                    FailoverOpTask::new(
+                        fid,
+                        host.to_string(),
+                        port,
+                        String::new(),
+                        0u16,
+                        failover_rx.clone(),
+                        ctx.redis_password.clone(),
+                    )
+                    .with_service_endpoints(ctx.deploy.connection.service_endpoints.clone()),
+                ),
                 task_host: TaskHost::Local,
             },
         );
@@ -175,7 +190,7 @@ fn build_round(
     }
     barrier.push(failover_count);
 
-    let stop_tasks = MonographTxCtlTask::from_config_with_channel(
+    let stop_tasks = EloqTxCtlTask::from_config_with_channel(
         SubCommand::Stop {
             cluster: ctx.cluster.clone(),
             tx: Some(true),
@@ -271,7 +286,7 @@ impl Step for StopTxNodes {
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
         if !self.ctx.has_standby() {
-            let stop_tx = MonographTxCtlTask::from_config(
+            let stop_tx = EloqTxCtlTask::from_config(
                 SubCommand::Stop {
                     cluster: self.ctx.cluster.clone(),
                     tx: Some(true),
@@ -325,7 +340,7 @@ impl Step for StopLog {
         if !self.ctx.has_log() {
             return Ok(TaskExecutionContext::dummy());
         }
-        let stop_log = MonographLogCtlTask::from_config(
+        let stop_log = EloqLogCtlTask::from_config(
             SubCommand::Stop {
                 cluster: self.ctx.cluster.clone(),
                 tx: Some(true),
@@ -449,8 +464,8 @@ impl Step for StartLogAndWait {
             cluster: self.ctx.cluster.clone(),
             nodes: Vec::new(),
         };
-        let start_log = MonographLogCtlTask::from_config(start_cmd, &self.ctx.deploy);
-        let probe = MonographLogProbeTask::from_config(&self.ctx.deploy);
+        let start_log = EloqLogCtlTask::from_config(start_cmd, &self.ctx.deploy);
+        let probe = EloqLogProbeTask::from_config(&self.ctx.deploy);
 
         let mut barrier = vec![];
         let mut executable = IndexMap::new();
@@ -493,7 +508,7 @@ impl Step for StartTx {
     }
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
-        let start_tx = MonographTxCtlTask::from_config(
+        let start_tx = EloqTxCtlTask::from_config(
             SubCommand::Start {
                 cluster: self.ctx.cluster.clone(),
                 nodes: Vec::new(),
@@ -505,35 +520,52 @@ impl Step for StartTx {
     }
 }
 
-pub struct WaitTxReady {
+pub struct WaitCurrentMaster {
     ctx: UpgradeContext,
 }
 
-impl WaitTxReady {
+impl WaitCurrentMaster {
     pub fn new(ctx: UpgradeContext) -> Self {
         Self { ctx }
     }
 }
 
 #[async_trait]
-impl Step for WaitTxReady {
+impl Step for WaitCurrentMaster {
     fn name(&self) -> &str {
-        "WaitTxReady"
+        "WaitCurrentMaster"
     }
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
-        let probe = MonographTxCtlTask::from_config(
-            SubCommand::Status {
-                cluster: self.ctx.cluster.clone(),
-                user: None,
-                password: self.ctx.redis_password.clone(),
-                wait: Some(120),
-                detail: false,
+        let task_id = TaskId {
+            cmd: "topology".to_string(),
+            task: "wait-current-master".to_string(),
+            host: "_local".to_string(),
+        };
+        let (topology_tx, _) = watch::channel(ClusterNodes {
+            masters: Vec::new(),
+            replicas: Vec::new(),
+        });
+        let mut executable = IndexMap::new();
+        executable.insert(
+            task_id.clone(),
+            TaskInstance {
+                task_input: HashMap::default(),
+                task: Box::new(
+                    RedisOpTask::new(
+                        task_id,
+                        self.ctx.redis_cluster_startup_nodes(),
+                        "cluster topology".to_string(),
+                        topology_tx,
+                        self.ctx.redis_password.clone(),
+                        true,
+                    )
+                    .with_service_endpoints(self.ctx.deploy.connection.service_endpoints.clone()),
+                ),
+                task_host: TaskHost::Local,
             },
-            &self.ctx.deploy,
-            ServerType::Tx,
         );
-        Ok(single_barrier_ctx("wait-tx-ready", probe))
+        Ok(single_barrier_ctx("wait-current-master", executable))
     }
 }
 
@@ -618,7 +650,7 @@ impl Step for StartStandby {
         if !self.ctx.has_standby() {
             return Ok(TaskExecutionContext::dummy());
         }
-        let start = MonographTxCtlTask::from_config(
+        let start = EloqTxCtlTask::from_config(
             SubCommand::Start {
                 cluster: self.ctx.cluster.clone(),
                 nodes: Vec::new(),
@@ -650,7 +682,7 @@ impl Step for StopVoters {
         if !self.ctx.has_voter() {
             return Ok(TaskExecutionContext::dummy());
         }
-        let stop = MonographTxCtlTask::from_config(
+        let stop = EloqTxCtlTask::from_config(
             SubCommand::Stop {
                 cluster: self.ctx.cluster.clone(),
                 tx: None,
@@ -689,7 +721,7 @@ impl Step for StartVoters {
         if !self.ctx.has_voter() {
             return Ok(TaskExecutionContext::dummy());
         }
-        let start = MonographTxCtlTask::from_config(
+        let start = EloqTxCtlTask::from_config(
             SubCommand::Start {
                 cluster: self.ctx.cluster.clone(),
                 nodes: Vec::new(),
@@ -743,7 +775,7 @@ pub fn build_upgrade_steps(ctx: UpgradeContext) -> Vec<Box<dyn Step>> {
         Box::new(CleanEloqStoreData::new(ctx.clone())),
         Box::new(StartLogAndWait::new(ctx.clone())),
         Box::new(StartTx::new(ctx.clone())),
-        Box::new(WaitTxReady::new(ctx.clone())),
+        Box::new(WaitCurrentMaster::new(ctx.clone())),
         Box::new(FailoverBackAndStopStandby::new(ctx.clone())),
         Box::new(UnpackStandby::new(ctx.clone())),
         Box::new(StartStandby::new(ctx.clone())),
@@ -758,7 +790,7 @@ pub fn build_config_restart_steps(ctx: UpgradeContext) -> Vec<Box<dyn Step>> {
     vec![
         Box::new(StopTxNodes::new(ctx.clone())),
         Box::new(StartTx::new(ctx.clone())),
-        Box::new(WaitTxReady::new(ctx.clone())),
+        Box::new(WaitCurrentMaster::new(ctx.clone())),
         Box::new(FailoverBackAndStopStandby::new(ctx.clone())),
         Box::new(StartStandby::new(ctx.clone())),
         Box::new(StopVoters::new(ctx.clone())),

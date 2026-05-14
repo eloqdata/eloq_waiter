@@ -43,8 +43,8 @@ fn failover_task_group(
     let redis_password = config.redis_password(password);
 
     // Get all Redis host:port combinations from the config
-    let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::MonographTx);
-    let standby_host_ports = config.get_host_port_list(DeploymentPackage::MonographStandby);
+    let mut redis_host_ports = config.get_host_port_list(DeploymentPackage::EloqTx);
+    let standby_host_ports = config.get_host_port_list(DeploymentPackage::EloqStandby);
     redis_host_ports.extend(standby_host_ports);
 
     // Create channels for communication between tasks
@@ -79,7 +79,8 @@ fn failover_task_group(
         pre_failover_tx,
         redis_password.clone(),
         true, // Skip checkpoint
-    );
+    )
+    .with_service_endpoints(config.connection.service_endpoints.clone());
 
     let pre_failover_instance = TaskInstance {
         task_input: HashMap::default(),
@@ -105,7 +106,8 @@ fn failover_task_group(
         new_leader_port,
         pre_failover_rx,
         redis_password.clone(),
-    );
+    )
+    .with_service_endpoints(config.connection.service_endpoints.clone());
 
     let failover_instance = TaskInstance {
         task_input: HashMap::default(),
@@ -130,7 +132,8 @@ fn failover_task_group(
         post_failover_tx,
         redis_password,
         true, // Skip checkpoint
-    );
+    )
+    .with_service_endpoints(config.connection.service_endpoints.clone());
 
     let post_failover_instance = TaskInstance {
         task_input: HashMap::default(),

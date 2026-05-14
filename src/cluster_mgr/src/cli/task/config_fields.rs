@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-/// Configuration field definitions for the MonographDB system.
+/// Configuration field definitions for the EloqDB system.
 ///
 /// This file defines the available configuration fields that can be updated
 /// using the `eloqctl update-conf` command, along with metadata about their
@@ -61,7 +61,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
     fields.insert(
         "cluster_name",
         FieldMetadata {
-            description: "Name of the MonographDB cluster",
+            description: "Name of the EloqDB cluster",
             scope: FieldScope::ClusterWide,
             example: "prod-cluster",
             value_type: FieldValueType::String,
@@ -96,7 +96,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
         FieldMetadata {
             description: "Path for cluster config file",
             scope: FieldScope::ClusterWide,
-            example: "/etc/monographdb/cluster.conf",
+            example: "/etc/eloqdb/cluster.conf",
             value_type: FieldValueType::String,
             default_value: "",
         },
@@ -259,7 +259,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
         FieldMetadata {
             description: "Data store configuration file path",
             scope: FieldScope::NodeSpecific,
-            example: "/etc/monographdb/datastore.ini",
+            example: "/etc/eloqdb/datastore.ini",
             value_type: FieldValueType::String,
             default_value: "./data_store_config.ini",
         },
@@ -270,7 +270,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
         FieldMetadata {
             description: "Path for tx_service data",
             scope: FieldScope::NodeSpecific,
-            example: "/var/lib/monographdb/tx_service",
+            example: "/var/lib/eloqdb/tx_service",
             value_type: FieldValueType::String,
             default_value: "",
         },
@@ -281,7 +281,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
         FieldMetadata {
             description: "Path for log_service data",
             scope: FieldScope::NodeSpecific,
-            example: "/var/lib/monographdb/log_service",
+            example: "/var/lib/eloqdb/log_service",
             value_type: FieldValueType::String,
             default_value: "",
         },
@@ -560,7 +560,7 @@ pub static AVAILABLE_FIELDS: Lazy<HashMap<&'static str, FieldMetadata>> = Lazy::
         FieldMetadata {
             description: "Sets the prefix for log files",
             scope: FieldScope::NodeSpecific,
-            example: "monograph.log",
+            example: "eloq.log",
             value_type: FieldValueType::String,
             default_value: "eloqkv.log",
         },

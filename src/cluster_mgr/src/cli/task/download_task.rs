@@ -1,12 +1,12 @@
 use crate::cli::cmd_base::HTTP_CLIENT;
 use crate::cli::task::task_base::CmdErr::DownloadErr;
 use crate::cli::task::task_base::{
-    ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
+    is_verbose_task_output, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
+    TaskInstance,
 };
 use crate::cli::util::file_pg_bar;
 use crate::cli::{download_dir, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeployConfig;
-use crate::config::deployment::Codis;
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::DownloadUrl;
 use anyhow::{anyhow, Ok, Result};
@@ -56,10 +56,6 @@ impl DownloadTask {
                 .map(|download_url| download_url.get_url())
                 .collect_vec();
             urls.extend(monitor_download_string_vec);
-        }
-
-        if config.deployment.codis.is_some() {
-            urls.push(Codis::download_url());
         }
 
         Ok(Self::instances(Self::from_urls(urls)))
@@ -156,7 +152,9 @@ impl TaskExecutor for DownloadTask {
     ) -> Result<Option<ExecutionValue>> {
         info!("execute {}", self.task_id.format_string());
         let url = &self.url;
-        println!("download url:{url}");
+        if is_verbose_task_output() {
+            println!("download url:{url}");
+        }
         let save_dir = &self.dir;
 
         // create local directory

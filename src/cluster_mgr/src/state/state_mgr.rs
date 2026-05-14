@@ -2,9 +2,9 @@ use crate::cli::HOME_DIR;
 use crate::config::config_base::DeployConfig;
 use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::CONFIG_PATH_DIR;
+use crate::state::cluster_index_operation::{ClusterIndexEntity, ClusterIndexOperation};
 use crate::state::deployment_operation::DeploymentOperation;
 use crate::state::proxy_operation::{ProxyEntity, ProxyOperation};
-use crate::state::service_status_operation::{ServiceInstanceEntity, ServiceInstanceOperation};
 use crate::state::snapshot_info_operation::{SnapshotEntity, SnapshotOperation};
 use crate::state::state_base::{QueryCondition, StateOperation, StateOperationAny};
 use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation};
@@ -13,7 +13,6 @@ use crate::state::topology_tx_operation::{TopologyTxEntity, TopologyTxOperation}
 use crate::StateValue;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use itertools::Itertools;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Pool, QueryBuilder, Sqlite, SqlitePool};
@@ -26,9 +25,9 @@ use std::{env, fs};
 use tracing::{error, info};
 
 pub const DEPLOYMENT_STATE: &str = "Deployment";
+pub const CLUSTER_INDEX_STATE: &str = "ClusterIndex";
 pub const PROXY_STATE: &str = "Proxy";
 pub const TASK_STATUS_STATE: &str = "TaskStatus";
-pub const SERVICE_STATUS_STATE: &str = "ServiceStatus";
 pub const SNAPSHOT_STATUS_STATE: &str = "SnapshotStatus";
 pub const TOPOLOGY_TX_STATE: &str = "TopologyTx";
 pub const TOPOLOGY_LOG_STATE: &str = "TopologyLog";
@@ -65,23 +64,54 @@ pub struct TableName {
 }
 
 impl StateMgr {
-    pub async fn load_service_status_from_state(
-        &self,
-        cluster_name: String,
-    ) -> Result<Vec<ServiceInstanceEntity>> {
-        let service_state_operation =
-            self.get_state_operation::<ServiceInstanceOperation>(SERVICE_STATUS_STATE);
+    fn cluster_topology_path(cluster: &str) -> Result<PathBuf> {
+        let home = PathBuf::from(env::var(HOME_DIR)?);
+        Ok(home.join("clusters").join(cluster).join("topology.yaml"))
+    }
 
-        let service_state = service_state_operation
-            .load(move || -> Option<QueryCondition> {
+    fn read_topology(path: &str) -> Result<DeployConfig> {
+        DeployConfig::load(Some(path.to_string()))
+    }
+
+    pub async fn save_deployment_config(&self, config: &DeployConfig, upsert: bool) -> Result<()> {
+        let cluster = &config.deployment.cluster_name;
+        let cluster_index_state =
+            self.get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE);
+
+        let cluster_index = cluster_index_state
+            .load(|| -> Option<QueryCondition> {
                 Some(QueryCondition {
                     cond_text: "cluster_name = $1".to_string(),
-                    bind_values: vec![StateValue::Varchar(cluster_name.clone())],
+                    bind_values: vec![StateValue::Varchar(cluster.clone())],
                 })
             })
             .await?;
+        if !cluster_index.is_empty() && !upsert {
+            return Err(anyhow!("cluster {cluster} already exists"));
+        }
 
-        Ok(service_state)
+        let topology_path = Self::cluster_topology_path(cluster)?;
+        if let Some(parent) = topology_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&topology_path, config.to_yaml())?;
+
+        let now = Utc::now();
+        let create_timestamp = cluster_index
+            .first()
+            .map(|entity| entity.create_timestamp)
+            .unwrap_or(now);
+        let all_hosts = config.get_unique_host_list().join(";");
+        cluster_index_state
+            .put(ClusterIndexEntity {
+                cluster_name: cluster.clone(),
+                topology_path: topology_path.to_string_lossy().to_string(),
+                host_list: all_hosts,
+                create_timestamp,
+                update_timestamp: now,
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn load_task_status_from_state(
@@ -127,17 +157,23 @@ impl StateMgr {
     }
 
     pub async fn list_deployments(&self) -> Result<Vec<DeployConfig>> {
-        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-        let deployment_entity_vec = deployment_state
+        let cluster_index_state =
+            self.get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE);
+        let cluster_index_vec = cluster_index_state
             .load(|| -> Option<QueryCondition> { None })
             .await?;
-        Ok(deployment_entity_vec
+        cluster_index_vec
             .iter()
-            .map(|deployment| {
-                let config_string = &deployment.deployment_config;
-                DeployConfig::load_from_string(config_string.to_string()).unwrap()
-            })
-            .collect_vec())
+            .map(|cluster| Self::read_topology(&cluster.topology_path))
+            .collect()
+    }
+
+    pub async fn list_cluster_indexes(&self) -> Result<Vec<ClusterIndexEntity>> {
+        let cluster_index_state =
+            self.get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE);
+        cluster_index_state
+            .load(|| -> Option<QueryCondition> { None })
+            .await
     }
 
     pub async fn list_snapshots(&self, cluster: String) -> Result<Vec<SnapshotEntity>> {
@@ -194,8 +230,9 @@ impl StateMgr {
     }
 
     pub async fn load_deployment_from_state(&self, cluster: &str) -> Result<Option<DeployConfig>> {
-        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-        let deployment_entity_vec = deployment_state
+        let cluster_index_state =
+            self.get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE);
+        let cluster_index_vec = cluster_index_state
             .load(|| -> Option<QueryCondition> {
                 Some(QueryCondition {
                     cond_text: "cluster_name = $1".to_string(),
@@ -204,9 +241,8 @@ impl StateMgr {
             })
             .await?;
 
-        if let Some(deployment_entity) = deployment_entity_vec.first() {
-            let config_content = &deployment_entity.deployment_config;
-            let config = DeployConfig::load_from_string(config_content.to_string())?;
+        if let Some(cluster_index) = cluster_index_vec.first() {
+            let config = Self::read_topology(&cluster_index.topology_path)?;
             Ok(Some(config))
         } else {
             Ok(None)
@@ -261,13 +297,15 @@ impl StateMgr {
             .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
             .await?;
         rows += self
-            .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE)
+            .get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE)
             .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
             .await?;
-        rows += self
-            .get_state_operation::<ServiceInstanceOperation>(SERVICE_STATUS_STATE)
-            .del(|| -> Option<QueryCondition> { Some(cond.clone()) })
-            .await?;
+        let topology_path = Self::cluster_topology_path(cluster)?;
+        if let Some(cluster_dir) = topology_path.parent() {
+            if cluster_dir.exists() {
+                fs::remove_dir_all(cluster_dir)?;
+            }
+        }
 
         // Delete entries from t_topology_tx
         rows += self
@@ -372,7 +410,7 @@ impl StateMgr {
             Sqlite::create_database(db_url.as_str()).await?;
             let instance_pool = SqlitePool::connect(db_url.as_str()).await?;
             let db_schema = StateMgr::load_schema_script(Path::new(schema_path.as_str()))?;
-            let exec_rs = sqlx::query(db_schema.as_str())
+            let exec_rs = sqlx::raw_sql(db_schema.as_str())
                 .execute(&instance_pool)
                 .await?;
             info!("StateMgr create_schema execute_rs = {:?}", exec_rs);
@@ -402,7 +440,7 @@ impl StateMgr {
         let db_path = StateMgr::get_or_init_db_location()?;
         let db_path_string = db_path.as_path().to_str().unwrap().to_string();
         let db_url = format!("sqlite://{db_path_string}/{CLUSTER_MGR_CLI_DB}");
-        StateMgr::create_schema_if_need(db_url.clone(), schema_path).await?;
+        StateMgr::create_schema_if_need(db_url.clone(), schema_path.clone()).await?;
         let connection_options = sqlx::sqlite::SqliteConnectOptions::from_str(db_url.as_str())?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -412,6 +450,11 @@ impl StateMgr {
         let sqlite_pool = SqlitePoolOptions::new()
             .max_connections(100_u32)
             .connect_with(connection_options)
+            .await?;
+
+        let db_schema = StateMgr::load_schema_script(Path::new(&schema_path))?;
+        sqlx::raw_sql(db_schema.as_str())
+            .execute(&sqlite_pool)
             .await?;
 
         sqlx::query("pragma temp_store = memory;")
@@ -431,12 +474,12 @@ impl StateMgr {
             let deployment_opt_ref = Box::leak(DeploymentOperation::boxed(db_conn_pool.clone()))
                 as &dyn StateOperationAny;
 
+            let cluster_index_opt_ref =
+                Box::leak(ClusterIndexOperation::boxed(db_conn_pool.clone()))
+                    as &dyn StateOperationAny;
+
             let task_status_opt_ref = Box::leak(TaskStatusOperation::boxed(db_conn_pool.clone()))
                 as &dyn StateOperationAny;
-
-            let service_status_opt_ref =
-                Box::leak(ServiceInstanceOperation::boxed(db_conn_pool.clone()))
-                    as &dyn StateOperationAny;
 
             let snapshot_status_opt_ref =
                 Box::leak(SnapshotOperation::boxed(db_conn_pool.clone())) as &dyn StateOperationAny;
@@ -451,11 +494,11 @@ impl StateMgr {
 
             let state_map: HashMap<String, Arc<&'static dyn StateOperationAny>> = HashMap::from([
                 (DEPLOYMENT_STATE.to_string(), Arc::new(deployment_opt_ref)),
-                (TASK_STATUS_STATE.to_string(), Arc::new(task_status_opt_ref)),
                 (
-                    SERVICE_STATUS_STATE.to_string(),
-                    Arc::new(service_status_opt_ref),
+                    CLUSTER_INDEX_STATE.to_string(),
+                    Arc::new(cluster_index_opt_ref),
                 ),
+                (TASK_STATUS_STATE.to_string(), Arc::new(task_status_opt_ref)),
                 (
                     SNAPSHOT_STATUS_STATE.to_string(),
                     Arc::new(snapshot_status_opt_ref),
@@ -482,11 +525,26 @@ impl StateMgr {
         let schema_path = env::var(MONO_CLUSTER_MGR_SCHEMA_PATH)?;
         let db_schema = StateMgr::load_schema_script(Path::new(&schema_path))?;
         // Execute all statements in the script
-        let exec_rs = sqlx::query(db_schema.as_str())
+        let exec_rs = sqlx::raw_sql(db_schema.as_str())
             .execute(&self.db_pool)
             .await?;
         info!("StateMgr upgrade_schema execute_rs = {:?}", exec_rs);
+        self.migrate_legacy_deployments().await?;
         Ok(())
+    }
+
+    pub async fn migrate_legacy_deployments(&self) -> Result<usize> {
+        let deployment_state = self.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
+        let legacy_deployments = deployment_state
+            .load(|| -> Option<QueryCondition> { None })
+            .await?;
+        let mut migrated = 0;
+        for legacy in legacy_deployments {
+            let config = DeployConfig::load_from_string(legacy.deployment_config.clone())?;
+            self.save_deployment_config(&config, true).await?;
+            migrated += 1;
+        }
+        Ok(migrated)
     }
 
     /// Load TX topology entries for the given cluster
@@ -526,9 +584,9 @@ impl StateMgr {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::deployment_operation::DeploymentOperation;
+    use crate::state::cluster_index_operation::ClusterIndexOperation;
     use crate::state::state_base::{QueryCondition, StateOperation};
-    use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, MONO_CLUSTER_MGR_SCHEMA_PATH};
+    use crate::state::state_mgr::{StateMgr, CLUSTER_INDEX_STATE, MONO_CLUSTER_MGR_SCHEMA_PATH};
     use sqlx::testing::TestTermination;
     use std::path::PathBuf;
     use std::sync::LazyLock;
@@ -564,10 +622,9 @@ mod tests {
         assert_eq!(
             all_tables,
             vec![
+                "t_cluster_index",
                 "t_deployment",
                 "t_task_status",
-                "t_service_instance",
-                "t_service_config",
                 "t_snapshot_info",
                 "t_proxy",
                 "t_topology_tx",
@@ -585,8 +642,9 @@ mod tests {
         let state_mgr_rs = StateMgr::new(schema_path).await;
         assert!(state_mgr_rs.is_ok());
         let state_mgr = state_mgr_rs.unwrap();
-        let deployment_mgr = state_mgr.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-        let deployment_result = deployment_mgr
+        let cluster_index_mgr =
+            state_mgr.get_state_operation::<ClusterIndexOperation>(CLUSTER_INDEX_STATE);
+        let deployment_result = cluster_index_mgr
             .load(|| -> Option<QueryCondition> { None })
             .await;
         assert!(deployment_result.is_ok());

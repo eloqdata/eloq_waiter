@@ -1,4 +1,4 @@
-use crate::config::{deployment::Product, StorageProvider, TopoFormat};
+use crate::config::{deployment::Product, StorageProvider};
 use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 use humantime::Duration as HumanDuration;
@@ -8,6 +8,7 @@ use strum_macros::AsRefStr;
 
 pub mod cmd_base;
 mod cmd_printer;
+pub mod reconcile;
 pub mod ssh;
 pub mod task;
 pub mod util;
@@ -109,9 +110,9 @@ pub enum SubCommand {
     #[strum(serialize = "status")]
     Status {
         cluster: String,
-        #[arg(short, long, value_name = "EloqSQL user")]
+        #[arg(short, long, value_name = "EloqKV user")]
         user: Option<String>,
-        #[arg(short, long, value_name = "EloqSQL password")]
+        #[arg(short, long, value_name = "EloqKV password")]
         password: Option<String>,
         #[arg(short, long, value_name = "Wait cluster ready")]
         wait: Option<u16>,
@@ -163,20 +164,18 @@ pub enum SubCommand {
     #[strum(serialize = "apply")]
     Apply { topology_file: String },
 
+    #[command(
+        long_about = "Preview supported changes from a topology YAML without changing the cluster"
+    )]
+    #[strum(serialize = "plan")]
+    Plan { topology_file: String },
+
     #[command(long_about = "Remove cluster")]
     #[strum(serialize = "remove")]
     Remove {
         cluster: String,
         #[arg(long, default_value_t = false)]
         force: bool,
-    },
-
-    #[command(long_about = "Inspect cluster configuration")]
-    #[strum(serialize = "inspect")]
-    Inspect {
-        cluster: String,
-        #[arg(short, long)]
-        format: Option<TopoFormat>,
     },
 
     #[command(

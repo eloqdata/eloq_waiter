@@ -1,0 +1,51 @@
+services:
+  eloq-node-1:
+    build:
+      context: .
+    image: eloqctl-e2e-ubuntu:24.04
+    container_name: eloqctl-e2e-node-1
+    hostname: eloq-node-1
+    ports:
+      - "127.0.0.1:2221:22"
+      - "127.0.0.1:16371:6379"
+      - "127.0.0.1:26371:16380"
+      - "127.0.0.1:16391:6390"
+    networks:
+      eloqctl-e2e-net:
+        ipv4_address: 172.28.10.11
+
+  eloq-node-2:
+    image: eloqctl-e2e-ubuntu:24.04
+    container_name: eloqctl-e2e-node-2
+    hostname: eloq-node-2
+    ports:
+      - "127.0.0.1:2222:22"
+      - "127.0.0.1:16372:6379"
+      - "127.0.0.1:26372:16380"
+    depends_on:
+      - eloq-node-1
+    networks:
+      eloqctl-e2e-net:
+        ipv4_address: 172.28.10.12
+
+  eloq-node-3:
+    image: eloqctl-e2e-ubuntu:24.04
+    container_name: eloqctl-e2e-node-3
+    hostname: eloq-node-3
+    ports:
+      - "127.0.0.1:2223:22"
+      - "127.0.0.1:16373:6379"
+      - "127.0.0.1:26373:16380"
+    depends_on:
+      - eloq-node-1
+    networks:
+      eloqctl-e2e-net:
+        ipv4_address: 172.28.10.13
+
+networks:
+  eloqctl-e2e-net:
+    name: eloqctl-e2e-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.10.0/24

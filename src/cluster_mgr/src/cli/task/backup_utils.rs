@@ -225,7 +225,7 @@ pub async fn is_cluster_stopped(config: &DeployConfig) -> Result<bool> {
     info!("Checking if cluster is stopped using status command logic...");
 
     // Check TxService processes - this is the main service that must be stopped
-    let tx_host_ports = config.get_host_port_list(DeploymentPackage::MonographTx);
+    let tx_host_ports = config.get_host_port_list(DeploymentPackage::EloqTx);
     if tx_host_ports.is_empty() {
         // No nodes configured, consider stopped
         info!("No TxService nodes configured, cluster is stopped");
@@ -233,8 +233,6 @@ pub async fn is_cluster_stopped(config: &DeployConfig) -> Result<bool> {
     }
 
     let tx_bin = config.deployment.tx_srv_bin();
-    let conn_user = &config.connection.username;
-    let ssh_port = config.connection.ssh_port() as usize;
     let auth_key = config
         .connection
         .ssh_auth_key()
@@ -251,21 +249,17 @@ pub async fn is_cluster_stopped(config: &DeployConfig) -> Result<bool> {
         let port = parts[1];
 
         // Create SSH session for this host (reusing same pattern as status tasks)
-        let task_host = TaskHost::Remote {
-            user: conn_user.to_string(),
-            port: ssh_port,
-            host: host.to_string(),
-        };
+        let task_host = TaskHost::remote(&config.connection, host);
 
         let ssh_session = SSHSession::from_task_host(task_host, auth_key.clone())
             .await
             .with_context(|| format!("Failed to create SSH session to {}", host))?;
 
-        // Use the same status check command pattern as MonographTxCtlTask
+        // Use the same status check command pattern as EloqTxCtlTask
         // This is the exact same logic used by the status command
         let status_cmd = format!(
             "ps uxwe -u {} | grep {} | grep {}.ini | grep -v grep | awk '{{print $2}}'",
-            conn_user, tx_bin, port
+            config.connection.username, tx_bin, port
         );
 
         // Use the same check_pid function that status tasks use

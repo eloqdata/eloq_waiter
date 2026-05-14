@@ -14,7 +14,9 @@
 pub mod steps;
 
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::{TaskExecutionContext, TaskResultEnum, TaskResultPair};
+use crate::cli::task::task_base::{
+    is_verbose_task_output, TaskExecutionContext, TaskResultEnum, TaskResultPair,
+};
 use crate::cli::task::task_controller::TaskController;
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
@@ -84,13 +86,13 @@ impl RollingUpgrade {
     /// Execute all steps in order.  Stops at the first failure.
     pub async fn execute(&self) -> anyhow::Result<()> {
         let total = self.steps.len();
-        println!("[rolling-upgrade] {} steps", total);
+        println!("Rolling restart: {total} steps");
 
         for (i, step) in self.steps.iter().enumerate() {
             let n = i + 1;
             let name = step.name();
 
-            println!("[{n}/{total}] {name}");
+            println!("[{n}/{total}] {}", friendly_step_name(name));
             info!("Rolling upgrade step {n}/{total} '{name}' starting");
             let t = Instant::now();
 
@@ -102,21 +104,48 @@ impl RollingUpgrade {
             run_step_context(ctx, self.config.clone())
                 .await
                 .map_err(|e| {
-                    eprintln!("[{n}/{total}] FAILED: {name} -- {e}");
+                    if is_verbose_task_output() {
+                        eprintln!("[{n}/{total}] FAILED: {name} -- {e}");
+                    } else {
+                        eprintln!("[{n}/{total}] failed: {}", friendly_step_name(name));
+                    }
                     anyhow!("step '{name}' failed: {e}")
                 })?;
 
-            println!(
-                "[{n}/{total}] done ({:.1}s): {name}",
-                t.elapsed().as_secs_f32()
-            );
+            if is_verbose_task_output() {
+                println!(
+                    "[{n}/{total}] done ({:.1}s): {name}",
+                    t.elapsed().as_secs_f32()
+                );
+            } else {
+                println!("  done");
+            }
             info!(
                 "Rolling upgrade step {n}/{total} '{name}' done in {:.1}s",
                 t.elapsed().as_secs_f32()
             );
         }
 
-        println!("[rolling-upgrade] all steps complete");
+        println!("Rolling restart complete");
         Ok(())
+    }
+}
+
+fn friendly_step_name(name: &str) -> &str {
+    match name {
+        "StopTxNodes" => "Move traffic away from the current master",
+        "StartTx" => "Start the original master node",
+        "WaitCurrentMaster" => "Wait for a serving master",
+        "FailoverBackAndStopStandby" => "Move traffic back and restart standby",
+        "StartStandby" => "Start standby nodes",
+        "StopVoters" => "Stop voter nodes",
+        "StartVoters" => "Start voter nodes",
+        "DownloadAndUpload" => "Prepare upgrade package",
+        "StopLog" => "Stop log service",
+        "UnpackTxLog" => "Install upgrade package",
+        "CleanEloqStoreData" => "Clean EloqStore data",
+        "StartLogAndWait" => "Start log service",
+        "VerifyVersion" => "Verify upgraded version",
+        _ => name,
     }
 }

@@ -1,5 +1,7 @@
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::{init_finish_signal, TaskExecutionContext};
+use crate::cli::task::task_base::{
+    init_finish_signal, is_verbose_task_output, TaskExecutionContext,
+};
 use crate::cli::task::task_base::{TaskInstance, TaskResultEnum, TaskResultPair};
 use crate::post_task_execute;
 use crate::state::task_status_operation::TaskStatusEntity;
@@ -120,7 +122,9 @@ impl TaskController {
                     let task_input = execution_context.task_input.clone();
                     let task_host = &execution_context.task_host;
                     let task_id = task.identifier();
-                    println!("  -> {}", task_id.format_string());
+                    if is_verbose_task_output() {
+                        println!("  -> {}", task_id.format_string());
+                    }
                     let start_time = std::time::Instant::now();
                     let execution_rs = task.execute(task_host.clone(), task_input).await;
                     let elapsed = start_time.elapsed();
@@ -137,17 +141,23 @@ impl TaskController {
                     assert!(post_execute_rs.is_ok());
                     let result = match execution_rs {
                         Ok(rs) => {
-                            println!(
-                                "  ok {:.1}s {}",
-                                elapsed.as_secs_f32(),
-                                task_id.format_string()
-                            );
+                            if is_verbose_task_output() {
+                                println!(
+                                    "  ok {:.1}s {}",
+                                    elapsed.as_secs_f32(),
+                                    task_id.format_string()
+                                );
+                            }
                             TaskResultEnum::Success(rs)
                         }
                         Err(err_msg) => {
                             let err_msg_str = err_msg.to_string();
                             error!("Task {:?} execution fail {:?}", task_id, err_msg_str);
-                            println!("  FAIL {} -- {}", task_id.format_string(), err_msg_str);
+                            if is_verbose_task_output() {
+                                println!("  FAIL {} -- {}", task_id.format_string(), err_msg_str);
+                            } else {
+                                println!("  failed: {}", user_friendly_task_label(&task_id.task));
+                            }
                             TaskResultEnum::Error(err_msg_str)
                         }
                     };
@@ -168,6 +178,38 @@ impl TaskController {
             .filter_map(|rs| rs.ok())
             .collect_vec();
         Ok(task_result)
+    }
+
+    fn stage_label(task_group: &str) -> String {
+        match task_group {
+            "check" => "Checking hosts and ports".to_string(),
+            "deploy" => "Deploying packages and configuration".to_string(),
+            "install" => "Bootstrapping Eloq".to_string(),
+            "cluster-control-start" => "Starting Eloq services".to_string(),
+            "cluster-control-status" => "Checking cluster status".to_string(),
+            "update-tx-conf" => "Updating Eloq configuration".to_string(),
+            "rolling-restart-round1" => "Moving traffic away from the current master".to_string(),
+            "start-tx" => "Starting the original master node".to_string(),
+            "wait-current-master" => "Waiting for a serving master".to_string(),
+            "rolling-restart-round2" => "Moving traffic back and restarting standby".to_string(),
+            "start-standby" => "Starting standby nodes".to_string(),
+            "stop-voters" => "Stopping voter nodes".to_string(),
+            "start-voters" => "Starting voter nodes".to_string(),
+            "start-log-and-wait" | "log-service-startup" => "Starting log service".to_string(),
+            "scale" => "Scaling Eloq nodes".to_string(),
+            "scalelog" => "Scaling log service".to_string(),
+            "backup" => "Running backup operation".to_string(),
+            "dummy" => "Finalizing".to_string(),
+            other => humanize_task_name(other),
+        }
+    }
+
+    fn stage_summary(task_count: usize) -> String {
+        match task_count {
+            0 => "no work".to_string(),
+            1 => "1 task".to_string(),
+            n => format!("{n} tasks"),
+        }
     }
 
     /// Executes all task instances in parallel based on the `TaskExecutionContext` and returns the result.
@@ -194,19 +236,33 @@ impl TaskController {
                 .iter()
                 .map(|t| t.task.identifier().format_string())
                 .collect();
-            println!(
-                "[{task_group_string}] Stage {stage_num}/{total_stages}: {}",
-                task_names.join(", ")
-            );
+            if is_verbose_task_output() {
+                println!(
+                    "[{task_group_string}] Stage {stage_num}/{total_stages}: {}",
+                    task_names.join(", ")
+                );
+            } else {
+                println!(
+                    "[{stage_num}/{total_stages}] {} ({})",
+                    Self::stage_label(&task_group_string),
+                    Self::stage_summary(task_split.len())
+                );
+            }
             let rs = self
                 .run_task_split(task_group_string.clone(), task_split, config.clone())
                 .await?;
             if err_brk {
                 for pair in rs.iter() {
                     if let TaskResultEnum::Error(err) = &pair.result {
+                        if !is_verbose_task_output() {
+                            println!("  failed: {err}");
+                        }
                         bail!("task failed: {err}");
                     }
                 }
+            }
+            if !is_verbose_task_output() {
+                println!("  done");
             }
             task_result_vec.push(rs);
         }
@@ -217,4 +273,32 @@ impl TaskController {
         let rtn = task_result_vec.into_iter().flatten().collect_vec();
         Ok(rtn)
     }
+}
+
+fn humanize_task_name(name: &str) -> String {
+    let words = name
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect_vec();
+    if words.is_empty() {
+        "Running task".to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
+fn user_friendly_task_label(task: &str) -> String {
+    let task = task
+        .strip_prefix("txservice-")
+        .or_else(|| task.strip_prefix("standby-"))
+        .or_else(|| task.strip_prefix("voter-"))
+        .unwrap_or(task);
+    humanize_task_name(task)
 }

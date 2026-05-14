@@ -57,9 +57,9 @@ impl UploadTaskBuilder for TxConfUpload {
               cluster_config.deployment.cluster_name);
 
         let remote_dest = cluster_config.deployment.tx_srv_home();
-        let mut all_hosts = cluster_config.get_host_list(DeploymentPackage::MonographTx);
-        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographStandby));
-        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographVoter));
+        let mut all_hosts = cluster_config.get_host_list(DeploymentPackage::EloqTx);
+        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::EloqStandby));
+        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::EloqVoter));
 
         let cluster_name = &cluster_config.deployment.cluster_name;
         let mut upload_cnf_files = Vec::new();
@@ -213,7 +213,7 @@ impl UploadTaskBuilder for TxConfUpload {
         if !found_any_tx_ini {
             info!("No custom host configurations found, generating from templates");
             let all_conf_path = cluster_config
-                .gen_all_monograph_configs()
+                .gen_all_eloq_configs()
                 .expect("Failed generate my_HOST.ini")
                 .iter()
                 .map(|path_buf| path_buf.to_str().unwrap().to_string())
@@ -336,9 +336,9 @@ impl TxConfUpload {
         );
 
         let remote_dest = cluster_config.deployment.tx_srv_home();
-        let mut all_hosts = cluster_config.get_host_list(DeploymentPackage::MonographTx);
-        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographStandby));
-        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::MonographVoter));
+        let mut all_hosts = cluster_config.get_host_list(DeploymentPackage::EloqTx);
+        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::EloqStandby));
+        all_hosts.extend(cluster_config.get_host_list(DeploymentPackage::EloqVoter));
 
         let cluster_name = &cluster_config.deployment.cluster_name;
         let mut upload_cnf_files = Vec::new();
@@ -452,7 +452,7 @@ impl TxConfUpload {
             );
 
             let all_conf_path = cluster_config
-                .gen_all_monograph_configs()
+                .gen_all_eloq_configs()
                 .expect("Failed to generate configs")
                 .iter()
                 .map(|path_buf| path_buf.to_str().unwrap().to_string())
