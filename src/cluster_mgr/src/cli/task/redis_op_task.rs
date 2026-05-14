@@ -2,15 +2,12 @@ use crate::cli::task::grpc::cc_request::{
     CheckCkptStatusResponse, CkptStatus, NotifyShutdownCkptResponse,
 };
 use crate::cli::task::grpc::GrpcClient;
-use crate::cli::task::task_base::{
-    CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
-};
+use crate::cli::task::task_base::{ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
-use crate::task_return_value;
+use crate::config::connection::{resolve_service_endpoint, ServiceEndpoint};
 use anyhow::{anyhow, Error, Result};
 use async_trait::async_trait;
 use futures::future::join_all;
-use redis::cluster::ClusterClient;
 use redis::{Client, ErrorKind, RedisError, RedisResult, Value};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -30,6 +27,7 @@ pub struct RedisOpTask {
     sender: watch::Sender<ClusterNodes>,
     password: Option<String>,
     skip_checkpoint: bool,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 }
 
 impl RedisOpTask {
@@ -48,12 +46,120 @@ impl RedisOpTask {
             sender,
             password,
             skip_checkpoint,
+            service_endpoints: None,
         }
+    }
+
+    pub fn with_service_endpoints(
+        mut self,
+        service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
+    ) -> Self {
+        self.service_endpoints = service_endpoints;
+        self
     }
 
     // Helper method to check if the sender has any receivers
     fn has_receivers(&self) -> bool {
         self.sender.receiver_count() > 0
+    }
+
+    fn service_host_port(&self, host_port: &str) -> String {
+        let Some((host, port)) = host_port.rsplit_once(':') else {
+            return host_port.to_string();
+        };
+        let Ok(port) = port.parse::<u16>() else {
+            return host_port.to_string();
+        };
+        let (endpoint_host, endpoint_port) =
+            resolve_service_endpoint(self.service_endpoints.as_ref(), host, port);
+        format!("{endpoint_host}:{endpoint_port}")
+    }
+
+    fn grpc_url(&self, host: &str, port: u16) -> String {
+        let (endpoint_host, endpoint_port) =
+            resolve_service_endpoint(self.service_endpoints.as_ref(), host, port);
+        format!("http://{endpoint_host}:{endpoint_port}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn spawn_fake_cluster_node(reply: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            loop {
+                let len = stream.read(&mut request).unwrap_or(0);
+                if len == 0 {
+                    break;
+                }
+                let command = String::from_utf8_lossy(&request[..len]).to_ascii_uppercase();
+                if command.contains("CLIENT") {
+                    let response_count = command.matches("SETINFO").count().max(1);
+                    for _ in 0..response_count {
+                        stream.write_all(b"+OK\r\n").unwrap();
+                    }
+                }
+
+                if command.contains("CLUSTER") && command.contains("NODES") {
+                    let response = format!("${}\r\n{}\r\n", reply.len(), reply);
+                    stream.write_all(response.as_bytes()).unwrap();
+                    break;
+                } else if command.contains("HELLO") || !command.contains("CLIENT") {
+                    stream.write_all(b"+OK\r\n").unwrap();
+                } else {
+                    stream.flush().unwrap();
+                }
+            }
+        });
+        addr.to_string()
+    }
+
+    #[tokio::test]
+    async fn topology_task_uses_standby_startup_node_when_master_is_down() {
+        let topology = "0000000000000000000000000000000000000001 127.0.0.1:6389@0 master - 0 0 0 connected 0-16383\n\
+                        0000000000000000000000000000000000000000 127.0.0.1:6379@0 slave 0000000000000000000000000000000000000001 0 0 0 disconnected";
+        let standby = spawn_fake_cluster_node(topology);
+        let (tx, _rx) = watch::channel(ClusterNodes {
+            masters: Vec::new(),
+            replicas: Vec::new(),
+        });
+        let task = RedisOpTask::new(
+            TaskId {
+                cmd: "topology".to_string(),
+                task: "wait-current-master".to_string(),
+                host: "_local".to_string(),
+            },
+            vec!["127.0.0.1:1".to_string(), standby],
+            "cluster topology".to_string(),
+            tx,
+            None,
+            true,
+        );
+
+        let result = task
+            .execute(TaskHost::Local, HashMap::default())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            result.get(CMD_STATUS),
+            Some(&TaskArgValue::Number(0)),
+            "topology readiness should pass when any startup node reports a master"
+        );
+        let output = result.get(CMD_OUTPUT).unwrap().to_string();
+        assert!(
+            output.contains("6389"),
+            "expected current master in {output}"
+        );
     }
 }
 
@@ -94,16 +200,22 @@ pub struct ClusterNodes {
 
 const MAX_RETRIES: usize = 500;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
+const TOPOLOGY_RETRIES: usize = 60;
+const TOPOLOGY_RETRY_DELAY: Duration = Duration::from_secs(1);
+const REDIS_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 async fn query_ckpt_status_with_retry(
     master: NodeInfo,
     trigger_ckpt_ts: u64,
     max_retries: usize,
     retry_delay: Duration,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 ) -> Result<CheckCkptStatusResponse> {
     let ip = &master.ip;
     let port = master.port + 10000 + 1;
-    let url = format!("http://{}:{}", ip, port);
+    let (endpoint_host, endpoint_port) =
+        resolve_service_endpoint(service_endpoints.as_ref(), ip, port);
+    let url = format!("http://{}:{}", endpoint_host, endpoint_port);
     let mut retries = 0;
 
     loop {
@@ -308,7 +420,12 @@ impl TaskExecutor for RedisOpTask {
             }
         }
 
-        let nodes: Vec<String> = expanded_nodes
+        let mapped_nodes: Vec<String> = expanded_nodes
+            .iter()
+            .map(|host_port| self.service_host_port(host_port))
+            .collect();
+
+        let nodes: Vec<String> = mapped_nodes
             .iter()
             .map(|host_port| {
                 if let Some(password) = &self.password {
@@ -329,13 +446,14 @@ impl TaskExecutor for RedisOpTask {
 
         // Use the command provided in redis_cmd
         let cmd_lower = self.task_id.cmd.to_lowercase();
+        let mut last_error: Option<String> = None;
         let result = match (cmd_lower.as_str(), is_single_node) {
             ("topology", true) => {
                 // Single-node: INFO SERVER via non-cluster client
                 let single_url = if let Some(password) = &self.password {
-                    format!("redis://:{}@{}", password, expanded_nodes[0])
+                    format!("redis://:{}@{}", password, mapped_nodes[0])
                 } else {
-                    format!("redis://{}", expanded_nodes[0])
+                    format!("redis://{}", mapped_nodes[0])
                 };
 
                 let single_client = match Client::open(single_url.clone()) {
@@ -352,7 +470,8 @@ impl TaskExecutor for RedisOpTask {
                     }
                 };
 
-                let mut con = match single_client.get_connection() {
+                let mut con = match single_client.get_connection_with_timeout(REDIS_CONNECT_TIMEOUT)
+                {
                     Ok(c) => c,
                     Err(err) => {
                         error!(
@@ -366,63 +485,66 @@ impl TaskExecutor for RedisOpTask {
                     }
                 };
 
-                let query_result = redis::cmd("INFO").arg("SERVER").query::<Value>(&mut con);
+                let mut query_result = redis::cmd("INFO").arg("SERVER").query::<Value>(&mut con);
+                for attempt in 1..=TOPOLOGY_RETRIES {
+                    if query_result.is_ok() {
+                        break;
+                    }
+                    last_error = query_result.as_ref().err().map(ToString::to_string);
+                    info!(
+                        "RedisOpTask: topology query failed, retrying {attempt}/{TOPOLOGY_RETRIES}: {:?}",
+                        last_error
+                    );
+                    sleep(TOPOLOGY_RETRY_DELAY).await;
+                    query_result = redis::cmd("INFO").arg("SERVER").query::<Value>(&mut con);
+                }
                 drop(con);
                 query_result
             }
             ("topology", false) => {
-                // Multi-node: CLUSTER NODES via cluster client
-                let client = match ClusterClient::new(nodes) {
-                    Ok(client) => client,
-                    Err(err) => {
-                        error!(
-                            "RedisOpTask: Failed to create Redis cluster client. Attempted nodes: [{}]. Error: {}",
-                            nodes_info, err
-                        );
-                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                        task_result
-                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
-                        task_return_value!(
-                            task_result,
-                            |status_code: i32| -> CmdErr {
-                                CmdErr::RedisOpErr(
-                                    "Failed to create Redis cluster client".to_string(),
-                                    status_code.to_string(),
-                                )
-                            },
-                            "RedisOpTask"
-                        )
+                // Multi-node readiness only needs one reachable seed that can report topology.
+                // ClusterClient may fail during failover/restart while a direct CLUSTER NODES
+                // query against the new master is already available.
+                let mut query_result: RedisResult<Value> = Err(RedisError::from((
+                    ErrorKind::IoError,
+                    "cluster topology query did not run",
+                )));
+                for attempt in 1..=TOPOLOGY_RETRIES {
+                    for node_url in &nodes {
+                        let client = match Client::open(node_url.clone()) {
+                            Ok(client) => client,
+                            Err(err) => {
+                                last_error = Some(err.to_string());
+                                continue;
+                            }
+                        };
+                        let mut con =
+                            match client.get_connection_with_timeout(REDIS_CONNECT_TIMEOUT) {
+                                Ok(connection) => connection,
+                                Err(err) => {
+                                    last_error = Some(err.to_string());
+                                    continue;
+                                }
+                            };
+                        query_result = redis::cmd("CLUSTER").arg("NODES").query::<Value>(&mut con);
+                        if query_result.is_ok() {
+                            info!(
+                                "RedisOpTask: Successfully queried Redis topology from {}",
+                                node_url
+                            );
+                            break;
+                        }
+                        last_error = query_result.as_ref().err().map(ToString::to_string);
                     }
-                };
-
-                let mut con = match client.get_connection() {
-                    Ok(connection) => {
-                        info!("RedisOpTask: Successfully connected to Redis cluster");
-                        connection
+                    if query_result.is_ok() {
+                        break;
                     }
-                    Err(err) => {
-                        error!(
-                            "RedisOpTask: Can not connect to the cluster. Attempted nodes: [{}]. Error: {}",
-                            nodes_info, err
-                        );
-                        task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
-                        task_result
-                            .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(err.to_string()));
-                        task_return_value!(
-                            task_result,
-                            |status_code: i32| -> CmdErr {
-                                CmdErr::RedisOpErr(
-                                    "Can not connect to the cluster".to_string(),
-                                    status_code.to_string(),
-                                )
-                            },
-                            "RedisOpTask"
-                        )
-                    }
-                };
-
-                let query_result = redis::cmd("CLUSTER").arg("NODES").query::<Value>(&mut con);
-                drop(con);
+                    info!(
+                        "RedisOpTask: cluster topology query failed, retrying {attempt}/{TOPOLOGY_RETRIES}. Attempted nodes: [{}]. Last error: {:?}",
+                        nodes_info, last_error
+                    );
+                    sleep(TOPOLOGY_RETRY_DELAY).await;
+                }
                 query_result
             }
             _ => {
@@ -456,6 +578,15 @@ impl TaskExecutor for RedisOpTask {
                     }
                 }
 
+                if unique_masters.is_empty() {
+                    let msg = last_error.unwrap_or_else(|| {
+                        "cluster topology query did not return any master".to_string()
+                    });
+                    task_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(1));
+                    task_result.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(msg));
+                    return Ok(Some(task_result));
+                }
+
                 // Continue with checkpoint tasks only if skip_checkpoint is false
                 if !self.skip_checkpoint {
                     let mut trigger_ckpt_tasks = Vec::new();
@@ -464,7 +595,7 @@ impl TaskExecutor for RedisOpTask {
                         let port = master.port + 10000 + 1;
 
                         let task = async move {
-                            let url = format!("http://{}:{}", ip, port);
+                            let url = self.grpc_url(ip, port);
                             let mut grpc_client = GrpcClient::new(&url).await.map_err(|e| {
                                 error!("Failed to create GrpcClient for {}: {}", url, e);
                                 e
@@ -519,6 +650,7 @@ impl TaskExecutor for RedisOpTask {
                             trigger_ckpt_ts,
                             MAX_RETRIES,
                             RETRY_DELAY,
+                            self.service_endpoints.clone(),
                         );
                         query_ckpt_tasks.push(task);
                     }

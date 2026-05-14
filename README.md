@@ -1,147 +1,130 @@
-# MonographDB Waiter
+# Eloq Waiter
 
-## Introduction
+Eloq Waiter contains tools for developing and operating EloqData components outside Kubernetes.
 
-Monograph Waiter is a development and management tool for MonographDB that includes two modules.
-
-1. devtools is a productivity tool for developers to simplify the cost of compilation, development, and debugging and to
-   improve development efficiency
-2. cluster_mgr_cli is a command line tool for cluster installation and deployment and management, which is designed to
-   make it easier to install and manage MonographDB clusters in non-Kubernetes environments.
-
-> NOTE: Currently only fully tested on Ubuntu and sudo user privilege is required to run ``monograph_waiter``.
+The active cluster manager product target is **EloqKV**. Legacy EloqSQL, MonoSQL, Codis, and MySQL exporter deployment paths have been removed.
 
 ## Install
 
-```shell
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh
+Install the latest release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eloqdb/eloq_waiter/main/install.sh | sh
 ```
 
 Install a specific release tag:
 
-```shell
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh -s -- v1.0.3
+```sh
+curl -fsSL https://raw.githubusercontent.com/eloqdb/eloq_waiter/main/install.sh | sh -s -- v1.4.0
 ```
+
+For local development, build and install the current checkout:
+
+```sh
+scripts/install-dev.sh
+```
+
+This installs `${ELOQCTL_HOME:-$HOME/.eloqctl}/bin/cluster_mgr` and links `${ELOQCTL_HOME:-$HOME/.eloqctl}/config` to `src/cluster_mgr/config` in this repository.
 
 ## Quick Start
 
-Start a full EloqKV cluster from a topology file. `eloqctl launch` will start every service declared in the YAML, including tx nodes, `log_service`, storage, and `monitor` if it is configured:
+Launch an EloqKV cluster from a topology file:
 
-```shell
-eloqctl launch "$ELOQCTL_HOME/config/examples/eloqkv_rocksdb.yaml" -s
+```sh
+eloqctl launch /path/to/topology.yaml
 ```
 
-Check the cluster status and get a client command:
+Check live status by cluster name. `status` does not require the YAML file; it uses the local cluster index to find the saved topology and then probes the real hosts:
 
-```shell
-eloqctl status eloqkv-cluster
+```sh
+eloqctl status eloqkv-cluster --wait 60
+```
+
+Get a client command:
+
+```sh
 CLIENT=$(eloqctl -q connect eloqkv-cluster)
 eval "$CLIENT" ping
 ```
 
-Stop the entire cluster, including tx, log, storage, and monitor services:
+Preview and apply supported declarative changes:
 
-```shell
-eloqctl stop eloqkv-cluster --all
+```sh
+eloqctl plan /path/to/topology.yaml
+eloqctl apply /path/to/topology.yaml
 ```
 
-If you do not want to use `launch`, the equivalent step-by-step flow is:
+Export the saved launch-compatible topology:
 
-```shell
-eloqctl run-deps /path/to/deployment.yaml
-eloqctl deploy /path/to/deployment.yaml
-eloqctl log-service start eloqkv-cluster
-eloqctl install eloqkv-cluster
-eloqctl start eloqkv-cluster
-eloqctl monitor start eloqkv-cluster
-eloqctl status eloqkv-cluster
-CLIENT=$(eloqctl -q connect eloqkv-cluster)
-eval "$CLIENT" ping
+```sh
+eloqctl export eloqkv-cluster --output eloqkv-cluster.yaml
 ```
 
-For EloqKV with a standalone `log_service`, start `log-service` before `install`, because bootstrap depends on the log service already being available.
+Stop and remove a cluster through `eloqctl`:
+
+```sh
+eloqctl stop eloqkv-cluster --all --force
+eloqctl remove eloqkv-cluster --force
+```
+
+## State Model
+
+`eloqctl` separates desired and observed state:
+
+1. Desired topology is stored as YAML under `${ELOQCTL_HOME:-$HOME/.eloqctl}/clusters/<cluster>/topology.yaml` and can be exported with `eloqctl export`.
+2. SQLite stores only local operational metadata such as the cluster index, locks, operation history, and backup metadata.
+3. Runtime health is always observed live from the hosts and EloqKV endpoints. SQLite task history is not treated as proof that a service is running.
 
 ## Build
 
-- If you do not have Rust installed, please follow the command below to install it.
+Install Rust and the system build dependencies first. On Ubuntu:
 
-> NOTE: For Ubuntu, you need to install compile-time dependencies for rust. run sudo apt install build-essential
-> pkg-config libssl-dev
-
-```shell
+```sh
+sudo apt install build-essential pkg-config libssl-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-- Install cargo make
+Build the cluster manager:
 
-```shell
-cargo install --force cargo-make
+```sh
+cargo build -p cluster_mgr
+cargo build -p cluster_mgr --release
 ```
 
-- Compile and generate release files
+Useful local commands:
 
-```shell
-cargo build --release
-# Compile the packages separately with cargo make.
-cargo make --no-workspace  --makefile Makefile.toml  pkg_eloqctl
-cargo make --no-workspace  --makefile Makefile.toml  rest_api_pkg
-
-# Fast local iteration (compile only cluster_mgr in dev profile)
-cargo make --no-workspace --makefile Makefile.toml dev_fast
-
-# Or use cargo aliases from .cargo/config.toml
-cargo cm-check
-cargo cm-build
-
-# Install local git hooks for commit/push quality gates
-cargo make --no-workspace --makefile Makefile.toml install_hooks
-
-# Run the full local quality suite on demand
-cargo make --no-workspace --makefile Makefile.toml quality
+```sh
+cargo fmt --all -- --check
+cargo check -p cluster_mgr
+scripts/install-dev.sh
+scripts/test-before-push.sh
+scripts/install-git-hooks.sh
 ```
 
 ## Quality Gates
 
-This repository includes both local and CI quality checks:
+The push gate is `scripts/test-before-push.sh`. It performs:
 
-1. Local git hooks live in `.githooks/`.
-2. `pre-commit` runs `cargo fmt --all -- --check` and `cargo cm-check`.
-3. `pre-push` runs `cargo test --tests -- --test-threads=1` and `cargo clippy --all-targets --all-features -- -D warnings` as blocking gates.
-4. `commit-msg` enforces Conventional Commit messages.
-5. CI runs format check, strict clippy, and single-threaded tests as blocking gates on pull requests and key branches.
+1. Local dev install of `eloqctl`.
+2. Rust formatting check.
+3. `cargo check -p cluster_mgr`.
+4. Docker HA EloqKV E2E.
+5. Docker rolling update E2E.
+6. Docker scale E2E.
 
-## Versioning And Release
+Install the pre-push hook with:
 
-This repository uses SemVer with automated version management.
+```sh
+scripts/install-git-hooks.sh
+```
 
-1. PRs should use Conventional Commit titles, for example:
-   - `feat: add s3 endpoint validation`
-   - `fix: handle missing grafana config`
-2. On each push to `main`, Release Please analyzes commits and opens or updates a release PR.
-3. Merging the release PR creates a new `vX.Y.Z` tag automatically.
-4. The tag triggers the GitHub Actions release workflow to build and publish release artifacts.
+The Docker E2E tests keep `eloqctl` on the host and use Ubuntu containers only as SSH-accessible target nodes. Runtime dependencies are installed by `eloqctl run-deps`/`launch`, not baked into the test image.
 
-Rust crate versions are inherited from `workspace.package.version` in `Cargo.toml`, so the release PR updates version in one place.
+## Documentation
 
-## Features
-
-### Devtools
-
-1. management compile and run dependencies
-2. playground
-3. autocomplete and command history support
-
-### ClusterMgr
-
-1. Installation and deployment the MonographDB cluster, including the underlying storage it depends on (if required)
-2. Manage cluster start, stop, status check, and commands are idempotent.
-3. Support batch execution of custom commands.
-
-### REST API
-
-The HTTP API with the same functionality as ClusterMgr. [REST API](./doc/cluster_mgr_rest.md)
-
-## How to use
-
-Please look at the documentation for more information about the design, implementation, and
-commands.  [devtools](./doc/devtools_cmd.md) or [cluster_mgr](./doc/cluster_mgr.md)
+1. Cluster manager commands: `doc/cluster_mgr.md`
+2. Declarative reconcile model: `doc/declarative_reconcile.md`
+3. Idempotency guarantees: `doc/idempotency.md`
+4. Backup and dump tools: `doc/backup_and_dump_tools.md`
+5. Docker E2E tests: `tests/README.md`
+6. Developer helper commands: `doc/devtools_cmd.md`

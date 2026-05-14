@@ -1,18 +1,16 @@
+use crate::cli::create_upload_cluster_dir;
 use crate::cli::task::group::Config;
 use crate::cli::task::task_base::{TaskArgValue, TaskHost, TaskId, TaskInstance};
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
-use crate::cli::task::upload::codis_upload::CodisUpload;
 use crate::cli::task::upload::data_dir_upload_builder::DataDirUploadBuilder;
+use crate::cli::task::upload::eloq_upload_builder::{EloqUpload, EloqUploadBuilder};
 use crate::cli::task::upload::monitor_upload_builder::*;
-use crate::cli::task::upload::monograph_upload_builder::{EloqUpload, MonographUploadBuilder};
 use crate::cli::task::upload::proxy_upload_builder::ProxyUploadBuilder;
 use crate::cli::task::upload::tx_conf_upload_builder::TxConfUpload;
 use crate::cli::task::upload::upload_task::UploadTask;
-use crate::cli::{create_upload_cluster_dir, upload_dir};
 use crate::config::config_base::UploadFile;
 use crate::config::connection::Connection;
-use crate::config::deployment::{Deployment, Product};
-use crate::config::{CREATE_MONITOR_USER_SQL_FILE, MONOGRAPH_INSTALL_SCRIPT};
+use crate::config::deployment::Deployment;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use local_ip_address::local_ip;
@@ -26,47 +24,57 @@ use walkdir::WalkDir;
 pub trait UploadTaskBuilder {
     /// During the deployment phase, it is necessary to generate the corresponding upload execution tasks based on the deployment.yaml.
     /// These tasks include but are not limited to:
-    /// 1. Uploading MonographDB TxService, including configuration files and bootstrap database commands for each instance.
-    /// 2. Uploading MonographDB LogService, including start-up commands for each instance (if configured).
-    /// 3. Uploading the Monitor component, including NodeExporter, MySQLExporter, Prometheus,
+    /// 1. Uploading EloqDB TxService, including configuration files and bootstrap database commands for each instance.
+    /// 2. Uploading EloqDB LogService, including start-up commands for each instance (if configured).
+    /// 3. Uploading the Monitor component, including NodeExporter, Prometheus,
     ///    Grafana, and configuration files for all components.
     fn build(&self, config: &Config) -> IndexMap<TaskId, TaskInstance>;
 }
 
 pub(crate) const SCP_COMMAND: &str = "_scp_cmd_";
+pub(crate) const SCP_ARGS: &str = "_scp_args_";
 pub(crate) const SOURCE_IP: &str = "_source_ip_";
 
-// r#"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no {copy_dir}
-// {scp_auth_key} -P {port} {source_path_str}
-// {remote_user}@{remote_host}:{remote_install_dir}/{dest_file_name}"#,
-pub(crate) const SCP_COMMAND_TEMPLATE: &str = "scp -o UserKnownHostsFile=/dev/null \
--o StrictHostKeyChecking=no \
--o PasswordAuthentication=no \
--o PreferredAuthentications=publickey \
-_COPY_DIR -i _SCP_AUTH_KEY -P_SCP_PORT \
-_SOURCE  _REMOTE_USER@_REMOTE_HOST:_DEST";
-
-pub(crate) fn scp(upload_file: &UploadFile, conn: Connection) -> String {
+pub(crate) fn scp_args(upload_file: &UploadFile, conn: Connection) -> Vec<String> {
     let auth_key = conn.ssh_auth_key().unwrap();
-    let port = conn.ssh_port();
-    let copy_dir = if upload_file.copy_dir { "-r" } else { "" };
-    SCP_COMMAND_TEMPLATE
-        .replace("_COPY_DIR", copy_dir)
-        .replace("_SCP_AUTH_KEY", auth_key.as_str())
-        .replace("_SCP_PORT", port.to_string().as_str())
-        .replace("_SOURCE", upload_file.source.as_str())
-        .replace("_REMOTE_USER", conn.username.as_str())
-        .replace("_REMOTE_HOST", upload_file.host.as_str())
-        .replace("_DEST", upload_file.dest.as_str())
+    let (remote_host, port) = conn.ssh_endpoint(&upload_file.host);
+    let mut args = vec![
+        "-o".to_string(),
+        "UserKnownHostsFile=/dev/null".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "PasswordAuthentication=no".to_string(),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=10".to_string(),
+        "-o".to_string(),
+        "PreferredAuthentications=publickey".to_string(),
+        "-i".to_string(),
+        auth_key,
+        "-P".to_string(),
+        port.to_string(),
+    ];
+    if upload_file.copy_dir {
+        args.push("-r".to_string());
+    }
+    args.push(upload_file.source.trim().to_string());
+    args.push(format!(
+        "{}@{}:{}",
+        conn.username,
+        remote_host,
+        upload_file.dest.trim()
+    ));
+    args
 }
 
 #[derive(Clone, Debug)]
 pub enum UploadTaskBuilderType {
     DataDir,
-    MonographAll,
+    EloqAll,
     MonitorConf,
     TxConf,
-    Codis,
     EloqImage,
     Proxy,
     ScaleTxConf,
@@ -85,11 +93,10 @@ pub fn upload_tasks(
 ) -> IndexMap<TaskId, TaskInstance> {
     match builder_type {
         UploadTaskBuilderType::DataDir => DataDirUploadBuilder {}.build(conf),
-        UploadTaskBuilderType::MonographAll => MonographUploadBuilder {}.build(conf),
+        UploadTaskBuilderType::EloqAll => EloqUploadBuilder {}.build(conf),
         UploadTaskBuilderType::MonitorConf => MonitorInfraConfUploadBuilder {}.build(conf),
         UploadTaskBuilderType::TxConf => TxConfUpload {}.build(conf),
         UploadTaskBuilderType::ScaleTxConf => unreachable!(),
-        UploadTaskBuilderType::Codis => CodisUpload {}.build(conf),
         UploadTaskBuilderType::EloqImage => {
             let cluster_config = match conf {
                 Config::Cluster(cfg) => cfg,
@@ -166,27 +173,12 @@ pub(crate) fn get_source_host(host: Option<String>) -> String {
 
 pub(crate) fn list_files_by_host(host: &str, config: &Deployment) -> Vec<String> {
     let dir = format!("{}/{}", config.cluster_name, host);
-    let mut paths = WalkDir::new(create_upload_cluster_dir(&dir))
+    let paths = WalkDir::new(create_upload_cluster_dir(&dir))
         .min_depth(1)
         .into_iter()
         .filter_map(|entry_rs| entry_rs.ok())
         .map(|entry| entry.into_path())
         .collect_vec();
-    if config.product() == Product::EloqSQL {
-        paths.push(upload_dir().join(&config.cluster_name).join("my_local.cnf"));
-        paths.push(
-            upload_dir()
-                .join(&config.cluster_name)
-                .join(MONOGRAPH_INSTALL_SCRIPT),
-        );
-        if config.monitor.is_some() {
-            paths.push(
-                upload_dir()
-                    .join(&config.cluster_name)
-                    .join(CREATE_MONITOR_USER_SQL_FILE),
-            );
-        }
-    }
     paths
         .into_iter()
         .map(|pb| pb.to_str().unwrap().to_string())
@@ -208,13 +200,15 @@ pub(crate) fn build_task_instance(
     };
 
     let conn = config.conn_ref();
-    let scp_cmd = scp(&upload_file, conn.clone());
+    let scp_args = scp_args(&upload_file, conn.clone());
+    let scp_cmd = format!("scp {}", scp_args.join(" "));
     let upload_task = UploadTask::new(task_id.clone());
     (
         task_id,
         TaskInstance {
             task_input: HashMap::from([
                 (SCP_COMMAND.to_string(), TaskArgValue::Str(scp_cmd)),
+                (SCP_ARGS.to_string(), TaskArgValue::List(scp_args)),
                 (SOURCE_IP.to_string(), TaskArgValue::Str(source_host)),
             ]),
             task: Box::new(upload_task),

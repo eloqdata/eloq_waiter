@@ -1,5 +1,0 @@
-[client]
-user = _MONITOR_
-password = _MONITOR_
-host = 127.0.0.1
-port = _PORT

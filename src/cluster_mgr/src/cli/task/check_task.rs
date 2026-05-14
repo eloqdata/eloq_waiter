@@ -20,24 +20,34 @@ impl CheckTask {
         CheckTask { kind, host, config }
     }
 
+    fn configured_ports_for_host(&self) -> Vec<u16> {
+        self.config
+            .deployment
+            .get_host_port_list(self.kind.clone())
+            .into_iter()
+            .filter_map(|host_port| {
+                let (host, port) = host_port.rsplit_once(':')?;
+                if host == self.host {
+                    port.parse::<u16>().ok()
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     async fn check_tx_sv(&self, host: TaskHost) -> Result<Option<ExecutionValue>> {
         let ssh_k = self.config.connection.ssh_auth_key().unwrap();
         let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
+        let needed = self.configured_ports_for_host();
         for p in sess.used_tcp_ports().await? {
-            if let Some(tx_port) = self.config.deployment.tx_service.client_port {
-                if tx_port == p {
-                    bail!("tx-service socket {}:{p} is already used", self.host);
-                }
+            if needed.contains(&p) {
+                bail!("tx-service socket {}:{p} is already used", self.host);
             }
             if let Some(moni) = &self.config.deployment.monitor {
                 if let Some(noex) = &moni.node_exporter {
                     if noex.port == p {
                         bail!("node exporter socket {}:{p} is already used", self.host);
-                    }
-                }
-                if let Some(myex) = &moni.mysql_exporter {
-                    if myex.port == p {
-                        bail!("mysql exporter socket {}:{p} is already used", self.host);
                     }
                 }
             }
@@ -100,37 +110,13 @@ impl CheckTask {
             .monitor
             .as_ref()
             .unwrap()
-            .prometheus
+            .grafana
             .as_ref()
             .unwrap()
             .port;
         for p in sess.used_tcp_ports().await? {
             if port == p {
                 bail!("grafana socket {}:{p} is already used", self.host);
-            }
-        }
-        Ok(None)
-    }
-
-    async fn check_codis(&self, host: TaskHost) -> Result<Option<ExecutionValue>> {
-        let codis = self.config.deployment.codis.as_ref().unwrap();
-        let need = if self.host == codis.dashboard {
-            vec![18080]
-        } else if codis.proxy.contains(&self.host) {
-            vec![11080, 19000]
-        } else {
-            unreachable!()
-        };
-        let ssh_k = self.config.connection.ssh_auth_key().unwrap();
-        let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
-        for p in sess.used_tcp_ports().await? {
-            if need.contains(&p) {
-                bail!("codis socket {}:{p} is already used", self.host);
-            }
-            if let Some(moni) = &self.config.deployment.monitor {
-                if moni.node_exporter.as_ref().unwrap().port == p {
-                    bail!("node exporter socket {}:{p} is already used", self.host);
-                }
             }
         }
         Ok(None)
@@ -157,17 +143,16 @@ impl TaskExecutor for CheckTask {
         input: HashMap<String, TaskArgValue>,
     ) -> Result<Option<ExecutionValue>> {
         match self.kind {
-            DeploymentPackage::MonographTx => self.check_tx_sv(host).await,
-            DeploymentPackage::MonographStandby => self.check_tx_sv(host).await,
-            DeploymentPackage::MonographVoter => self.check_tx_sv(host).await,
+            DeploymentPackage::EloqTx => self.check_tx_sv(host).await,
+            DeploymentPackage::EloqStandby => self.check_tx_sv(host).await,
+            DeploymentPackage::EloqVoter => self.check_tx_sv(host).await,
             DeploymentPackage::Storage => {
                 let _ = input;
                 Ok(None)
             }
             DeploymentPackage::Prometheus => self.check_prometheus(host).await,
             DeploymentPackage::Grafana => self.check_grafana(host).await,
-            DeploymentPackage::MonographLog => self.check_log_sv(host).await,
-            DeploymentPackage::Codis => self.check_codis(host).await,
+            DeploymentPackage::EloqLog => self.check_log_sv(host).await,
             DeploymentPackage::Proxy => self.check_proxy(host).await,
         }
     }

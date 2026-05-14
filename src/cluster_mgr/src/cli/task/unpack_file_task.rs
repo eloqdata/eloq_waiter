@@ -11,15 +11,13 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use tracing::info;
 
-pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 8] = [
+pub(crate) const REMOTE_UNPACKED_NAMES: [&str; 6] = [
     "prometheus",
     "grafana",
     "node_exporter",
-    "mysqld_exporter",
-    "monograph-logserver",
-    "codis",
+    "eloq-logserver",
     "eloqkv-proxy",
-    "monographdb",
+    "eloqdb",
 ];
 
 #[derive(Debug, Clone)]
@@ -32,8 +30,8 @@ pub struct UnpackFileTask {
 }
 
 fn extract_unpacked_name(raw_file_name: &str) -> String {
-    if raw_file_name.starts_with("monographdb") {
-        return "monographdb".to_string();
+    if raw_file_name.starts_with("eloqdb") {
+        return "eloqdb".to_string();
     }
     for unpacked in REMOTE_UNPACKED_NAMES {
         if !raw_file_name.contains(unpacked) {
@@ -57,8 +55,6 @@ impl UnpackFileTask {
             "".to_string()
         };
         let remote_install_dir = config.install_dir();
-        let conn_usr = config.connection.clone().username;
-        let ssh_port = config.connection.ssh_port();
         let unpack_file_location = config.unpack_files_map();
         let unpack_task_instance = unpack_file_location
             .iter()
@@ -76,11 +72,7 @@ impl UnpackFileTask {
                 };
 
                 let tarball = format!("{remote_install_dir}/{curr_file_name}");
-                let task_host = TaskHost::Remote {
-                    user: conn_usr.clone(),
-                    port: ssh_port as usize,
-                    host: remote_host.clone(),
-                };
+                let task_host = TaskHost::remote(&config.connection, remote_host);
                 let task_id = TaskId {
                     cmd: "deploy".to_string(),
                     task: format!("{curr_file_name}_unpack"),
@@ -243,11 +235,7 @@ impl UnpackFileTask {
         exclude: Vec<String>,
     ) -> (TaskId, TaskInstance) {
         let tarball = format!("{}/{image}", config.deployment.install_dir());
-        let task_host = TaskHost::Remote {
-            user: config.connection.username.clone(),
-            port: config.connection.ssh_port() as usize,
-            host: host.to_owned(),
-        };
+        let task_host = TaskHost::remote(&config.connection, host);
         let task_id = TaskId {
             cmd: "update".to_string(),
             task: format!("{image}_unpack"),
@@ -324,7 +312,7 @@ mod tests {
 
     #[test]
     pub fn test_extract_unpacked_name() {
-        let unpacked_name = extract_unpacked_name("monographdb-ubuntu20-release-bin.tar.gz");
+        let unpacked_name = extract_unpacked_name("eloqdb-ubuntu20-release-bin.tar.gz");
         println!("unpacked fil name={unpacked_name}")
     }
 }

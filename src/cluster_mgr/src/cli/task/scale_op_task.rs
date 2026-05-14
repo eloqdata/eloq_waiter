@@ -8,6 +8,7 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::connection::{resolve_service_endpoint, ServiceEndpoint};
 use crate::task_return_value;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -33,6 +34,7 @@ pub struct ScaleOpTask {
     scale_op_config: ScaleOpConfig,
     receiver: watch::Receiver<ClusterNodes>,
     sender: watch::Sender<ClusterNodesWithConfig>,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 }
 
 impl ScaleOpTask {
@@ -50,7 +52,16 @@ impl ScaleOpTask {
             scale_op_config,
             receiver,
             sender,
+            service_endpoints: None,
         }
+    }
+
+    pub fn with_service_endpoints(
+        mut self,
+        service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
+    ) -> Self {
+        self.service_endpoints = service_endpoints;
+        self
     }
 
     /// Extract port numbers from host:port strings
@@ -121,6 +132,8 @@ impl TaskExecutor for ScaleOpTask {
         let leader = &cluster_nodes_with_config.masters[0];
         let tx_host = &leader.ip;
         let tx_port = leader.port + 10001; // Adding 10001 to get the gRPC port
+        let (endpoint_host, endpoint_port) =
+            resolve_service_endpoint(self.service_endpoints.as_ref(), tx_host, tx_port);
         info!(
             "Using leader node {}:{} for scale operation",
             tx_host, tx_port
@@ -135,7 +148,7 @@ impl TaskExecutor for ScaleOpTask {
         info!("Starting scale operation (event_id={})", self.event_id);
 
         // Create RPC client using the leader node's address
-        let url = format!("http://{}:{}", tx_host, tx_port);
+        let url = format!("http://{}:{}", endpoint_host, endpoint_port);
         info!("Connecting to gRPC service at {}", url);
         let mut client = match GrpcClient::new(&url).await {
             Ok(client) => client,

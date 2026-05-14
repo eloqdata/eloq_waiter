@@ -1,6 +1,7 @@
 use crate::cli::task::group::{init_task_group, Config};
 use crate::cli::task::task_controller::TaskController;
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::connection::Connection;
 use crate::config::load_remote_env;
 use crate::enum_into_trait;
 use anyhow::Result;
@@ -180,17 +181,17 @@ pub enum CmdErr {
     SSHConnErr(String, String),
     #[error("SSHConn execute remote cmd {0} failed, error causes {1}")]
     SSHRemoteCmdErr(String, String),
-    #[error("MonographDB installation database error. command {0} , error causes {1}")]
-    MonographInstallErr(String, String),
-    #[error("Failed to execute the MonographDB control command. command {0} , error causes {1}")]
-    MonographCtlErr(String, String),
+    #[error("EloqDB installation database error. command {0} , error causes {1}")]
+    EloqInstallErr(String, String),
+    #[error("Failed to execute the EloqDB control command. command {0} , error causes {1}")]
+    EloqCtlErr(String, String),
     #[error("The cluster name  must be unique and the current cluster [{0}] already exists.")]
     ClusterAlreadyExists(String),
     #[error("Unpacking file errors. command {0}, error causes {1}")]
     UnpackErr(String, String),
     #[error("Error executing LocalCopyTask; please check if the source path exists path {0}")]
     CopyTaskErr(String),
-    #[error("Error executing MonographDB monitor component task {0}, error causes {1}")]
+    #[error("Error executing EloqDB monitor component task {0}, error causes {1}")]
     MonitorCtlCmdErr(String, String),
     #[error("Error interacting with redis. possible reason: {0}, status_code={1}")]
     RedisOpErr(String, String),
@@ -234,6 +235,16 @@ pub enum TaskHost {
 }
 
 impl TaskHost {
+    pub fn remote(conn: &Connection, host: impl Into<String>) -> Self {
+        let host = host.into();
+        let (ssh_host, ssh_port) = conn.ssh_endpoint(&host);
+        TaskHost::Remote {
+            user: conn.username.clone(),
+            port: ssh_port as usize,
+            host: ssh_host,
+        }
+    }
+
     pub fn ssh_conn_tuple(&self) -> (String, usize, String) {
         match self {
             TaskHost::Local => ("_local".to_string(), 22, "localhost".to_string()),
@@ -358,6 +369,17 @@ impl TaskMgr {
 }
 
 impl TaskMgr {
+    pub async fn drain_task_results(&self) -> Result<()> {
+        while let Some(TaskResultPair { result, .. }) = self.task_controller.recv().await {
+            if let TaskResultEnum::Success(Some(execution_value)) = result {
+                if execution_value.contains_key("_FINISH_SIGNAL") {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn recv_task_result<F, Fut>(&self, f: F)
     where
         F: Fn(TaskResultPair) -> Fut + Send + Sync + 'static,
@@ -442,18 +464,28 @@ impl TaskMgr {
         cmd_args: SubCommand,
         config: Config,
     ) -> anyhow::Result<Vec<TaskResultPair>> {
-        let tasks_execution = self.task_context(cmd_args.clone(), &config).await?;
-        info!(
-            "TaskMgr start current tasks={} barrier={:?}",
-            tasks_execution.executable.len(),
-            tasks_execution.barrier
-        );
         let err_brk = !matches!(
             cmd_args,
             SubCommand::Remove {
                 cluster: _,
                 force: _,
             }
+        );
+        self.run_tasks_with_error_break(cmd_args, config, err_brk)
+            .await
+    }
+
+    pub async fn run_tasks_with_error_break(
+        &'static self,
+        cmd_args: SubCommand,
+        config: Config,
+        err_brk: bool,
+    ) -> anyhow::Result<Vec<TaskResultPair>> {
+        let tasks_execution = self.task_context(cmd_args.clone(), &config).await?;
+        info!(
+            "TaskMgr start current tasks={} barrier={:?}",
+            tasks_execution.executable.len(),
+            tasks_execution.barrier
         );
         self.task_controller
             .run_all_tasks(tasks_execution, config, err_brk)

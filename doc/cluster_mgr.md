@@ -1,94 +1,89 @@
-## MonographDB Deployment and Management CLI
+# EloqKV Cluster Manager
 
-### Install
-```shell
-bash install.sh
-# Or
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh
-```
+`eloqctl` deploys and operates EloqKV clusters on SSH-accessible machines. The current cluster manager supports EloqKV only.
 
-### Design and implementation
+## Core Concepts
 
-#### Terminology
+1. **Cluster**: a named EloqKV deployment. Cluster names must be unique on the control host.
+2. **Topology YAML**: the desired cluster shape used by `check`, `run-deps`, `deploy`, `launch`, `plan`, `apply`, and `exec`.
+3. **Cluster index**: local SQLite metadata that maps a cluster name to its saved topology file.
+4. **Live observed state**: process, Redis/EloqKV, log service, DSS, and monitor status collected from the real deployment.
+5. **Mutation lock**: a local lock under `$ELOQCTL_HOME/locks/<cluster>.lock` that prevents concurrent mutations on the same cluster from one control host.
 
-1. Clusters
-   <p>A cluster is a logical concept; a cluster includes a set of MonographDB database instances and supports multiple
-   cluster installations. Cluster names must be unique.</p>
-2. Command
-   <p>User input commands, such as deploy, install, start, stop, etc.</p>
-3. TaskExecutor
-   <p>A task is an indivisible unit of execution and the smallest parallel unit of execution. A command consists of multiple task instances, and a task instance is a specific instantiated task.</p>
-4. TaskGroup
-   <p>Instances of the same or different types of tasks form a task group, and the tasks in the task group are executed in parallel. Commands and task groups are one-to-one.</p>
-5. Parallel mechanisms
+## State Layout
 
-```
-+ --------paralle-------- + Pause  +  ------parallel----- +
-
-+-----+------+------+------+--------+------+-------+-------+-------+
-|     |      |      |      |        |      |       |       |       |
-|task1| task2| task3| task4| Barrier|task5 | task6 | task7 |       |
-+-----+------+------+------+--------+------+-------+-------+-------+
-```
-
-6. Status Management
-   <p>For some non-idempotent commands(deploy), if the execution of some nodes fails, if re-executed, ClusterCliMgr should skip the nodes that have been executed successfully. For this purpose, after each task is completed, the task execution state is persisted to the local state backend, currently using SQLite. Also, ClusterCliMgr persists in the cluster. It also persists in the topology description file of the cluster.</p>
-
-### Command list
+`eloqctl` stores launch-compatible topology files under:
 
 ```text
-Commands:
-  deploy
-          Deploy the MonographDB cluster by specifying the cluster_topology.yaml file
-          eloqctl deploy ${PWD}/config/deployment.yaml
+${ELOQCTL_HOME:-$HOME/.eloqctl}/clusters/<cluster>/topology.yaml
+```
 
-  install
-          bootstrap MonographDB to generate catalog. You need to specify the cluster name.
-          eloqctl install $CLUSTER_NAME
+SQLite stores local operational metadata only, including the cluster index, locks, task history, and backup metadata. It is not the authority for whether a remote service is running.
 
-  start
-          Start the MonographDB cluster(TxService LogService Storage). with the specified cluster name
-          eloqctl start $CLUSTER_NAME
+## Common Workflow
 
-  stop
-          Stop the MonographDB cluster(TxService LogService Storage). with the specified cluster name.
+```sh
+eloqctl check /path/to/topology.yaml
+eloqctl launch /path/to/topology.yaml
+eloqctl status eloqkv-cluster --wait 60
+eloqctl plan /path/to/topology-v2.yaml
+eloqctl apply /path/to/topology-v2.yaml
+eloqctl export eloqkv-cluster --output eloqkv-cluster.yaml
+eloqctl stop eloqkv-cluster --all --force
+eloqctl remove eloqkv-cluster --force
+```
 
-          eloqctl stop $CLUSTER_NAME --force --all
+`status`, `connect`, `list`, and `export` operate by cluster name and do not require the original YAML path.
 
-  restart
-          Restart the MonographDB cluster with the specified cluster name.
-          eloqctl restart $CLUSTER_NAME
+## Commands
 
-  exec
-          Execute custom shell commands.
-          eloqctl exec 'ls -la /data1/' ${PWD}/config/deployment.yaml
-  status
-          Check MonographDB cluster status. If the username password is given,
-           the connection to the target database is established, otherwise, the ps command is executed.
-          eloqctl status $CLUSTER_NAME --user $DB_USER --password $DB_PASSWORD
+| Command | Purpose |
+| --- | --- |
+| `check <topology.yaml>` | Validate topology and deployment prerequisites that can be checked locally. |
+| `run-deps <topology.yaml>` | Install runtime packages on target hosts. Ubuntu runtime dependencies are listed in `src/cluster_mgr/config/runtime_deps_ubuntu`; JDK is not required. |
+| `deploy <topology.yaml>` | Upload and unpack EloqKV artifacts and generated config. |
+| `install <cluster>` | Bootstrap EloqKV catalog. Skips bootstrap if live tx service is already running. |
+| `start <cluster>` | Start tx, standby, voter, log, and storage services described by the saved topology. |
+| `launch <topology.yaml>` | Run dependency installation, deployment, bootstrap, start, monitor setup, topology update, and final status checks. |
+| `status <cluster> [--wait seconds] [--detail]` | Observe live status using saved topology. Normal output is user-facing; use global `--verbose` for task details. |
+| `connect <cluster>` | Print an EloqKV client command for the cluster. |
+| `plan <topology.yaml>` | Preview supported changes without mutating local state or remote hosts. |
+| `apply <topology.yaml>` | Execute the same plan shown by `plan`, gated by live critical-service health and verified afterward. |
+| `update <cluster> <version>` | Rolling version update for an existing cluster. |
+| `update-conf <cluster>` | Apply selected config fields and optionally restart tx nodes. |
+| `scale <cluster>` | Add or remove EloqKV tx/standby nodes. Duplicate add/remove requests are no-ops. |
+| `scalelog <cluster>` | Add or remove log service nodes. Duplicate add/remove requests are no-ops. |
+| `failover <cluster>` | Move leadership from an old leader to a requested new leader. |
+| `monitor start|stop <cluster>` | Manage Prometheus, Grafana, and node exporter when monitor config is present. |
+| `log-service start|stop <cluster>` | Manage standalone log service nodes. |
+| `backup <cluster> ...` | Create, list, remove, restore, and dump backups. |
+| `export <cluster> [--output file]` | Write the saved launch-compatible topology YAML. |
+| `list` | List locally registered clusters. |
+| `versions` | List available EloqKV versions. |
+| `completion <shell>` | Generate shell completion scripts. |
+| `upgrade` | Run local SQLite schema upgrades. |
+| `remove <cluster> [--force]` | Remove local cluster metadata and perform best-effort remote cleanup. |
 
-  run-deps
-          Install MonographDB runtime dependencies.
-          eloqctl run-deps ${PWD}/config/deployment.yaml
+## SSH And Endpoints
 
-  monitor
-          Start or stop monitoring components,including prometheus, grafana,node_exporter,mysql_exporter.
-          eloqctl monitor start $CLUSTER_NAME
-          eloqctl monitor stop $CLUSTER_NAME
+Topology `connection.ssh_endpoints` can map a deployment host to the host/port used by the control machine for SSH. This is required for Docker E2E and useful behind bastions or port forwarding.
 
-  log-service
-          Start or stop LogService This command is only available if LogService is deployed standalone
-          eloqctl log-service start $CLUSTER_NAME
-          eloqctl log-service stop $CLUSTER_NAME
+Topology `connection.service_endpoints` can map service ports, such as Redis and gRPC ports, to control-machine reachable endpoints. Readiness, topology discovery, backup, scale, and failover use service endpoint mapping.
 
-  upgrade
-          Run the SQLite schema script to create any missing tables.
-          eloqctl upgrade
+## EloqKV HA Topology
 
-  update-conf
-          Update the configuration file and restart the tx service (the default value of restart is true). Note: Please edit conf/my_template.cnf first
-          eloqctl update-conf $CLUSTER_NAME --restart
-          eloqctl update-conf $CLUSTER_NAME
-  help
-          Print this message or the help of the given subcommand(s)
+The default HA topology is:
+
+1. One tx/master node.
+2. One standby node.
+3. One voter node.
+
+For Redis Cluster compatible readiness checks, startup nodes are tx plus standby nodes. Voters are not used as client startup nodes.
+
+## Output
+
+Default command output is concise and intended for operators. Add global `--verbose` to show task identifiers, internal details, and richer diagnostics:
+
+```sh
+eloqctl --verbose status eloqkv-cluster
 ```

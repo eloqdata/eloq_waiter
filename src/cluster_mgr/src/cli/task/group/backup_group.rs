@@ -150,11 +150,11 @@ impl TaskGroup for BackupTaskGroup {
 
                         executable.extend(mkdir_remote_dir);
 
-                        // Collect host ports from both MonographTx and MonographStandby
+                        // Collect host ports from both EloqTx and EloqStandby
                         let mut redis_host_ports =
-                            cluster_config.get_host_port_list(DeploymentPackage::MonographTx);
+                            cluster_config.get_host_port_list(DeploymentPackage::EloqTx);
                         redis_host_ports.extend(
-                            cluster_config.get_host_port_list(DeploymentPackage::MonographStandby),
+                            cluster_config.get_host_port_list(DeploymentPackage::EloqStandby),
                         );
 
                         // Create backup task instance
@@ -186,6 +186,9 @@ impl TaskGroup for BackupTaskGroup {
                             redis_host_ports,
                             cluster.clone(),
                             backup_config,
+                        )
+                        .with_service_endpoints(
+                            cluster_config.connection.service_endpoints.clone(),
                         );
 
                         // Insert task instance into the executable map
@@ -446,10 +449,10 @@ impl TaskGroup for BackupTaskGroup {
                                 (conn_user.to_string(), "localhost".to_string())
                             };
 
-                            let ssh_port = config.ssh_port() as usize;
+                            let (host, ssh_port) = config.ssh_endpoint(&host);
                             let task_host = TaskHost::Remote {
                                 user,
-                                port: ssh_port,
+                                port: ssh_port as usize,
                                 host,
                             };
 

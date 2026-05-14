@@ -16,11 +16,7 @@ macro_rules! make_check_tasks {
                 let instance = TaskInstance {
                     task_input: $input.clone(),
                     task: Box::new(task),
-                    task_host: TaskHost::Remote {
-                        user: $config.connection.username.clone(),
-                        port: $config.connection.ssh_port() as usize,
-                        host,
-                    },
+                    task_host: TaskHost::remote(&$config.connection, host),
                 };
                 (instance.task.identifier(), instance)
             })
@@ -43,26 +39,21 @@ impl TaskGroup for CheckTaskGroup {
 
         let mut executable = IndexMap::new();
         let input = HashMap::new();
+        make_check_tasks!(DeploymentPackage::EloqTx, cluster_config, input, executable);
         make_check_tasks!(
-            DeploymentPackage::MonographTx,
+            DeploymentPackage::EloqStandby,
             cluster_config,
             input,
             executable
         );
         make_check_tasks!(
-            DeploymentPackage::MonographStandby,
+            DeploymentPackage::EloqVoter,
             cluster_config,
             input,
             executable
         );
         make_check_tasks!(
-            DeploymentPackage::MonographVoter,
-            cluster_config,
-            input,
-            executable
-        );
-        make_check_tasks!(
-            DeploymentPackage::MonographLog,
+            DeploymentPackage::EloqLog,
             cluster_config,
             input,
             executable

@@ -3,6 +3,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
 };
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::connection::{resolve_service_endpoint, ServiceEndpoint};
 use crate::task_return_value;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -20,6 +21,7 @@ pub struct FailoverOpTask {
     new_leader_port: u16,    // Can be 0, if 0, will be chosen dynamically
     receiver: watch::Receiver<ClusterNodes>,
     password: Option<String>,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 }
 
 impl FailoverOpTask {
@@ -40,7 +42,16 @@ impl FailoverOpTask {
             new_leader_port,
             receiver,
             password,
+            service_endpoints: None,
         }
+    }
+
+    pub fn with_service_endpoints(
+        mut self,
+        service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
+    ) -> Self {
+        self.service_endpoints = service_endpoints;
+        self
     }
 
     // Helper function to find the best replica for failover
@@ -147,6 +158,11 @@ impl TaskExecutor for FailoverOpTask {
         }
 
         let (new_leader_host, new_leader_port) = new_leader.unwrap();
+        let (old_endpoint_host, old_endpoint_port) = resolve_service_endpoint(
+            self.service_endpoints.as_ref(),
+            &self.old_leader_host,
+            self.old_leader_port,
+        );
 
         info!(
             "Found suitable replica {}:{} for master {}:{}. Initiating failover.",
@@ -157,10 +173,10 @@ impl TaskExecutor for FailoverOpTask {
         let node_url = if let Some(password) = &self.password {
             format!(
                 "redis://:{}@{}:{}",
-                password, self.old_leader_host, self.old_leader_port
+                password, old_endpoint_host, old_endpoint_port
             )
         } else {
-            format!("redis://{}:{}", self.old_leader_host, self.old_leader_port)
+            format!("redis://{}:{}", old_endpoint_host, old_endpoint_port)
         };
 
         let client = redis::Client::open(node_url.clone())?;

@@ -4,6 +4,7 @@ use crate::cli::task::task_base::{
     CmdErr, ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId,
 };
 use crate::cli::{CMD, CMD_OUTPUT, CMD_STATUS};
+use crate::config::connection::{resolve_service_endpoint, ServiceEndpoint};
 use crate::task_return_value;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ pub struct CheckTxClusterScaleStatusTask {
     scale_status_tx: Option<tokio::sync::watch::Sender<i32>>,
     redis_op_rx: Option<tokio::sync::watch::Receiver<ClusterNodes>>,
     valid_candidate_nodes: Option<Vec<String>>,
+    service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
 }
 
 impl CheckTxClusterScaleStatusTask {
@@ -36,7 +38,16 @@ impl CheckTxClusterScaleStatusTask {
             scale_status_tx,
             redis_op_rx,
             valid_candidate_nodes,
+            service_endpoints: None,
         }
+    }
+
+    pub fn with_service_endpoints(
+        mut self,
+        service_endpoints: Option<HashMap<String, ServiceEndpoint>>,
+    ) -> Self {
+        self.service_endpoints = service_endpoints;
+        self
     }
 
     fn get_endpoint(&self) -> String {
@@ -47,12 +58,14 @@ impl CheckTxClusterScaleStatusTask {
                 let leader = &current_nodes.masters[0];
                 let tx_host = &leader.ip;
                 let tx_port = leader.port + 10001;
+                let (endpoint_host, endpoint_port) =
+                    resolve_service_endpoint(self.service_endpoints.as_ref(), tx_host, tx_port);
 
                 info!(
                     "Using leader node {}:{} from redis_op_rx for scale validation",
                     tx_host, tx_port
                 );
-                format!("http://{}:{}", tx_host, tx_port)
+                format!("http://{}:{}", endpoint_host, endpoint_port)
             } else {
                 unreachable!()
             }
@@ -64,12 +77,14 @@ impl CheckTxClusterScaleStatusTask {
             }
             let host = parts[0].to_string();
             let port = parts[1].parse::<u16>().unwrap() + 10001;
+            let (endpoint_host, endpoint_port) =
+                resolve_service_endpoint(self.service_endpoints.as_ref(), &host, port);
 
             info!(
                 "Using first candidate node {}:{} from config for scale validation",
                 host, port
             );
-            format!("http://{}:{}", host, port)
+            format!("http://{}:{}", endpoint_host, endpoint_port)
         }
     }
 }

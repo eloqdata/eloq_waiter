@@ -1,14 +1,12 @@
 use crate::all_hosts_merge;
-use crate::cli::{create_upload_cluster_dir, upload_dir, HOME_DIR};
+use crate::cli::{create_upload_cluster_dir, HOME_DIR};
 use crate::config::connection::Connection;
-use crate::config::deployment::{Codis, Deployment, Product, Version};
+use crate::config::deployment::{Deployment, Product};
 use crate::config::log_service::LogProcessKey;
 use crate::config::{
-    config_path_string, config_template, DeploymentPackage, StorageProvider,
-    MONOGRAPH_INSTALL_SCRIPT, START_LOG_TEMPLATE,
+    config_path_string, config_template, DeploymentPackage, StorageProvider, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
-use crate::gen_db_misc_files;
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -21,12 +19,11 @@ use tracing::{error, info};
 
 pub const LOG_SERVICE_HOME: &str = "LogServer";
 
-pub const MONOGRAPH_FILE_KEY: &str = "monograph_tx";
-pub const MONOGRAPH_LOG_FILE_KEY: &str = "monograph_log";
+pub const ELOQ_FILE_KEY: &str = "eloq_tx";
+pub const ELOQ_LOG_FILE_KEY: &str = "eloq_log";
 pub const PROMETHEUS_FILE_KEY: &str = "prometheus";
 pub const GRAFANA_FILE_KEY: &str = "grafana";
 pub const NODE_EXPORTER_FILE_KEY: &str = "node_exporter";
-pub const MYSQL_EXPORTER_FILE_KEY: &str = "mysqld_exporter";
 pub const DEPLOYMENT_CHECK_SUCCESS_TASK: &str = "deploy_check_success_task";
 pub const SCALED_CLUSTER_CONFIG: &str = "cluster_config";
 
@@ -92,8 +89,149 @@ pub struct UnPackFileLocation {
 }
 
 impl DeployConfig {
+    fn validate_host_port_entry(
+        field: &str,
+        entry: &str,
+        allow_group_separator: bool,
+    ) -> Result<()> {
+        let separators: &[_] = if allow_group_separator {
+            &['|', ',']
+        } else {
+            &[',']
+        };
+        for token in entry.split(separators) {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            let Some((host, port)) = token.rsplit_once(':') else {
+                return Err(anyhow!("{field} entry '{token}' must use host:port format"));
+            };
+            if host.trim().is_empty() {
+                return Err(anyhow!("{field} entry '{token}' has empty host"));
+            }
+            if port.parse::<u16>().is_err() {
+                return Err(anyhow!("{field} entry '{token}' has invalid port '{port}'"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_topology(&self) -> Result<()> {
+        if self.deployment.tx_service.tx_host_ports.is_empty() {
+            return Err(anyhow!(
+                "deployment.tx_service.tx_host_ports must not be empty"
+            ));
+        }
+        for entry in &self.deployment.tx_service.tx_host_ports {
+            Self::validate_host_port_entry("deployment.tx_service.tx_host_ports", entry, false)?;
+        }
+        if let Some(standby_host_ports) = &self.deployment.tx_service.standby_host_ports {
+            if standby_host_ports.is_empty() {
+                return Err(anyhow!(
+                    "deployment.tx_service.standby_host_ports must not be empty when provided"
+                ));
+            }
+            for entry in standby_host_ports {
+                Self::validate_host_port_entry(
+                    "deployment.tx_service.standby_host_ports",
+                    entry,
+                    true,
+                )?;
+            }
+        }
+        if let Some(voter_host_ports) = &self.deployment.tx_service.voter_host_ports {
+            if voter_host_ports.is_empty() {
+                return Err(anyhow!(
+                    "deployment.tx_service.voter_host_ports must not be empty when provided"
+                ));
+            }
+            for entry in voter_host_ports {
+                Self::validate_host_port_entry(
+                    "deployment.tx_service.voter_host_ports",
+                    entry,
+                    true,
+                )?;
+            }
+        }
+
+        if let Some(storage) = &self.deployment.storage_service {
+            let provider_count = usize::from(storage.dynamodb.is_some())
+                + usize::from(storage.rocksdb.is_some())
+                + usize::from(storage.eloqdss.is_some());
+            if provider_count == 0 {
+                return Err(anyhow!(
+                    "deployment.storage_service is provided but no storage provider is configured"
+                ));
+            }
+            if provider_count > 1 {
+                return Err(anyhow!(
+                    "deployment.storage_service must configure only one provider among dynamodb, rocksdb, and eloqdss"
+                ));
+            }
+        }
+
+        if let Some(log_service) = &self.deployment.log_service {
+            if log_service.nodes.is_empty() {
+                return Err(anyhow!("deployment.log_service.nodes must not be empty"));
+            }
+            if log_service.replica == 0 {
+                return Err(anyhow!(
+                    "deployment.log_service.replica must be greater than 0"
+                ));
+            }
+            for (idx, node) in log_service.nodes.iter().enumerate() {
+                if node.host.trim().is_empty() {
+                    return Err(anyhow!(
+                        "deployment.log_service.nodes[{idx}].host must not be empty"
+                    ));
+                }
+                if node.data_dir.is_empty() {
+                    return Err(anyhow!(
+                        "deployment.log_service.nodes[{idx}].data_dir must not be empty"
+                    ));
+                }
+            }
+        }
+
+        if self.deployment.enable_wal.unwrap_or(false) && self.deployment.log_service.is_none() {
+            return Err(anyhow!(
+                "deployment.enable_wal=true requires deployment.log_service to be configured"
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn redis_password(&self, cli_password: Option<String>) -> Option<String> {
         cli_password.or_else(|| self.deployment.tx_service.requirepass.clone())
+    }
+
+    pub fn service_endpoint(&self, host: &str, port: u16) -> (String, u16) {
+        self.connection.service_endpoint(host, port)
+    }
+
+    pub fn service_endpoint_url(&self, scheme: &str, host: &str, port: u16) -> String {
+        let (endpoint_host, endpoint_port) = self.service_endpoint(host, port);
+        format!("{scheme}://{endpoint_host}:{endpoint_port}")
+    }
+
+    pub fn service_host_port(&self, host_port: &str) -> String {
+        let Some((host, port)) = host_port.rsplit_once(':') else {
+            return host_port.to_string();
+        };
+        let Ok(port) = port.parse::<u16>() else {
+            return host_port.to_string();
+        };
+        let (endpoint_host, endpoint_port) = self.service_endpoint(host, port);
+        format!("{endpoint_host}:{endpoint_port}")
+    }
+
+    pub fn service_host_ports(&self, host_ports: Vec<String>) -> Vec<String> {
+        host_ports
+            .into_iter()
+            .map(|host_port| self.service_host_port(&host_port))
+            .collect()
     }
 
     fn unpack_links_map(&self) -> HashMap<DeploymentPackage, Vec<DownloadUrl>> {
@@ -112,25 +250,22 @@ impl DeployConfig {
                 let mut unpack_files = vec![];
                 match pkg {
                     DeploymentPackage::Storage => {}
-                    DeploymentPackage::MonographTx => {
+                    DeploymentPackage::EloqTx => {
                         extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
-                        extract_monitor_link!(monitor_link, MYSQL_EXPORTER_FILE_KEY, unpack_files);
                         let tx_image = DownloadUrl::from_url_str(tx_image).unwrap();
                         unpack_files.push(tx_image);
                     }
-                    DeploymentPackage::MonographStandby => {
+                    DeploymentPackage::EloqStandby => {
                         extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
-                        extract_monitor_link!(monitor_link, MYSQL_EXPORTER_FILE_KEY, unpack_files);
                         let tx_image = DownloadUrl::from_url_str(tx_image).unwrap();
                         unpack_files.push(tx_image);
                     }
-                    DeploymentPackage::MonographVoter => {
+                    DeploymentPackage::EloqVoter => {
                         extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
-                        extract_monitor_link!(monitor_link, MYSQL_EXPORTER_FILE_KEY, unpack_files);
                         let tx_image = DownloadUrl::from_url_str(tx_image).unwrap();
                         unpack_files.push(tx_image);
                     }
-                    DeploymentPackage::MonographLog => {
+                    DeploymentPackage::EloqLog => {
                         if let Some(img) = log_image {
                             let log_image_link = DownloadUrl::from_url_str(img).unwrap();
                             unpack_files.push(log_image_link);
@@ -146,11 +281,6 @@ impl DeployConfig {
                     }
                     DeploymentPackage::Grafana => {
                         extract_monitor_link!(monitor_link, GRAFANA_FILE_KEY, unpack_files);
-                    }
-                    DeploymentPackage::Codis => {
-                        extract_monitor_link!(monitor_link, NODE_EXPORTER_FILE_KEY, unpack_files);
-                        let link = DownloadUrl::from_url_str(&Codis::download_url()).unwrap();
-                        unpack_files.push(link);
                     }
                     DeploymentPackage::Proxy => unreachable!(),
                 }
@@ -182,84 +312,26 @@ impl DeployConfig {
         result
     }
 
-    pub fn gen_all_monograph_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let mut path_vec = match self.product() {
-            Product::EloqSQL => vec![self.deployment.gen_eloqsql_config(None, None)?],
-            Product::EloqKV => {
-                vec![self.deployment.gen_eloqkv_node_config(None, None)?]
-            }
-        };
+    pub fn gen_all_eloq_configs(&self) -> anyhow::Result<Vec<PathBuf>> {
+        let mut path_vec = vec![self.deployment.gen_eloqkv_node_config(None, None)?];
         let tx_host_ports = &self.deployment.tx_service.tx_host_ports;
         let standby_host_ports = &self.deployment.tx_service.standby_host_ports;
         let voter_host_ports = &self.deployment.tx_service.voter_host_ports;
 
-        let all_config_path = match self.product() {
-            Product::EloqSQL => tx_host_ports
-                .iter()
-                .flat_map(|hostports| {
-                    hostports.split(',').map(|hostport| {
-                        // Split `hostport` into host and port using ':'
-                        let parts: Vec<&str> = hostport.split(':').collect();
-
-                        // Ensure that both host and port exist
-                        let host = parts
-                            .first()
-                            .expect("Error: Host part is missing")
-                            .to_string();
-                        let port = parts
-                            .get(1)
-                            .expect("Error: Port part is missing")
-                            .to_string();
-
-                        // Panic with a comment if host or port is empty
-                        if host.is_empty() {
-                            panic!("Error: Host in tx_host_ports cannot be empty");
-                        }
-                        if port.is_empty() {
-                            panic!("Error: Port in tx_host_ports cannot be empty");
-                        }
-
-                        // Generate config using non-empty host and port
-                        self.deployment
-                            .gen_eloqsql_config(Some(host), Some(port))
-                            .unwrap()
-                    })
-                })
-                .collect_vec(),
-
-            Product::EloqKV => tx_host_ports
-                .iter()
-                .flat_map(|hostports| {
-                    hostports.split(',').map(|hostport| {
-                        // Split `hostport` into host and port using ':'
-                        let parts: Vec<&str> = hostport.split(':').collect();
-
-                        // Ensure that both host and port exist
-                        let host = parts
-                            .first()
-                            .expect("Error: Host part is missing")
-                            .to_string();
-                        let port = parts
-                            .get(1)
-                            .expect("Error: Port part is missing")
-                            .to_string();
-
-                        // Panic with a comment if host or port is empty
-                        if host.is_empty() {
-                            panic!("Error: Host in tx_host_ports cannot be empty");
-                        }
-                        if port.is_empty() {
-                            panic!("Error: Port in tx_host_ports cannot be empty");
-                        }
-
-                        // Generate config using non-empty host and port
-                        self.deployment
-                            .gen_eloqkv_node_config(Some(host), Some(port))
-                            .unwrap()
-                    })
-                })
-                .collect(),
-        };
+        let all_config_path = tx_host_ports
+            .iter()
+            .flat_map(|hostports| hostports.split(','))
+            .map(|hostport| {
+                let (host, port) = hostport.split_once(':').ok_or_else(|| {
+                    anyhow::anyhow!("invalid deployment.tx_service.tx_host_ports entry: {hostport}")
+                })?;
+                if host.is_empty() || port.is_empty() {
+                    anyhow::bail!("invalid deployment.tx_service.tx_host_ports entry: {hostport}");
+                }
+                self.deployment
+                    .gen_eloqkv_node_config(Some(host.to_string()), Some(port.to_string()))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         path_vec.extend(all_config_path);
 
         if let Some(standby_host_ports) = &standby_host_ports {
@@ -267,24 +339,24 @@ impl DeployConfig {
                 panic!("standby_host_ports is empty, but it was expected to contain values.");
             }
 
-            let all_standby_config_path = match self.product() {
-                Product::EloqSQL => vec![],
-                Product::EloqKV => standby_host_ports
-                    .iter()
-                    .flat_map(|hosts_str| {
-                        // Split `hosts_str` by '|' or ','
-                        hosts_str.split(['|', ',']).map(|hostport| {
-                            // Split `hostport` into host and port
-                            let parts: Vec<&str> = hostport.split(':').collect();
-                            let host = parts.first().unwrap_or(&"").to_string();
-                            let port = parts.get(1).unwrap_or(&"").to_string();
-                            self.deployment
-                                .gen_eloqkv_node_config(Some(host), Some(port))
-                                .unwrap()
-                        })
-                    })
-                    .collect(),
-            };
+            let all_standby_config_path = standby_host_ports
+                .iter()
+                .flat_map(|hosts_str| hosts_str.split(['|', ',']))
+                .map(|hostport| {
+                    let (host, port) = hostport.split_once(':').ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "invalid deployment.tx_service.standby_host_ports entry: {hostport}"
+                        )
+                    })?;
+                    if host.is_empty() || port.is_empty() {
+                        anyhow::bail!(
+                            "invalid deployment.tx_service.standby_host_ports entry: {hostport}"
+                        );
+                    }
+                    self.deployment
+                        .gen_eloqkv_node_config(Some(host.to_string()), Some(port.to_string()))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             path_vec.extend(all_standby_config_path);
         }
 
@@ -293,62 +365,28 @@ impl DeployConfig {
                 panic!("voter_host_ports is empty, but it was expected to contain values.");
             }
 
-            let all_voter_config_path = match self.product() {
-                Product::EloqSQL => vec![],
-                Product::EloqKV => voter_host_ports
-                    .iter()
-                    .flat_map(|hosts_str| {
-                        // Split `hosts_str` by '|' or ','
-                        hosts_str.split(['|', ',']).map(|hostport| {
-                            // Split `hostport` into host and port
-                            let parts: Vec<&str> = hostport.split(':').collect();
-                            let host = parts.first().unwrap_or(&"").to_string();
-                            let port = parts.get(1).unwrap_or(&"").to_string();
-                            self.deployment
-                                .gen_eloqkv_node_config(Some(host), Some(port))
-                                .unwrap()
-                        })
-                    })
-                    .collect(),
-            };
+            let all_voter_config_path = voter_host_ports
+                .iter()
+                .flat_map(|hosts_str| hosts_str.split(['|', ',']))
+                .map(|hostport| {
+                    let (host, port) = hostport.split_once(':').ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "invalid deployment.tx_service.voter_host_ports entry: {hostport}"
+                        )
+                    })?;
+                    if host.is_empty() || port.is_empty() {
+                        anyhow::bail!(
+                            "invalid deployment.tx_service.voter_host_ports entry: {hostport}"
+                        );
+                    }
+                    self.deployment
+                        .gen_eloqkv_node_config(Some(host.to_string()), Some(port.to_string()))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             path_vec.extend(all_voter_config_path);
         }
 
         Ok(path_vec)
-    }
-
-    pub fn gen_all_mysql_exporter_config(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
-        let deployment_ref = &self.deployment;
-        if let Some(monitor) = deployment_ref.monitor.as_ref() {
-            let mysql_port = deployment_ref.client_port();
-            let tx_host_ports = &deployment_ref.tx_service.tx_host_ports;
-            let config_path = tx_host_ports
-                .iter()
-                .map(|host_port| {
-                    let parts: Vec<&str> = host_port.split(':').collect();
-                    let host = parts[0];
-                    monitor
-                        .gen_mysql_exporter_connect_config(
-                            &self.deployment.cluster_name,
-                            host.to_string(),
-                            mysql_port,
-                        )
-                        .unwrap()
-                })
-                .collect_vec();
-            Ok(Some(config_path))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn gen_bootstrap_db_script(&self) -> anyhow::Result<PathBuf> {
-        gen_db_misc_files!(
-            self,
-            build_install_monograph_script,
-            MONOGRAPH_INSTALL_SCRIPT,
-            self.deployment.cluster_name.clone()
-        )
     }
 
     pub fn gen_log_start_script(&self) -> anyhow::Result<Option<Vec<PathBuf>>> {
@@ -381,60 +419,13 @@ impl DeployConfig {
 
     pub fn client_conn(&self) -> String {
         let bin = self.deployment.client_bin();
-        match self.product() {
-            Product::EloqSQL => format!(
-                "LD_LIBRARY_PATH={}/lib:$LD_LIBRARY_PATH {bin} --user={} -S /tmp/eloqsql{}.sock",
-                self.deployment.tx_srv_home(),
-                self.connection.username,
-                self.deployment.client_port()
-            ),
-            Product::EloqKV => {
-                let (host, port) = if let Some(codis) = &self.deployment.codis {
-                    (codis.proxy.first().unwrap().as_str(), "19000")
-                } else {
-                    let host_port = self.deployment.tx_service.tx_host_ports.first().unwrap();
-                    let parts: Vec<&str> = host_port.split(':').collect();
-                    let host = parts[0];
-                    let port = parts[1];
-                    (host, port)
-                };
-                format!("{bin} -h {} -p {}", host, port)
-            }
-        }
+        let host_port = self.deployment.tx_service.tx_host_ports.first().unwrap();
+        let parts: Vec<&str> = host_port.split(':').collect();
+        format!("{bin} -h {} -p {}", parts[0], parts[1])
     }
 
     pub fn product(&self) -> Product {
         self.deployment.product()
-    }
-
-    pub fn build_install_monograph_script(&self) -> anyhow::Result<String> {
-        let install_db_template = config_template(MONOGRAPH_INSTALL_SCRIPT)?;
-        let install_dir = self.install_dir();
-        let tx_home = self.deployment.tx_srv_home();
-        let fast_unwind_on_malloc = self.deployment.uses_eloqstore_storage();
-        let detect_stack_use_after_return = !self.deployment.uses_eloqstore_storage();
-        let malloc = if let Some(Version::Debug) = self.deployment.version() {
-            export_asan(
-                &self.deployment.asan_logs(),
-                fast_unwind_on_malloc,
-                detect_stack_use_after_return,
-            )
-        } else {
-            format!("export LD_PRELOAD={tx_home}/lib/libmimalloc.so.2")
-        };
-        let rs = fs::read_to_string(install_db_template.as_path())?;
-        let final_script = rs
-            .replace("${INSTALL_DIR}", &tx_home)
-            .replace("${MALLOC}", &malloc)
-            .replace(
-                "${BS_INI}",
-                &format!(
-                    "{install_dir}/{}/my_local.cnf",
-                    self.deployment.cluster_name
-                ),
-            )
-            .replace("${DATA_DIR}", &format!("{tx_home}/datafarm"));
-        Ok(final_script)
     }
 
     pub fn build_log_start_script(&self) -> anyhow::Result<Option<HashMap<LogProcessKey, String>>> {
@@ -502,20 +493,20 @@ impl DeployConfig {
     pub fn get_host_as_map(&self) -> HashMap<DeploymentPackage, Vec<String>> {
         HashMap::from([
             (
-                DeploymentPackage::MonographTx,
-                self.get_host_list(DeploymentPackage::MonographTx),
+                DeploymentPackage::EloqTx,
+                self.get_host_list(DeploymentPackage::EloqTx),
             ),
             (
-                DeploymentPackage::MonographStandby,
-                self.get_host_list(DeploymentPackage::MonographStandby),
+                DeploymentPackage::EloqStandby,
+                self.get_host_list(DeploymentPackage::EloqStandby),
             ),
             (
-                DeploymentPackage::MonographVoter,
-                self.get_host_list(DeploymentPackage::MonographVoter),
+                DeploymentPackage::EloqVoter,
+                self.get_host_list(DeploymentPackage::EloqVoter),
             ),
             (
-                DeploymentPackage::MonographLog,
-                self.get_host_list(DeploymentPackage::MonographLog),
+                DeploymentPackage::EloqLog,
+                self.get_host_list(DeploymentPackage::EloqLog),
             ),
             (
                 DeploymentPackage::Storage,
@@ -529,24 +520,19 @@ impl DeployConfig {
                 DeploymentPackage::Grafana,
                 self.get_host_list(DeploymentPackage::Grafana),
             ),
-            (
-                DeploymentPackage::Codis,
-                self.get_host_list(DeploymentPackage::Codis),
-            ),
         ])
     }
 
     pub fn get_unique_host_list(&self) -> Vec<String> {
         let all_hosts = all_hosts_merge!(
             self,
-            MonographTx,
-            MonographStandby,
-            MonographVoter,
-            MonographLog,
+            EloqTx,
+            EloqStandby,
+            EloqVoter,
+            EloqLog,
             Storage,
             Grafana,
-            Prometheus,
-            Codis
+            Prometheus
         );
         all_hosts.iter().unique().cloned().collect_vec()
     }
@@ -577,13 +563,14 @@ impl DeployConfig {
     pub fn load_from_string(config_content: String) -> anyhow::Result<Self> {
         let deployment_config_rs = serde_yaml::from_str::<DeployConfig>(config_content.as_str());
         if let Ok(deployment_config) = deployment_config_rs {
+            deployment_config.validate_topology()?;
             Ok(deployment_config)
         } else {
             Err(anyhow!(deployment_config_rs.err().unwrap().to_string()))
         }
     }
 
-    pub fn get_monograph_storage(&self) -> anyhow::Result<StorageProvider> {
+    pub fn get_eloq_storage(&self) -> anyhow::Result<StorageProvider> {
         if let Some(storage) = &self.deployment.storage_service {
             if let Some(sp) = storage.provider() {
                 Ok(sp)
@@ -603,15 +590,7 @@ impl DeployConfig {
         serde_yaml::to_string(self).unwrap()
     }
 
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap()
-    }
-
-    pub fn to_flat_json(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-
-    /// Returns the runtime dependencies of MonographDB, with different return values depending on the installation platform.
+    /// Returns the runtime dependencies of EloqDB, with different return values depending on the installation platform.
     /// for example: ubuntu_runtime_deps, centos_runtime_deps
     pub fn load_runtime_deps_by_os(os: &str) -> Result<Vec<String>> {
         let deps_path = config_template(&format!("runtime_deps_{os}"))?;
@@ -634,6 +613,7 @@ impl DeployConfig {
         info!("DeploymentConfig load file from {}", path_string);
         let config = DeployConfig::read_config_from_file(path_string.clone())
             .map_err(|err| anyhow!("{path_string}: {err}"))?;
+        config.validate_topology()?;
         config.connection.auth.check_keypair()?;
         Ok(config)
     }
@@ -644,16 +624,7 @@ impl DeployConfig {
     pub fn load_monitor_dashboard(&self) -> Vec<String> {
         let base = config_template("dashboard").expect("dashbord config not found");
         info!("dashboard_path {base:?}");
-        let mut paths = vec![base.join("node")];
-        match self.deployment.product {
-            Product::EloqSQL => {
-                paths.push(base.join("eloqsql"));
-                paths.push(base.join("mysql"));
-            }
-            Product::EloqKV => {
-                paths.push(base.join("eloqkv"));
-            }
-        }
+        let paths = vec![base.join("node"), base.join("eloqkv")];
         paths
             .into_iter()
             .flat_map(|p| {
@@ -726,6 +697,82 @@ mod tests {
         serde_yaml::from_str::<DeployConfig>(&content).unwrap()
     }
 
+    fn load_yaml(yaml: &str) -> anyhow::Result<DeployConfig> {
+        DeployConfig::load_from_string(yaml.to_string())
+    }
+
+    fn base_yaml(tx_service: &str, extra: &str) -> String {
+        format!(
+            r#"
+connection:
+  username: test
+  auth_type: keypair
+  auth:
+    keypair: /tmp/nonexistent-test-key
+deployment:
+  cluster_name: test-cluster
+  product: EloqKV
+  version: latest
+  install_dir: /tmp
+{tx_service}
+{extra}
+"#
+        )
+    }
+
+    fn default_tx_service() -> &'static str {
+        "  tx_service:\n    tx_host_ports: [127.0.0.1:6379]"
+    }
+
+    #[test]
+    fn validate_rejects_invalid_tx_host_port() {
+        let yaml = base_yaml(
+            r#"  tx_service:
+    tx_host_ports: [127.0.0.1]
+"#,
+            "",
+        );
+        let err = load_yaml(&yaml).unwrap_err().to_string();
+        assert!(err.contains("host:port"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_enable_wal_without_log_service() {
+        let yaml = base_yaml(default_tx_service(), "  enable_wal: true\n");
+        let err = load_yaml(&yaml).unwrap_err().to_string();
+        assert!(err.contains("enable_wal=true"));
+    }
+
+    #[test]
+    fn validate_rejects_multiple_storage_providers() {
+        let yaml = base_yaml(
+            default_tx_service(),
+            r#"  storage_service:
+    dynamodb:
+      access_key_id: id
+      secret_key: secret
+      region: us-east-1
+      endpoint: http://localhost:8000
+    rocksdb: !LOCAL {}
+"#,
+        );
+        let err = load_yaml(&yaml).unwrap_err().to_string();
+        assert!(err.contains("only one provider"));
+    }
+
+    #[test]
+    fn validate_accepts_grouped_standby_and_voter_ports() {
+        let yaml = base_yaml(
+            r#"  tx_service:
+    tx_host_ports: [127.0.0.1:6379]
+    standby_host_ports: [127.0.0.2:6379|127.0.0.3:6379]
+    voter_host_ports: [127.0.0.4:6379,127.0.0.5:6379]
+"#,
+            "",
+        );
+        load_yaml(&yaml).unwrap();
+    }
+
     #[test]
     pub fn test_prometheus_config_gen() {
         let config = load_test_config("eloqkv_rocks_s3.yaml");
@@ -733,7 +780,7 @@ mod tests {
         let monitor = monitor_opt.as_ref();
         assert!(monitor.is_some());
 
-        let mono_host_list = config.get_host_list(DeploymentPackage::MonographTx);
+        let mono_host_list = config.get_host_list(DeploymentPackage::EloqTx);
         let monitor = monitor.unwrap();
         let pro_rs = monitor.gen_prometheus_config(
             &config.deployment.cluster_name,

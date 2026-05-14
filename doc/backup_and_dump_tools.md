@@ -21,8 +21,8 @@ The full path to where the backup is stored. **Required for local storage, optio
 * **\--dest-user**:  
 User of the destination node where the backup is stored. _(default: current user)_  
 **Note**: Not used for cloud storage.
-* **\--dest-node**:  
-Node address where the backup is stored. If you want to convert backups to AOF or RDB later, this node must be on of the tx server nodes. _(default: current node)_  
+* **\--dest-host**:  
+Host address where the backup is stored. If you want to convert backups to AOF or RDB later, this host must be one of the tx server nodes. _(default: current host)_  
 **Note**: Not used for cloud storage.
 * **\--password**:  
 Cluster password if set _(default: "")_

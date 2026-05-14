@@ -1,6 +1,14 @@
 -- deployment database schema
 -- Migration: drop legacy t_scale_tx_nodes (scale state tracking removed)
 drop table if exists t_scale_tx_nodes;
+create table if not exists t_cluster_index
+(
+    cluster_name      varchar(200) not null primary key,
+    topology_path     text         not null,
+    host_list         text         not null,
+    create_timestamp  timestamp    not null DEFAULT CURRENT_TIMESTAMP,
+    update_timestamp  timestamp    not null DEFAULT CURRENT_TIMESTAMP
+);
 create table if not exists t_deployment
 (
     cluster_name      varchar(200) not null primary key,
@@ -19,26 +27,8 @@ create table if not exists t_task_status (
     update_timestamp timestamp   not null DEFAULT CURRENT_TIMESTAMP,
     primary key (cluster_name, task, command, task_host)
 );
-create table if not exists t_service_instance
-(
-    cluster_name        varchar(200) not null,
-    service_name        varchar(60)  not null,
-    service_status      integer      not null, -- 0:available,1:unavailable,2:not exists,
-    current_config      integer,
-    host                varchar(100) not null,
-    create_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
-    update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
-    primary key (cluster_name, service_name)
-);
-create table if not exists t_service_config
-(
-    config_id        integer     not null primary key AUTOINCREMENT,
-    service_name     varchar(60) not null,
-    config           text,
-    is_enable        integer     not null, -- 0:enable 1:disable
-    create_timestamp timestamp   not null DEFAULT CURRENT_TIMESTAMP,
-    update_timestamp timestamp   not null DEFAULT CURRENT_TIMESTAMP
-);
+drop table if exists t_service_instance;
+drop table if exists t_service_config;
 create table if not exists t_snapshot_info
 (
     cluster_name        varchar(200) not null,
@@ -84,4 +74,3 @@ create table if not exists t_topology_log
     update_timestamp    timestamp    not null DEFAULT CURRENT_TIMESTAMP,
     primary key (cluster_name, host, port)
 );
-

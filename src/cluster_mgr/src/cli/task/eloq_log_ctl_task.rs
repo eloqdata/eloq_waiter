@@ -1,0 +1,529 @@
+use crate::cli::ssh::SSHCommandOption::CollectOutput;
+use crate::cli::ssh::SSHSession;
+use crate::cli::task::task_base::CmdErr;
+use crate::cli::task::task_base::{
+    ExecutionValue, TaskArgValue, TaskExecutor, TaskHost, TaskId, TaskInstance,
+};
+use crate::cli::task::task_utils::{check_pid, parse_process_pid, PID_NOT_FOUND, PROCESS_PID};
+use crate::cli::CMD_STATUS;
+use crate::cli::{SubCommand, CMD_OUTPUT};
+use crate::config::config_base::DeployConfig;
+use crate::config::log_service::LogProcessKey;
+use crate::{get_ctl_cmd_string, task_return_value};
+use futures::future;
+use indexmap::IndexMap;
+use itertools::Itertools;
+use std::collections::HashMap;
+use std::future::Future;
+use tracing::{debug, info, warn};
+
+const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
+const FIND_LOG_PROCESS_CMD: &str = r"ps uxwe -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' | grep -v grep | awk '{print _COLUMN}'";
+
+// const AWK_PRINT_PID: &str =
+//     r#"awk '{printf "%s", sep $0; sep = "_SEP"}; END {if (NR) print ""}'"#;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum LogCtlCmd {
+    Start(String),
+    Stop(String),
+    Status(String),
+}
+
+get_ctl_cmd_string!(LogCtlCmd, Start, Stop, Status);
+
+impl LogCtlCmd {
+    pub fn build_cmd(
+        config: &DeployConfig,
+        cmd_arg: SubCommand,
+    ) -> HashMap<LogProcessKey, LogCtlCmd> {
+        LogCtlCmd::build_cmd_with_predicate(
+            config,
+            cmd_arg,
+            None::<Box<dyn Fn(String, u16) -> bool>>,
+        )
+    }
+
+    fn build_cmd_with_predicate<F>(
+        config: &DeployConfig,
+        cmd_arg: SubCommand,
+        test: Option<Box<F>>,
+    ) -> HashMap<LogProcessKey, LogCtlCmd>
+    where
+        F: Fn(String, u16) -> bool + ?Sized,
+    {
+        let log_home_dir_binding = config.deployment.log_srv_home();
+        let log_home = log_home_dir_binding.as_str();
+
+        let home_dir = config.install_dir();
+        let user = &config.connection.username;
+        let log_srv = config.deployment.log_service.as_ref().unwrap();
+        let log_cmd_binding = log_srv.log_start_cmd();
+        let log_cmds = log_cmd_binding.values().flatten().collect_vec();
+
+        log_cmds
+            .iter()
+            .filter(|log_item| {
+                let log_port = log_item.log_member.port;
+                let host = &log_item.log_member.member_host;
+                if let Some(predicate) = &test {
+                    predicate(host.clone(), log_port)
+                } else {
+                    true
+                }
+            })
+            .map(|cmd_items| {
+                let log_port = cmd_items.log_member.port;
+                let host = &cmd_items.log_member.member_host;
+
+                let ps_cmd_part = FIND_LOG_PROCESS_CMD
+                    .replace("_USER", user)
+                    .replace("_LOG_BIN_CMD", format!("{log_home}/bin/launch_sv").as_str())
+                    .replace("_STORAGE_PATH", cmd_items.log_member.storage_path.as_str())
+                    .replace("_COLUMN", "$2");
+                let log_start_cmd = format!("/bin/bash {home_dir}/start_tx_log_{log_port}.bash");
+                let log_cmd = match &cmd_arg {
+                    SubCommand::Start {
+                        cluster: _,
+                        nodes: _,
+                    }
+                    | SubCommand::Launch {
+                        topology_file: _,
+                        skip_deps: _,
+                    } => LogCtlCmd::Start(log_start_cmd),
+                    SubCommand::Status {
+                        cluster: _,
+                        user: _,
+                        password: _,
+                        wait: _,
+                        detail: _,
+                    } => LogCtlCmd::Status(ps_cmd_part),
+                    SubCommand::Stop { force, .. } => {
+                        let ps_log_info = ps_cmd_part;
+                        let stop_cmd_string = if *force {
+                            format!("{ps_log_info} | xargs kill -9")
+                        } else {
+                            format!("{ps_log_info} | xargs kill")
+                        };
+                        LogCtlCmd::Stop(stop_cmd_string)
+                    }
+                    SubCommand::Remove {
+                        cluster: _,
+                        force: _,
+                    } => {
+                        let ps_log_info = ps_cmd_part;
+                        let stop_cmd_string = format!("{ps_log_info} | xargs kill -9");
+                        LogCtlCmd::Stop(stop_cmd_string)
+                    }
+                    SubCommand::LogService {
+                        cluster: _,
+                        command: log_cmd,
+                    } => {
+                        let log_cmd_str = log_cmd.as_str();
+                        if log_cmd_str.is_empty() {
+                            panic!("LogService command only support start | stop");
+                        }
+                        match log_cmd_str.to_lowercase().as_str() {
+                            "start" => LogCtlCmd::Start(log_start_cmd),
+                            "stop" => LogCtlCmd::Stop(format!("{ps_cmd_part} | xargs kill")),
+                            "status" => LogCtlCmd::Status(ps_cmd_part),
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                let process_key = LogProcessKey {
+                    host: host.clone(),
+                    port: log_port,
+                };
+                (process_key, log_cmd)
+            })
+            .collect::<HashMap<LogProcessKey, LogCtlCmd>>()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EloqLogCtlTask {
+    config: DeployConfig,
+    task_id: TaskId,
+    log_cmd: HashMap<LogProcessKey, LogCtlCmd>,
+}
+
+impl EloqLogCtlTask {
+    pub fn new(
+        config: DeployConfig,
+        task_id: TaskId,
+        log_cmd: HashMap<LogProcessKey, LogCtlCmd>,
+    ) -> Self {
+        Self {
+            config,
+            task_id,
+            log_cmd,
+        }
+    }
+
+    fn cluster_cmd_string(cmd_arg: SubCommand) -> String {
+        let cmd_ref = cmd_arg.as_ref();
+        match cmd_ref {
+            "start" | "stop" | "status" | "remove" => cmd_ref.to_string(),
+            "log-srv" => match cmd_arg {
+                SubCommand::LogService {
+                    cluster: _,
+                    command: log_cmd,
+                } => log_cmd,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn from_config(
+        cmd_arg: SubCommand,
+        config: &DeployConfig,
+    ) -> IndexMap<TaskId, TaskInstance> {
+        let deployment_ref = &config.deployment;
+        let has_log_srv = deployment_ref.log_service.is_some();
+        if !has_log_srv {
+            return IndexMap::new();
+        }
+        let log_cmd_by_key = LogCtlCmd::build_cmd(config, cmd_arg.clone());
+
+        let cluster_arg_ref = EloqLogCtlTask::cluster_cmd_string(cmd_arg.clone());
+        log_cmd_by_key
+            .iter()
+            .into_group_map_by(|(process_key, _cmd)| process_key.host.clone())
+            .into_iter()
+            .map(|(host, key_cmd_pair)| {
+                let task_host = TaskHost::remote(&config.connection, &host);
+                let task_id = TaskId {
+                    cmd: format!("eloq_log_{cluster_arg_ref}"),
+                    task: cmd_arg.as_ref().to_string(),
+                    host,
+                };
+
+                let log_cmd = key_cmd_pair
+                    .iter()
+                    .map(|pair| (pair.0.clone(), pair.1.clone()))
+                    .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
+
+                (
+                    task_id.clone(),
+                    TaskInstance {
+                        task_input: HashMap::from([(
+                            CLUSTER_COMMAND_STR.to_string(),
+                            TaskArgValue::Str(cluster_arg_ref.to_string()),
+                        )]),
+                        task: Box::new(EloqLogCtlTask::new(config.clone(), task_id, log_cmd)),
+                        task_host,
+                    },
+                )
+            })
+            .collect::<IndexMap<TaskId, TaskInstance>>()
+    }
+
+    // If there are multiple processes on a node, the execution results of these processes are merged.
+    // 1. cmd/cmd_output value1; value2
+    // 2. cmd_status v1+v2
+    // Note: that the merged return code does not change the original semantics.
+    fn merge_execution_value(
+        &self,
+        input_execution_value: HashMap<LogProcessKey, ExecutionValue>,
+    ) -> ExecutionValue {
+        let result = input_execution_value
+            .values()
+            .flat_map(|cmd_result| {
+                cmd_result
+                    .iter()
+                    .map(|(cmd_key, cmd_rs)| (cmd_key.clone(), cmd_rs.clone()))
+                    .collect_vec()
+            })
+            .into_group_map_by(|pair| pair.0.clone())
+            .into_iter()
+            .map(|(key, record)| {
+                let key_str = key.as_str();
+                let merged_task_value = match key_str {
+                    CMD_STATUS => {
+                        let status_acc = record
+                            .into_iter()
+                            .map(|(_key, task_val)| task_val.into_inner_value::<i32>())
+                            .sum::<i32>();
+                        //.fold(0_usize, |acc, x| acc + x);
+                        TaskArgValue::Number(status_acc)
+                    }
+                    _ => TaskArgValue::Str(
+                        record
+                            .into_iter()
+                            .map(|(_key, cmd_rtn_value)| cmd_rtn_value.to_string())
+                            .join(";"),
+                    ),
+                };
+                (key.to_string(), merged_task_value)
+            })
+            .collect::<ExecutionValue>();
+
+        // Log debug information if CMD_STATUS is missing
+        if !result.contains_key(CMD_STATUS) {
+            warn!(
+                "merge_execution_value: CMD_STATUS missing from result. \
+                input_execution_value_keys={:?}, result_keys={:?}, input_execution_value={:?}",
+                input_execution_value.keys().collect::<Vec<_>>(),
+                result.keys().collect::<Vec<_>>(),
+                input_execution_value
+            );
+        }
+
+        result
+    }
+
+    async fn join_all_command_result<Fut>(
+        cmd_result: Vec<Fut>,
+    ) -> HashMap<LogProcessKey, ExecutionValue>
+    where
+        Fut: Future<Output = (LogProcessKey, anyhow::Result<ExecutionValue>)> + Sized,
+    {
+        let join_result = future::join_all(cmd_result).await;
+        let mut successful_results = HashMap::new();
+        let mut failed_results = Vec::new();
+
+        for (key, result) in join_result.iter() {
+            match result {
+                Ok(value) => {
+                    successful_results.insert(key.clone(), value.clone());
+                }
+                Err(err) => {
+                    failed_results.push((key.clone(), err));
+                    warn!(
+                        "join_all_command_result: Task failed for key={:?}, error={:?}",
+                        key, err
+                    );
+                }
+            }
+        }
+
+        if !failed_results.is_empty() {
+            warn!(
+                "join_all_command_result: {} tasks failed, {} tasks succeeded. Failed tasks: {:?}",
+                failed_results.len(),
+                successful_results.len(),
+                failed_results
+            );
+        }
+
+        successful_results
+    }
+
+    async fn log_service_pid(
+        &self,
+        ssh_session: &SSHSession,
+    ) -> anyhow::Result<HashMap<LogProcessKey, ExecutionValue>> {
+        let cluster_status_cmd = SubCommand::Status {
+            cluster: self.config.deployment.cluster_name.to_string(),
+            user: None,
+            password: None,
+            wait: None,
+            detail: false,
+        };
+        // key is host:port,value is ps log command.
+        let check_status_cmd_by_key = self
+            .log_cmd
+            .keys()
+            .flat_map(|process_key| {
+                LogCtlCmd::build_cmd_with_predicate(
+                    &self.config,
+                    cluster_status_cmd.clone(),
+                    Some(Box::new(|host: String, port| -> bool {
+                        process_key.host.eq(host.as_str()) && port == process_key.port
+                    })),
+                )
+            })
+            .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
+
+        debug!(
+            "log_service_pid: check_status_cmd_by_key keys={:?}, log_cmd keys={:?}",
+            check_status_cmd_by_key.keys().collect::<Vec<_>>(),
+            self.log_cmd.keys().collect::<Vec<_>>()
+        );
+
+        let cmd_result = check_status_cmd_by_key
+            .iter()
+            .map(|(key, status_cmd)| async {
+                let cmd_as_string = status_cmd.cmd_value();
+                let status_rs =
+                    check_pid(cmd_as_string, ssh_session.clone(), parse_process_pid).await;
+                (key.clone(), status_rs)
+            })
+            .collect_vec();
+
+        Ok(EloqLogCtlTask::join_all_command_result(cmd_result).await)
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskExecutor for EloqLogCtlTask {
+    fn identifier(&self) -> TaskId {
+        self.task_id.clone()
+    }
+
+    async fn execute(
+        &self,
+        task_host: TaskHost,
+        task_arg: HashMap<String, TaskArgValue>,
+    ) -> anyhow::Result<Option<ExecutionValue>> {
+        let cluster_mgr_cmd = task_arg.get(CLUSTER_COMMAND_STR).unwrap();
+        let cmd_string = cluster_mgr_cmd.clone().into_inner_value::<String>();
+        info!("execute {}", self.task_id.format_string());
+        let ssh_session =
+            SSHSession::from_task_host(task_host, self.config.connection.ssh_auth_key().unwrap())
+                .await?;
+        let mut pid_cmd_value = self.log_service_pid(&ssh_session).await?;
+        debug!(
+            "EloqLogCtlTask: pid_cmd_value keys={:?}, log_cmd keys={:?}",
+            pid_cmd_value.keys().collect::<Vec<_>>(),
+            self.log_cmd.keys().collect::<Vec<_>>()
+        );
+        let cmd_execution_result = if cmd_string.eq("status") {
+            self.log_cmd.iter().for_each(|(key, _ctrl_cmd)| {
+                // Handle case where key might not exist in pid_cmd_value due to SSH failures
+                if let Some(execution_value) = pid_cmd_value.get_mut(key) {
+                    if let Some(pid_value) = execution_value.get(PROCESS_PID) {
+                        let pid = TaskArgValue::into_inner_value::<String>(pid_value.clone());
+                        if pid == PID_NOT_FOUND {
+                            let output = "\nlog service is down.".to_string();
+                            execution_value
+                                .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                        } else {
+                            let output = format!("\nlog service is running, pid: {}.", pid);
+                            execution_value
+                                .insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                        };
+                    } else {
+                        // If PROCESS_PID is missing, assume service is down
+                        let output = "\nlog service status unknown (missing PID).".to_string();
+                        execution_value.insert(CMD_OUTPUT.to_string(), TaskArgValue::Str(output));
+                    }
+                } else {
+                    // If key is missing from pid_cmd_value, create a default entry
+                    let mut default_value = HashMap::new();
+                    default_value.insert(
+                        PROCESS_PID.to_string(),
+                        TaskArgValue::Str(PID_NOT_FOUND.to_string()),
+                    );
+                    default_value.insert(
+                        CMD_OUTPUT.to_string(),
+                        TaskArgValue::Str(
+                            "\nlog service status unknown (SSH failure).".to_string(),
+                        ),
+                    );
+                    pid_cmd_value.insert(key.clone(), default_value);
+                }
+            });
+
+            self.merge_execution_value(pid_cmd_value)
+        } else {
+            let execution_cmd_vec = self
+                .log_cmd
+                .keys()
+                .filter_map(|key| {
+                    // Handle case where key might not exist in pid_cmd_value due to SSH failures
+                    if let Some(execution_value) = pid_cmd_value.get(key) {
+                        if let Some(pid_value) = execution_value.get(PROCESS_PID) {
+                            let pid = TaskArgValue::into_inner_value::<String>(pid_value.clone());
+                            debug!("EloqLogCtlTask found pid={pid}, command={cmd_string} {key:#?}");
+                            let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove")
+                            {
+                                //stop and There are still log process alive
+                                !pid.eq(PID_NOT_FOUND)
+                            } else if cmd_string.eq("start") {
+                                //start and There are still unstarted log processes
+                                pid.eq(PID_NOT_FOUND)
+                            } else {
+                                unreachable!()
+                            };
+                            if should_execute {
+                                self.log_cmd
+                                    .get(key)
+                                    .map(|ctl_cmd| (key.clone(), ctl_cmd.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            // If PROCESS_PID is missing, assume service is down for stop/remove, up for start
+                            let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove")
+                            {
+                                false // Assume no process to stop
+                            } else if cmd_string.eq("start") {
+                                true // Assume process needs to be started
+                            } else {
+                                unreachable!()
+                            };
+                            if should_execute {
+                                self.log_cmd
+                                    .get(key)
+                                    .map(|ctl_cmd| (key.clone(), ctl_cmd.clone()))
+                            } else {
+                                None
+                            }
+                        }
+                    } else {
+                        // If key is missing from pid_cmd_value, assume service is down for stop/remove, up for start
+                        let should_execute = if cmd_string.eq("stop") || cmd_string.eq("remove") {
+                            false // Assume no process to stop
+                        } else if cmd_string.eq("start") {
+                            true // Assume process needs to be started
+                        } else {
+                            unreachable!()
+                        };
+                        if should_execute {
+                            self.log_cmd
+                                .get(key)
+                                .map(|ctl_cmd| (key.clone(), ctl_cmd.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                })
+                .collect::<HashMap<LogProcessKey, LogCtlCmd>>();
+
+            if execution_cmd_vec.is_empty() {
+                // If no commands to execute, create a default result with CMD_STATUS
+                let mut default_result = self.merge_execution_value(pid_cmd_value);
+                if !default_result.contains_key(CMD_STATUS) {
+                    default_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
+                    default_result.insert(
+                        CMD_OUTPUT.to_string(),
+                        TaskArgValue::Str("No processes to execute".to_string()),
+                    );
+                }
+                default_result
+            } else {
+                let cmd_result = execution_cmd_vec
+                    .iter()
+                    .map(|(key, ctl_cmd)| async {
+                        let cmd_value_string = ctl_cmd.cmd_value();
+                        debug!("EloqLogCtlTask send command={cmd_value_string}");
+                        let cmd_result = ssh_session
+                            .command(cmd_value_string.as_str(), CollectOutput)
+                            .await;
+
+                        (key.clone(), cmd_result)
+                    })
+                    .collect_vec();
+                let all_cmd_result = EloqLogCtlTask::join_all_command_result(cmd_result).await;
+                let mut merged_result = self.merge_execution_value(all_cmd_result);
+                // Ensure CMD_STATUS is always present
+                if !merged_result.contains_key(CMD_STATUS) {
+                    merged_result.insert(CMD_STATUS.to_string(), TaskArgValue::Number(0));
+                }
+                merged_result
+            }
+        };
+        ssh_session.close().await?;
+        task_return_value!(
+            cmd_execution_result,
+            |status_code: i32| -> CmdErr {
+                CmdErr::ExecUserCmdErr(cmd_string.clone(), status_code.to_string())
+            },
+            "EloqLogCtlTask"
+        )
+    }
+}

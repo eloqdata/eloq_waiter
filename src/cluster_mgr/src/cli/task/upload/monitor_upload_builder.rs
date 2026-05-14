@@ -7,7 +7,7 @@ use crate::cli::upload_dir;
 use crate::config::config_base::{DeployConfig, UploadFile};
 use crate::config::monitor::{
     Monitor, GRAFANA_CONFIG_DIR, GRAFANA_DASHBOARD_CONFIG_DIR, GRAFANA_DATASOURCE_CONFIG_DIR,
-    MONITOR_JOB_NAME, MYSQL_EXPORTER_JOB_NAME, NODE_EXPORTER_JOB_NAME, PROMETHEUS_CONFIG_DIR,
+    MONITOR_JOB_NAME, NODE_EXPORTER_JOB_NAME, PROMETHEUS_CONFIG_DIR,
 };
 use crate::config::{config_template, DeploymentPackage, ALERT_RULES_TEMPLATE, MONITOR_DIR};
 use indexmap::IndexMap;
@@ -82,42 +82,19 @@ impl MonitorInfraConfUploadBuilder {
         let mut upload_files = Vec::new();
         let all_host = config.get_host_as_map();
         let install_dir = config.install_dir();
-        let monograph_tx_hosts = all_host
-            .get(&DeploymentPackage::MonographTx)
-            .unwrap()
-            .clone();
-        let monograph_standby_hosts = all_host
-            .get(&DeploymentPackage::MonographStandby)
+        let eloq_tx_hosts = all_host.get(&DeploymentPackage::EloqTx).unwrap().clone();
+        let eloq_standby_hosts = all_host
+            .get(&DeploymentPackage::EloqStandby)
             .unwrap()
             .clone();
 
         let merged_tx_standby_hosts =
-            config.merge_and_deduplicate(monograph_tx_hosts, monograph_standby_hosts);
-
-        // Generate the create_user_script with cluster_name
-        let create_user_script = monitor
-            .gen_monitor_user_sql_file(&config.deployment.cluster_name)
-            .unwrap();
-
-        // Prepare upload files for the create_user_script
-        let upload_create_user_files = merged_tx_standby_hosts
-            .iter()
-            .map(|host| UploadFile {
-                source: MonitorInfraConfUploadBuilder::path_string(create_user_script.clone()),
-                dest: install_dir.clone(),
-                extension: "sql".to_string(),
-                host: host.to_string(),
-                copy_dir: false,
-            })
-            .collect_vec();
-
-        // Add the create_user_script files to the upload list
-        upload_files.extend(upload_create_user_files);
+            config.merge_and_deduplicate(eloq_tx_hosts, eloq_standby_hosts);
 
         // Handle Prometheus configuration separately
         if monitor.prometheus.is_some() {
-            let log_hosts = all_host.get(&DeploymentPackage::MonographLog).unwrap();
-            let mut jobs = HashMap::from([
+            let log_hosts = all_host.get(&DeploymentPackage::EloqLog).unwrap();
+            let jobs = HashMap::from([
                 (
                     MONITOR_JOB_NAME.to_string(),
                     merged_tx_standby_hosts.clone(),
@@ -127,13 +104,6 @@ impl MonitorInfraConfUploadBuilder {
                     [&merged_tx_standby_hosts[..], &log_hosts.clone()[..]].concat(),
                 ),
             ]);
-
-            if monitor.mysql_exporter.is_some() {
-                jobs.insert(
-                    MYSQL_EXPORTER_JOB_NAME.to_owned(),
-                    merged_tx_standby_hosts.clone(),
-                );
-            }
 
             let prometheus_conf = monitor
                 .gen_prometheus_config(&config.deployment.cluster_name, jobs)

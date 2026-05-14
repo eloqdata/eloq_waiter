@@ -1,6 +1,6 @@
 use crate::cli::task::exec_custom_cmd::ExecCustomCommand;
 use crate::cli::task::group::{Config, CustomCmdTaskGroup, TaskGroup};
-use crate::cli::task::task_base::TaskExecutionContext;
+use crate::cli::task::task_base::{is_verbose_task_output, TaskExecutionContext};
 use crate::cli::SubCommand;
 
 #[async_trait::async_trait]
@@ -29,7 +29,9 @@ impl TaskGroup for CustomCmdTaskGroup {
                 unreachable!()
             }
         };
-        println!("user_command: {user_command}");
+        if is_verbose_task_output() {
+            println!("user_command: {user_command}");
+        }
         let exec_cmd_task_execution =
             ExecCustomCommand::from_config(&cmd_arg, "exec", user_command, config);
 

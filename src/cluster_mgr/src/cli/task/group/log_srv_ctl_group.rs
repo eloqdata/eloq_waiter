@@ -1,6 +1,6 @@
+use crate::cli::task::eloq_log_ctl_task::EloqLogCtlTask;
+use crate::cli::task::eloq_log_probe_task::EloqLogProbeTask;
 use crate::cli::task::group::{Config, LogServiceCtlTaskGroup, TaskGroup};
-use crate::cli::task::monograph_log_ctl_task::MonographLogCtlTask;
-use crate::cli::task::monograph_log_probe_task::MonographLogProbeTask;
 use crate::cli::task::task_base::TaskExecutionContext;
 use crate::cli::SubCommand;
 use indexmap::IndexMap;
@@ -32,10 +32,10 @@ impl TaskGroup for LogServiceCtlTaskGroup {
             || log_ctl_cmd_name.to_lowercase().eq("status");
         let mut log_ctl_executable = IndexMap::new();
         let mut barrier = vec![];
-        log_ctl_executable.extend(MonographLogCtlTask::from_config(cmd_arg, cluster_config));
+        log_ctl_executable.extend(EloqLogCtlTask::from_config(cmd_arg, cluster_config));
         barrier.push(log_ctl_executable.len());
         if is_start_cmd {
-            let probe_task = MonographLogProbeTask::from_config(cluster_config);
+            let probe_task = EloqLogProbeTask::from_config(cluster_config);
             barrier.push(probe_task.len());
             log_ctl_executable.extend(probe_task);
         }

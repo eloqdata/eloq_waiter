@@ -1,10 +1,11 @@
+use crate::cli::reconcile::{
+    ObservedCluster, ObservedServiceStatus, ReconcileAction, ReconcilePlan,
+};
 use crate::cli::task::backup_utils::split_manifests;
 use crate::cli::task::group::Config;
-use crate::cli::task::task_base::{
-    set_verbose_task_output, TaskArgValue, TaskMgr, TaskResultEnum, TaskResultPair,
-};
+use crate::cli::task::task_base::{set_verbose_task_output, TaskMgr, TaskResultPair};
 use crate::cli::util::{cpu_arch, file_pg_bar, os_id, os_major_version};
-use crate::cli::{upload_dir, SubCommand, CMD_OUTPUT, CMD_STATUS, HOME_DIR};
+use crate::cli::{upload_dir, SubCommand, HOME_DIR};
 use crate::cli::{BackupCommand, ProxyCommand};
 use crate::config::config_base::{DeployConfig, VersionRow};
 use crate::config::deployment::{Deployment, Product};
@@ -12,13 +13,10 @@ use crate::config::proxy_config_base::ProxyConfig;
 use crate::config::storage_service_config::{
     DataStoreServiceBackend, DataStoreServiceMode, RocksDB, RocksLocal, StorageService,
 };
-use crate::config::{
-    DeploymentPackage, StorageProvider, TopoFormat, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR,
-};
-use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
+use crate::config::{DeploymentPackage, StorageProvider, CDN, CONFIG_PATH_DIR, UPLOAD_PATH_DIR};
 use crate::state::proxy_operation::{ProxyEntity, ProxyOperation};
 use crate::state::state_base::{QueryCondition, StateOperation};
-use crate::state::state_mgr::{StateMgr, DEPLOYMENT_STATE, PROXY_STATE, STATE_MGR};
+use crate::state::state_mgr::{StateMgr, PROXY_STATE, STATE_MGR};
 use crate::StateValue;
 use anyhow::{anyhow, bail, Result};
 use futures::StreamExt;
@@ -27,7 +25,7 @@ use owo_colors::OwoColorize;
 use serde_yaml::Value as YamlValue;
 use std::collections::BTreeSet;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use std::{env, fs};
@@ -42,15 +40,6 @@ struct StatusSummaryRow {
     port: String,
     status: String,
     detail: String,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct ApplyPlan {
-    tx_field_updates: Vec<String>,
-    applied_changes: Vec<String>,
-    ignored_changes: Vec<String>,
-    monitor_restart_required: bool,
-    store_config_restart_required: bool,
 }
 
 pub static NOT_PRINT_TASK_RESULT: &str = "NOT_PRINT_TASK_RESULT";
@@ -75,6 +64,88 @@ pub struct CmdExecutor {
     state_mgr: Arc<StateMgr>,
     pg_client: OnceLock<tokio_postgres::Client>,
     pub home: PathBuf,
+}
+
+struct ClusterMutationLock {
+    path: PathBuf,
+}
+
+impl ClusterMutationLock {
+    fn sanitize_cluster_name(cluster: &str) -> String {
+        cluster
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    fn acquire(lock_dir: &Path, cluster: &str, command: &str) -> Result<Self> {
+        std::fs::create_dir_all(lock_dir)?;
+        let lock_name = Self::sanitize_cluster_name(cluster);
+        let path = lock_dir.join(format!("{lock_name}.lock"));
+        let content = format!(
+            "pid={}\ncluster={}\ncommand={}\ncreated_at={}\n",
+            std::process::id(),
+            cluster,
+            command,
+            chrono::Utc::now().to_rfc3339()
+        );
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes())?;
+                Ok(Self { path })
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                if Self::is_stale(&path) {
+                    fs::remove_file(&path)?;
+                    return Self::acquire(lock_dir, cluster, command);
+                }
+                let detail = fs::read_to_string(&path).unwrap_or_default();
+                bail!(
+                    "cluster '{cluster}' is already being modified. lock={} {}",
+                    path.display(),
+                    detail.replace('\n', "; ")
+                )
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    fn parse_pid(lock_content: &str) -> Option<u32> {
+        lock_content.lines().find_map(|line| {
+            line.strip_prefix("pid=")
+                .and_then(|pid| pid.trim().parse::<u32>().ok())
+        })
+    }
+
+    fn process_exists(pid: u32) -> bool {
+        Path::new("/proc").join(pid.to_string()).exists()
+    }
+
+    fn is_stale(path: &Path) -> bool {
+        let Ok(content) = fs::read_to_string(path) else {
+            return false;
+        };
+        let Some(pid) = Self::parse_pid(&content) else {
+            return false;
+        };
+        !Self::process_exists(pid)
+    }
+}
+
+impl Drop for ClusterMutationLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 impl CmdExecutor {
@@ -162,121 +233,26 @@ impl CmdExecutor {
         format!("{}{}", os_id(), os_major_version())
     }
 
-    fn parse_task_id_parts(task_id: &str) -> (String, String, String) {
-        let mut host = String::new();
-        let mut cmd = String::new();
-        let mut task = String::new();
-        for part in task_id.split(',') {
-            if let Some((k, v)) = part.split_once('=') {
-                match k.trim() {
-                    "host" => host = v.trim().to_string(),
-                    "cmd" => cmd = v.trim().to_string(),
-                    "task" => task = v.trim().to_string(),
-                    _ => {}
-                }
-            }
-        }
-        (host, cmd, task)
-    }
-
-    fn parse_monitor_status_task(task: &str) -> Option<(String, String)> {
-        [
-            ("prometheus-status-", "prometheus"),
-            ("grafana-status-", "grafana"),
-            ("node_exporter-status-", "node_exporter"),
-            ("mysql_exporter-status-", "mysql_exporter"),
-        ]
-        .into_iter()
-        .find_map(|(prefix, service)| {
-            task.strip_prefix(prefix)
-                .map(|port| (service.to_string(), port.to_string()))
-        })
-    }
-
     fn summarize_status_rows(task_results: &[TaskResultPair]) -> Vec<StatusSummaryRow> {
-        task_results
+        ObservedCluster::from_task_results("status".to_string(), task_results)
+            .services
             .iter()
-            .filter_map(|pair| {
-                let (host, cmd, task) = Self::parse_task_id_parts(&pair.task_id);
-                if host.is_empty() {
-                    return None;
-                }
-                let tx_prefix = ["tx-status-", "txservice-status-"]
-                    .into_iter()
-                    .find(|prefix| task.starts_with(prefix));
-                let (service, port) = if let Some(prefix) = tx_prefix {
-                    (
-                        "tx".to_string(),
-                        task.trim_start_matches(prefix).to_string(),
-                    )
-                } else if task.starts_with("standby-status-") {
-                    (
-                        "standby".to_string(),
-                        task.trim_start_matches("standby-status-").to_string(),
-                    )
-                } else if task.starts_with("voter-status-") {
-                    (
-                        "voter".to_string(),
-                        task.trim_start_matches("voter-status-").to_string(),
-                    )
-                } else if cmd.starts_with("monograph_log_") && task == "status" {
-                    ("log".to_string(), "-".to_string())
-                } else if cmd.starts_with("dss_") && task == "status" {
-                    ("dss".to_string(), "-".to_string())
-                } else if let Some((service, port)) = Self::parse_monitor_status_task(&task) {
-                    (service, port)
-                } else {
-                    return None;
-                };
-
-                match &pair.result {
-                    TaskResultEnum::Error(err) => Some(StatusSummaryRow {
-                        host,
-                        service,
-                        port,
-                        status: "ERROR".to_string(),
-                        detail: err.replace('\n', " "),
-                    }),
-                    TaskResultEnum::Success(Some(ev)) => {
-                        let status_code = ev
-                            .get(CMD_STATUS)
-                            .map(|v| TaskArgValue::into_inner_value::<i32>(v.clone()))
-                            .unwrap_or(0);
-                        let detail = ev
-                            .get(CMD_OUTPUT)
-                            .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
-                            .unwrap_or_default()
-                            .replace('\n', " ")
-                            .trim()
-                            .to_string();
-                        let low = detail.to_ascii_lowercase();
-                        let status = if status_code != 0 {
-                            "ERROR".to_string()
-                        } else if low.contains("running") {
-                            "UP".to_string()
-                        } else if low.contains("down") {
-                            "DOWN".to_string()
-                        } else if low.contains("unknown") {
-                            "UNKNOWN".to_string()
-                        } else {
-                            "OK".to_string()
-                        };
-                        Some(StatusSummaryRow {
-                            host,
-                            service,
-                            port,
-                            status,
-                            detail: if detail.len() > 120 {
-                                format!("{}...", &detail[..120])
-                            } else {
-                                detail
-                            },
-                        })
-                    }
-                    TaskResultEnum::Success(None) => None,
-                }
-            })
+            .map(Self::status_row_from_observed)
             .collect_vec()
+    }
+
+    fn status_row_from_observed(service: &ObservedServiceStatus) -> StatusSummaryRow {
+        StatusSummaryRow {
+            host: service.host.clone(),
+            service: service.service.clone(),
+            port: service.port.clone(),
+            status: service.status.to_string(),
+            detail: if service.detail.len() > 120 {
+                format!("{}...", &service.detail[..120])
+            } else {
+                service.detail.clone()
+            },
+        }
     }
 
     fn print_status_summary(task_results: &[TaskResultPair]) {
@@ -286,6 +262,109 @@ impl CmdExecutor {
             return;
         }
         println!("{}", tabled::Table::new(rows));
+    }
+
+    async fn observe_cluster(
+        &'static self,
+        config: &DeployConfig,
+        wait: Option<u16>,
+    ) -> Result<ObservedCluster> {
+        let status_cmd = SubCommand::Status {
+            cluster: config.deployment.cluster_name.clone(),
+            user: None,
+            password: None,
+            wait,
+            detail: false,
+        };
+        let results = self
+            .task_mgr
+            .run_tasks_with_error_break(status_cmd, Config::Cluster(config.clone()), false)
+            .await?;
+        self.task_mgr.drain_task_results().await?;
+        Ok(ObservedCluster::from_task_results(
+            config.deployment.cluster_name.clone(),
+            &results,
+        ))
+    }
+
+    async fn cluster_has_running_tx(&'static self, config: &DeployConfig) -> Result<bool> {
+        let observed = self.observe_cluster(config, None).await?;
+        Ok(observed.has_running_service("tx"))
+    }
+
+    async fn ensure_critical_services_healthy(
+        &'static self,
+        config: &DeployConfig,
+        operation: &str,
+    ) -> Result<()> {
+        let observed = self.observe_cluster(config, None).await?;
+        if observed.has_errors() || !observed.unavailable_services().is_empty() {
+            observed.print();
+            bail!(
+                "cannot {operation}: live cluster '{}' is not healthy",
+                config.deployment.cluster_name
+            );
+        }
+        Ok(())
+    }
+
+    fn idempotent_noop_message(cmd: &SubCommand, config: &DeployConfig) -> Option<String> {
+        match cmd {
+            SubCommand::Scale {
+                add_nodes,
+                remove_nodes,
+                ..
+            } => {
+                let mut existing = config.get_host_port_list(DeploymentPackage::EloqTx);
+                existing.extend(config.get_host_port_list(DeploymentPackage::EloqStandby));
+                existing.extend(config.get_host_port_list(DeploymentPackage::EloqVoter));
+                if !add_nodes.is_empty() && add_nodes.iter().all(|node| existing.contains(node)) {
+                    Some("All requested nodes already exist; scale add is a no-op.".to_string())
+                } else if !remove_nodes.is_empty()
+                    && remove_nodes.iter().all(|node| !existing.contains(node))
+                {
+                    Some(
+                        "All requested nodes are already absent; scale remove is a no-op."
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            }
+            SubCommand::ScaleLog {
+                add_nodes,
+                remove_nodes,
+                ..
+            } => {
+                let log_nodes = config
+                    .deployment
+                    .log_service
+                    .as_ref()
+                    .map(|log| {
+                        log.nodes
+                            .iter()
+                            .map(|node| format!("{}:{}", node.host, node.port))
+                            .collect_vec()
+                    })
+                    .unwrap_or_default();
+                if !add_nodes.is_empty() && add_nodes.iter().all(|node| log_nodes.contains(node)) {
+                    Some(
+                        "All requested log nodes already exist; scalelog add is a no-op."
+                            .to_string(),
+                    )
+                } else if !remove_nodes.is_empty()
+                    && remove_nodes.iter().all(|node| !log_nodes.contains(node))
+                {
+                    Some(
+                        "All requested log nodes are already absent; scalelog remove is a no-op."
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     pub async fn list_cluster_names(&self) -> Result<Vec<String>> {
@@ -305,40 +384,66 @@ impl CmdExecutor {
         self.home.join("config")
     }
 
+    fn lock_dir(&self) -> PathBuf {
+        self.home.join("locks")
+    }
+
+    fn mutation_cluster_from_cmd(cmd: &SubCommand) -> Option<String> {
+        match cmd {
+            SubCommand::Demo { product, .. } => Some(format!("demo-{product}")),
+            SubCommand::Launch { topology_file, .. }
+            | SubCommand::Deploy { topology_file }
+            | SubCommand::RunDeps { topology_file } => {
+                DeployConfig::load(Some(topology_file.clone()))
+                    .ok()
+                    .map(|config| config.deployment.cluster_name)
+            }
+            SubCommand::Apply { topology_file } => DeployConfig::load(Some(topology_file.clone()))
+                .ok()
+                .map(|config| config.deployment.cluster_name),
+            SubCommand::Install { cluster }
+            | SubCommand::Start { cluster, .. }
+            | SubCommand::Stop { cluster, .. }
+            | SubCommand::Restart { cluster }
+            | SubCommand::UpdateConf { cluster, .. }
+            | SubCommand::Remove { cluster, .. }
+            | SubCommand::Monitor { cluster, .. }
+            | SubCommand::LogService { cluster, .. }
+            | SubCommand::Update {
+                cluster: Some(cluster),
+                ..
+            }
+            | SubCommand::Scale { cluster, .. }
+            | SubCommand::ScaleLog { cluster, .. }
+            | SubCommand::Backup { cluster, .. }
+            | SubCommand::Failover { cluster, .. } => Some(cluster.clone()),
+            _ => None,
+        }
+    }
+
+    fn acquire_mutation_lock(&self, cmd: &SubCommand) -> Result<Option<ClusterMutationLock>> {
+        if let Some(cluster) = Self::mutation_cluster_from_cmd(cmd) {
+            Ok(Some(ClusterMutationLock::acquire(
+                &self.lock_dir(),
+                &cluster,
+                cmd.as_ref(),
+            )?))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn dir_download(&self) -> PathBuf {
         self.home.join("download")
     }
 
     async fn save_deployment_config(&self, config: &DeployConfig, upsert: bool) -> Result<()> {
-        let deployment_operation = self
-            .state_mgr
-            .get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-
         let cluster = &config.deployment.cluster_name;
-        let deployment_entity = deployment_operation
-            .load(|| -> Option<QueryCondition> {
-                Some(QueryCondition {
-                    cond_text: "cluster_name = $1".to_string(),
-                    bind_values: vec![StateValue::Varchar(cluster.clone())],
-                })
-            })
-            .await?;
-        if !deployment_entity.is_empty() && !upsert {
-            bail!("cluster {cluster} already exists");
-        }
         let all_hosts = config.get_unique_host_list().join(";");
-        let config_string = config.to_yaml();
-        info!("DeploymentConfig saved: cluster={cluster} @ {all_hosts}");
-        let default_timestamp = chrono::DateTime::default();
-        deployment_operation
-            .put(DeploymentEntity {
-                cluster_name: config.deployment.clone().cluster_name,
-                deployment_config: config_string,
-                host_list: all_hosts,
-                create_timestamp: default_timestamp,
-                update_timestamp: default_timestamp,
-            })
+        self.state_mgr
+            .save_deployment_config(config, upsert)
             .await?;
+        info!("DeploymentConfig saved: cluster={cluster} @ {all_hosts}");
         Ok(())
     }
 
@@ -385,15 +490,10 @@ impl CmdExecutor {
 
     fn validate_metrics_config(config: &DeployConfig) -> Result<()> {
         if let Some(monitor) = &config.deployment.monitor {
-            let has_monograph = monitor.monograph_metrics.is_some();
             let has_eloq = monitor.eloq_metrics.is_some();
 
-            if !has_monograph && !has_eloq {
-                bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
-            }
-
-            if has_monograph && has_eloq {
-                bail!("Cannot specify both monograph_metrics and eloq_metrics simultaneously; choose one");
+            if !has_eloq {
+                bail!("Monitor configuration is provided but eloq_metrics is not specified");
             }
         }
 
@@ -457,12 +557,16 @@ impl CmdExecutor {
         }
     }
 
-    fn build_apply_plan(
+    fn build_reconcile_plan(
         current: &DeployConfig,
         desired: &DeployConfig,
-    ) -> Result<(ApplyPlan, DeployConfig)> {
+        observed: Option<ObservedCluster>,
+    ) -> Result<ReconcilePlan> {
         let mut merged = current.clone();
-        let mut plan = ApplyPlan::default();
+        let mut tx_field_updates = Vec::new();
+        let mut changes = Vec::new();
+        let mut monitor_restart_required = false;
+        let mut store_config_restart_required = false;
         let mut desired_for_diff = desired.clone();
 
         if current.deployment.cluster_name != desired.deployment.cluster_name {
@@ -477,8 +581,8 @@ impl CmdExecutor {
             && desired.deployment.enable_tls != current.deployment.enable_tls
         {
             merged.deployment.enable_tls = desired.deployment.enable_tls;
-            plan.store_config_restart_required = true;
-            plan.applied_changes.push(format!(
+            store_config_restart_required = true;
+            changes.push(format!(
                 "deployment.enable_tls: {:?} -> {:?}",
                 current.deployment.enable_tls, desired.deployment.enable_tls
             ));
@@ -488,9 +592,8 @@ impl CmdExecutor {
         if let Some(interval) = desired.deployment.checkpoint_interval {
             if current.deployment.checkpoint_interval != Some(interval) {
                 merged.deployment.checkpoint_interval = Some(interval);
-                plan.tx_field_updates
-                    .push(format!("checkpoint_interval:{interval}"));
-                plan.applied_changes.push(format!(
+                tx_field_updates.push(format!("checkpoint_interval:{interval}"));
+                changes.push(format!(
                     "deployment.checkpoint_interval: {:?} -> {:?}",
                     current.deployment.checkpoint_interval,
                     Some(interval)
@@ -504,8 +607,8 @@ impl CmdExecutor {
         if let Some(mode) = desired.deployment.cluster_mode {
             if current.deployment.cluster_mode != Some(mode) {
                 merged.deployment.cluster_mode = Some(mode);
-                plan.tx_field_updates.push(format!("cluster_mode:{mode}"));
-                plan.applied_changes.push(format!(
+                tx_field_updates.push(format!("cluster_mode:{mode}"));
+                changes.push(format!(
                     "deployment.cluster_mode: {:?} -> {:?}",
                     current.deployment.cluster_mode,
                     Some(mode)
@@ -534,8 +637,8 @@ impl CmdExecutor {
                             prometheus.retention_time = Some(retention_time.clone());
                         }
                     }
-                    plan.monitor_restart_required = true;
-                    plan.applied_changes.push(format!(
+                    monitor_restart_required = true;
+                    changes.push(format!(
                         "deployment.monitor.prometheus.retention_time: {:?} -> {:?}",
                         current_prom.retention_time,
                         Some(retention_time)
@@ -554,8 +657,8 @@ impl CmdExecutor {
                             prometheus.retention_size = Some(retention_size.clone());
                         }
                     }
-                    plan.monitor_restart_required = true;
-                    plan.applied_changes.push(format!(
+                    monitor_restart_required = true;
+                    changes.push(format!(
                         "deployment.monitor.prometheus.retention_size: {:?} -> {:?}",
                         current_prom.retention_size,
                         Some(retention_size)
@@ -574,8 +677,8 @@ impl CmdExecutor {
                             prometheus.remote_write_urls = Some(remote_write_urls.clone());
                         }
                     }
-                    plan.monitor_restart_required = true;
-                    plan.applied_changes.push(format!(
+                    monitor_restart_required = true;
+                    changes.push(format!(
                         "deployment.monitor.prometheus.remote_write_urls: {:?} -> {:?}",
                         current_prom.remote_write_urls,
                         Some(remote_write_urls)
@@ -614,9 +717,9 @@ impl CmdExecutor {
             .partition(|path| path.starts_with(store_prefix));
 
         if !store_diffs.is_empty() {
-            plan.store_config_restart_required = true;
+            store_config_restart_required = true;
             for diff in &store_diffs {
-                plan.applied_changes.push(diff.clone());
+                changes.push(diff.clone());
             }
         }
 
@@ -627,13 +730,35 @@ impl CmdExecutor {
             "deployment.monitor.prometheus.retention_size",
             "deployment.monitor.prometheus.remote_write_urls",
         ];
-        plan.ignored_changes = other_diffs
+        let unsupported_changes = other_diffs
             .into_iter()
             .filter(|path| !supported_paths.contains(&path.as_str()))
             .unique()
             .collect();
 
-        Ok((plan, merged))
+        let mut plan = ReconcilePlan::new(current.deployment.cluster_name.clone(), merged);
+        plan.observed = observed;
+        plan.changes = changes;
+        plan.unsupported_changes = unsupported_changes;
+        plan.tx_field_updates = tx_field_updates;
+        if !plan.changes.is_empty() {
+            plan.add_action(ReconcileAction::SaveClusterIndex);
+        }
+        if store_config_restart_required {
+            plan.add_action(ReconcileAction::RegenerateEloqKvNodeConfig);
+            plan.add_action(ReconcileAction::RestartTxWithUpdatedConfig);
+        }
+        if !plan.tx_field_updates.is_empty() {
+            plan.add_action(ReconcileAction::RestartTxWithUpdatedConfig);
+        }
+        if monitor_restart_required {
+            plan.add_action(ReconcileAction::RestartMonitor);
+        }
+        if !plan.actions.is_empty() {
+            plan.add_action(ReconcileAction::VerifyClusterStatus);
+        }
+
+        Ok(plan)
     }
 
     async fn apply_topology(
@@ -652,23 +777,43 @@ impl CmdExecutor {
             .await?
             .ok_or_else(|| anyhow!("cluster {} not found", cluster))?;
 
-        let (plan, merged) = Self::build_apply_plan(&current, &desired)?;
+        let observed = self.observe_cluster(&current, None).await?;
+        if observed.has_errors() {
+            observed.print();
+            bail!(
+                "cannot apply: failed to observe live cluster state for '{}'",
+                cluster
+            );
+        }
+        let unavailable = observed.unavailable_services();
+        if !unavailable.is_empty() {
+            observed.print();
+            bail!(
+                "cannot apply: live cluster '{}' is not healthy; fix status before applying changes",
+                cluster
+            );
+        }
 
-        if plan.applied_changes.is_empty() && plan.ignored_changes.is_empty() {
-            println!("No configuration changes detected.");
+        let plan = Self::build_reconcile_plan(&current, &desired, Some(observed))?;
+        plan.print();
+
+        if plan.is_empty() {
             return Ok(());
         }
 
-        if !plan.applied_changes.is_empty() {
-            self.save_deployment_config(&merged, true).await?;
+        if plan.actions.contains(&ReconcileAction::SaveClusterIndex) {
+            self.save_deployment_config(&plan.merged_config, true)
+                .await?;
         }
 
-        if plan.store_config_restart_required {
-            let deployment = &merged.deployment;
-            let mut all_host_ports = deployment.get_host_port_list(DeploymentPackage::MonographTx);
-            all_host_ports
-                .extend(deployment.get_host_port_list(DeploymentPackage::MonographStandby));
-            all_host_ports.extend(deployment.get_host_port_list(DeploymentPackage::MonographVoter));
+        if plan
+            .actions
+            .contains(&ReconcileAction::RegenerateEloqKvNodeConfig)
+        {
+            let deployment = &plan.merged_config.deployment;
+            let mut all_host_ports = deployment.get_host_port_list(DeploymentPackage::EloqTx);
+            all_host_ports.extend(deployment.get_host_port_list(DeploymentPackage::EloqStandby));
+            all_host_ports.extend(deployment.get_host_port_list(DeploymentPackage::EloqVoter));
 
             for host_port in &all_host_ports {
                 if let Some((host, port)) = host_port.split_once(':') {
@@ -676,24 +821,13 @@ impl CmdExecutor {
                         .gen_eloqkv_node_config(Some(host.to_string()), Some(port.to_string()))?;
                 }
             }
-
-            Box::pin(self.run(
-                SubCommand::UpdateConf {
-                    cluster: cluster.clone(),
-                    restart: true,
-                    password: None,
-                    fields: vec![],
-                    tx_node_id: None,
-                },
-                None,
-                quiet,
-                verbose,
-            ))
-            .await?;
         }
 
-        if !plan.tx_field_updates.is_empty() {
-            Box::pin(self.run(
+        if plan
+            .actions
+            .contains(&ReconcileAction::RestartTxWithUpdatedConfig)
+        {
+            Box::pin(self.run_impl(
                 SubCommand::UpdateConf {
                     cluster: cluster.clone(),
                     restart: true,
@@ -704,12 +838,13 @@ impl CmdExecutor {
                 None,
                 quiet,
                 verbose,
+                false,
             ))
             .await?;
         }
 
-        if plan.monitor_restart_required {
-            Box::pin(self.run(
+        if plan.actions.contains(&ReconcileAction::RestartMonitor) {
+            Box::pin(self.run_impl(
                 SubCommand::Monitor {
                     command: "stop".to_string(),
                     cluster: cluster.clone(),
@@ -717,9 +852,10 @@ impl CmdExecutor {
                 None,
                 quiet,
                 verbose,
+                false,
             ))
             .await?;
-            Box::pin(self.run(
+            Box::pin(self.run_impl(
                 SubCommand::Monitor {
                     command: "start".to_string(),
                     cluster: cluster.clone(),
@@ -727,29 +863,50 @@ impl CmdExecutor {
                 None,
                 quiet,
                 verbose,
+                false,
             ))
             .await?;
         }
 
-        if !plan.applied_changes.is_empty() {
-            println!("Applied changes:");
-            for change in &plan.applied_changes {
-                println!("  - {change}");
-            }
-        }
-
-        if !plan.ignored_changes.is_empty() {
-            eprintln!("Ignored unsupported changes:");
-            for change in &plan.ignored_changes {
-                eprintln!("  - {change}");
+        if plan.actions.contains(&ReconcileAction::VerifyClusterStatus) {
+            let verified = self.observe_cluster(&plan.merged_config, None).await?;
+            verified.print();
+            if verified.has_errors() || !verified.unavailable_services().is_empty() {
+                bail!(
+                    "apply completed actions but final live status is not healthy for '{}'",
+                    cluster
+                );
             }
         }
 
         Ok(())
     }
 
+    async fn plan_topology(&'static self, topology_file: &str) -> Result<()> {
+        let desired = DeployConfig::load(Some(topology_file.to_string()))?;
+        Self::validate_metrics_config(&desired)?;
+
+        let cluster = desired.deployment.cluster_name.clone();
+        let current = self
+            .state_mgr
+            .load_deployment_from_state(&cluster)
+            .await?
+            .ok_or_else(|| anyhow!("cluster {} not found", cluster))?;
+
+        let observed = self.observe_cluster(&current, None).await?;
+        let plan = Self::build_reconcile_plan(&current, &desired, Some(observed))?;
+        plan.print();
+
+        Ok(())
+    }
+
     async fn get_config(&self, cmd: SubCommand) -> anyhow::Result<Config> {
         match cmd {
+            SubCommand::Plan { topology_file } => {
+                let config = DeployConfig::load(Some(topology_file))?;
+                Self::validate_metrics_config(&config)?;
+                Ok(Config::Cluster(config))
+            }
             SubCommand::Apply { topology_file } => {
                 let config = DeployConfig::load(Some(topology_file))?;
                 Self::validate_metrics_config(&config)?;
@@ -764,7 +921,7 @@ impl CmdExecutor {
                 Self::validate_metrics_config(&config)?;
 
                 self.resolve_version(&mut config.deployment).await?;
-                self.save_deployment_config(&config, false).await?;
+                self.save_deployment_config(&config, true).await?;
                 info!("CmdExecutor Save DeploymentConfig successfully.");
                 Ok(Config::Cluster(config))
             }
@@ -795,7 +952,6 @@ impl CmdExecutor {
                 command: _,
                 cluster,
             }
-            | SubCommand::Inspect { cluster, .. }
             | SubCommand::Export { cluster, .. }
             | SubCommand::Remove { cluster, force: _ }
             | SubCommand::Connect { cluster }
@@ -885,12 +1041,29 @@ impl CmdExecutor {
 
     pub async fn run(
         &'static self,
-        mut cmd: SubCommand,
+        cmd: SubCommand,
         option_config: Option<Config>,
         quiet: bool,
         verbose: bool,
     ) -> Result<()> {
+        self.run_impl(cmd, option_config, quiet, verbose, true)
+            .await
+    }
+
+    async fn run_impl(
+        &'static self,
+        mut cmd: SubCommand,
+        option_config: Option<Config>,
+        quiet: bool,
+        verbose: bool,
+        acquire_lock: bool,
+    ) -> Result<()> {
         set_verbose_task_output(verbose);
+        let _mutation_lock = if acquire_lock {
+            self.acquire_mutation_lock(&cmd)?
+        } else {
+            None
+        };
         match &cmd {
             SubCommand::List => return self.list_clusters().await,
             SubCommand::Versions { product, store } => {
@@ -900,6 +1073,49 @@ impl CmdExecutor {
             SubCommand::Apply { topology_file } => {
                 return self.apply_topology(topology_file, quiet, verbose).await;
             }
+            SubCommand::Plan { topology_file } => {
+                return self.plan_topology(topology_file).await;
+            }
+            SubCommand::Update {
+                cluster: Some(cluster),
+                ..
+            }
+            | SubCommand::UpdateConf { cluster, .. }
+            | SubCommand::Scale { cluster, .. }
+            | SubCommand::ScaleLog { cluster, .. } => {
+                let config = self
+                    .state_mgr
+                    .load_deployment_from_state(cluster)
+                    .await?
+                    .ok_or(anyhow!("cluster {} not found", cluster))?;
+                self.ensure_critical_services_healthy(&config, cmd.as_ref())
+                    .await?;
+            }
+            SubCommand::Backup {
+                cluster,
+                command: BackupCommand::Start { .. },
+            } => {
+                let config = self
+                    .state_mgr
+                    .load_deployment_from_state(cluster)
+                    .await?
+                    .ok_or(anyhow!("cluster {} not found", cluster))?;
+                self.ensure_critical_services_healthy(&config, "backup start")
+                    .await?;
+            }
+            SubCommand::Install { cluster } => {
+                let config = self
+                    .state_mgr
+                    .load_deployment_from_state(cluster)
+                    .await?
+                    .ok_or(anyhow!("cluster {} not found", cluster))?;
+                if self.cluster_has_running_tx(&config).await? {
+                    println!(
+                        "Cluster {cluster} already has running tx service; skipping bootstrap."
+                    );
+                    return Ok(());
+                }
+            }
             SubCommand::Remove { cluster, force: _ } => {
                 let upload_path = upload_dir().join(cluster);
                 if upload_path.exists() {
@@ -908,7 +1124,7 @@ impl CmdExecutor {
             }
             SubCommand::Upgrade => {
                 self.state_mgr.upgrade_schema().await?;
-                println!("Schema upgrade complete");
+                println!("Schema and local cluster topology upgrade complete");
                 return Ok(());
             }
             _ => {}
@@ -945,13 +1161,6 @@ impl CmdExecutor {
                             println!("{}", yaml_str);
                         }
                     }
-                    SubCommand::Inspect { cluster: _, format } => match format {
-                        Some(fmt) => match fmt {
-                            TopoFormat::Yaml => println!("{}", deploy_config.to_yaml()),
-                            TopoFormat::Json => println!("{}", deploy_config.to_json()),
-                        },
-                        None => println!("{:#?}", deploy_config),
-                    },
                     _ => {
                         if let SubCommand::Scale {
                             version: requested_version,
@@ -987,6 +1196,12 @@ impl CmdExecutor {
 
                                 *requested_version = Some(resolved_version);
                             }
+                        }
+
+                        if let Some(noop_msg) = Self::idempotent_noop_message(&cmd, &deploy_config)
+                        {
+                            println!("{noop_msg}");
+                            return Ok(());
                         }
 
                         let task_mgr = self.task_mgr.clone();
@@ -1026,7 +1241,37 @@ impl CmdExecutor {
                         }
 
                         // Using cluster_config again without moving it
+                        let should_verify_after_finish = matches!(
+                            &cmd,
+                            SubCommand::Update {
+                                cluster: Some(_),
+                                ..
+                            } | SubCommand::UpdateConf { .. }
+                                | SubCommand::Scale { .. }
+                                | SubCommand::ScaleLog { .. }
+                        );
+                        let final_config = deploy_config.clone();
+                        let verify_cluster = match &cmd {
+                            SubCommand::Scale { cluster, .. }
+                            | SubCommand::ScaleLog { cluster, .. } => Some(cluster.clone()),
+                            _ => None,
+                        };
                         self.finishing(cmd, Config::Cluster(deploy_config)).await?;
+                        if should_verify_after_finish {
+                            let verify_config = if let Some(cluster) = verify_cluster {
+                                self.state_mgr
+                                    .load_deployment_from_state(&cluster)
+                                    .await?
+                                    .unwrap_or(final_config)
+                            } else {
+                                final_config
+                            };
+                            self.ensure_critical_services_healthy(
+                                &verify_config,
+                                "verify mutation",
+                            )
+                            .await?;
+                        }
                     }
                 }
             }
@@ -1088,14 +1333,6 @@ impl CmdExecutor {
 
                     // Display metrics information
                     if let Some(monitor) = &cfg.deployment.monitor {
-                        if let Some(monograph_metrics) = &monitor.monograph_metrics {
-                            if let (Some(path), Some(port)) =
-                                (&monograph_metrics.path, monograph_metrics.port)
-                            {
-                                println!("Monograph Metrics: http://<host>:{}{}", port, path);
-                            }
-                        }
-
                         if let Some(eloq_metrics) = &monitor.eloq_metrics {
                             if let (Some(path), Some(port)) =
                                 (&eloq_metrics.path, eloq_metrics.port)
@@ -1454,9 +1691,6 @@ impl CmdExecutor {
                 );
                 let mut config = DeployConfig::load(Some(topology))?;
                 let deploy = &mut config.deployment;
-                if product == Product::EloqSQL && store != StorageProvider::Dynamodb {
-                    bail!("EloqSQL demo only supports dynamodb storage");
-                }
                 // set storage
                 match store {
                     StorageProvider::Dynamodb => unimplemented!(),
@@ -1560,24 +1794,13 @@ impl CmdExecutor {
                 }
                 if let Some(monitor) = &mut deploy.monitor {
                     // Check metrics configuration
-                    let has_monograph = monitor.monograph_metrics.is_some();
                     let has_eloq = monitor.eloq_metrics.is_some();
 
                     // If neither is present, report an error
-                    if !has_monograph && !has_eloq {
-                        bail!("Monitor configuration is provided but neither monograph_metrics nor eloq_metrics is specified");
-                    }
-
-                    // If both are present, remove one based on product type to maintain consistency
-                    if has_monograph && has_eloq {
-                        match deploy.product {
-                            Product::EloqSQL => {
-                                monitor.eloq_metrics = None;
-                            }
-                            Product::EloqKV => {
-                                monitor.monograph_metrics = None;
-                            }
-                        }
+                    if !has_eloq {
+                        bail!(
+                            "Monitor configuration is provided but eloq_metrics is not specified"
+                        );
                     }
                 }
                 // set version
@@ -1647,9 +1870,10 @@ impl CmdExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplyPlan, CmdExecutor};
+    use super::CmdExecutor;
+    use crate::cli::reconcile::{ObservedCluster, ObservedStatus, ReconcileAction};
     use crate::cli::task::task_base::{TaskArgValue, TaskResultEnum, TaskResultPair};
-    use crate::cli::{CMD_OUTPUT, CMD_STATUS};
+    use crate::cli::{SubCommand, CMD_OUTPUT, CMD_STATUS};
     use crate::config::config_base::DeployConfig;
     use std::collections::HashMap;
 
@@ -1672,6 +1896,160 @@ mod tests {
         assert_eq!(rows[0].service, "grafana");
         assert_eq!(rows[0].port, "3301");
         assert_eq!(rows[0].status, "UP");
+    }
+
+    #[test]
+    fn observed_cluster_parses_critical_down_status() {
+        let execution = HashMap::from([
+            (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
+            (
+                CMD_OUTPUT.to_string(),
+                TaskArgValue::Str("eloqkv service is down".to_string()),
+            ),
+        ]);
+        let observed = ObservedCluster::from_task_results(
+            "c1".to_string(),
+            &[TaskResultPair {
+                task_id: "host=127.0.0.1,cmd=status,task=tx-status-6379".to_string(),
+                result: TaskResultEnum::Success(Some(execution)),
+            }],
+        );
+
+        assert_eq!(observed.services.len(), 1);
+        assert_eq!(observed.services[0].status, ObservedStatus::Down);
+        assert_eq!(observed.unavailable_services().len(), 1);
+        assert!(!observed.has_running_service("tx"));
+    }
+
+    #[test]
+    fn observed_cluster_ignores_monitor_down_for_apply_gate() {
+        let execution = HashMap::from([
+            (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
+            (
+                CMD_OUTPUT.to_string(),
+                TaskArgValue::Str("grafana service is down".to_string()),
+            ),
+        ]);
+        let observed = ObservedCluster::from_task_results(
+            "c1".to_string(),
+            &[TaskResultPair {
+                task_id: "host=127.0.0.1,cmd=monitor,task=grafana-status-3301".to_string(),
+                result: TaskResultEnum::Success(Some(execution)),
+            }],
+        );
+
+        assert_eq!(observed.services.len(), 1);
+        assert_eq!(observed.services[0].status, ObservedStatus::Down);
+        assert!(observed.unavailable_services().is_empty());
+    }
+
+    #[test]
+    fn observed_cluster_detects_running_tx() {
+        let execution = HashMap::from([
+            (CMD_STATUS.to_string(), TaskArgValue::Number(0)),
+            (
+                CMD_OUTPUT.to_string(),
+                TaskArgValue::Str("eloqkv service is running".to_string()),
+            ),
+        ]);
+        let observed = ObservedCluster::from_task_results(
+            "c1".to_string(),
+            &[TaskResultPair {
+                task_id: "host=127.0.0.1,cmd=status,task=tx-status-6379".to_string(),
+                result: TaskResultEnum::Success(Some(execution)),
+            }],
+        );
+
+        assert!(observed.has_running_service("tx"));
+    }
+
+    #[test]
+    fn scale_duplicate_add_is_noop() {
+        let config = load_apply_test_config(Some(60), Some("15d"));
+        let cmd = SubCommand::Scale {
+            cluster: "apply-test".to_string(),
+            add_nodes: vec!["127.0.0.1:6389".to_string()],
+            remove_nodes: Vec::new(),
+            ng_id: Some(0),
+            is_candidate: Some(vec![true]),
+            password: None,
+            version: None,
+        };
+
+        assert!(CmdExecutor::idempotent_noop_message(&cmd, &config)
+            .unwrap()
+            .contains("no-op"));
+    }
+
+    #[test]
+    fn scale_duplicate_remove_is_noop() {
+        let config = load_apply_test_config(Some(60), Some("15d"));
+        let cmd = SubCommand::Scale {
+            cluster: "apply-test".to_string(),
+            add_nodes: Vec::new(),
+            remove_nodes: vec!["127.0.0.9:6389".to_string()],
+            ng_id: None,
+            is_candidate: None,
+            password: None,
+            version: None,
+        };
+
+        assert!(CmdExecutor::idempotent_noop_message(&cmd, &config)
+            .unwrap()
+            .contains("no-op"));
+    }
+
+    #[test]
+    fn cluster_mutation_lock_is_exclusive() {
+        let dir = std::env::temp_dir().join(format!("eloqctl-lock-test-{}", uuid::Uuid::new_v4()));
+        let first = super::ClusterMutationLock::acquire(&dir, "cluster/a", "apply").unwrap();
+        let second = super::ClusterMutationLock::acquire(&dir, "cluster/a", "scale");
+
+        assert!(second.is_err());
+        drop(first);
+        assert!(super::ClusterMutationLock::acquire(&dir, "cluster/a", "scale").is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cluster_mutation_lock_reclaims_stale_lock() {
+        let dir = std::env::temp_dir().join(format!("eloqctl-lock-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cluster_a.lock");
+        std::fs::write(
+            &path,
+            "pid=99999999\ncluster=cluster/a\ncommand=apply\ncreated_at=2024-01-01T00:00:00Z\n",
+        )
+        .unwrap();
+
+        let lock = super::ClusterMutationLock::acquire(&dir, "cluster/a", "scale").unwrap();
+
+        assert!(path.exists());
+        drop(lock);
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cluster_mutation_lock_preserves_live_lock() {
+        let dir = std::env::temp_dir().join(format!("eloqctl-lock-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cluster_a.lock");
+        std::fs::write(
+            &path,
+            format!(
+                "pid={}\ncluster=cluster/a\ncommand=apply\ncreated_at=2024-01-01T00:00:00Z\n",
+                std::process::id()
+            ),
+        )
+        .unwrap();
+
+        let lock = super::ClusterMutationLock::acquire(&dir, "cluster/a", "scale");
+
+        assert!(lock.is_err());
+        assert!(path.exists());
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn load_apply_test_config(
@@ -1728,32 +2106,42 @@ deployment:
     }
 
     #[test]
-    fn build_apply_plan_detects_supported_and_ignored_changes() {
+    fn build_reconcile_plan_detects_supported_and_ignored_changes() {
         let current = load_apply_test_config(Some(60), Some("15d"));
         let mut desired = load_apply_test_config(Some(120), Some("30d"));
         desired.deployment.tx_service.tx_host_ports = vec!["127.0.0.2:6389".to_string()];
+        let observed = ObservedCluster {
+            cluster: "apply-test".to_string(),
+            services: Vec::new(),
+        };
 
-        let (plan, merged) = CmdExecutor::build_apply_plan(&current, &desired).unwrap();
+        let plan = CmdExecutor::build_reconcile_plan(&current, &desired, Some(observed)).unwrap();
 
         assert_eq!(
             plan.tx_field_updates,
             vec!["checkpoint_interval:120".to_string()]
         );
-        assert!(plan.monitor_restart_required);
+        assert!(plan.actions.contains(&ReconcileAction::SaveClusterIndex));
         assert!(plan
-            .applied_changes
+            .actions
+            .contains(&ReconcileAction::RestartTxWithUpdatedConfig));
+        assert!(plan.actions.contains(&ReconcileAction::RestartMonitor));
+        assert!(plan.actions.contains(&ReconcileAction::VerifyClusterStatus));
+        assert!(plan
+            .changes
             .iter()
             .any(|change| change.contains("deployment.checkpoint_interval")));
         assert!(plan
-            .applied_changes
+            .changes
             .iter()
             .any(|change| change.contains("retention_time")));
         assert!(plan
-            .ignored_changes
+            .unsupported_changes
             .contains(&"deployment.tx_service.tx_host_ports".to_string()));
-        assert_eq!(merged.deployment.checkpoint_interval, Some(120));
+        assert!(plan.observed.is_some());
+        assert_eq!(plan.merged_config.deployment.checkpoint_interval, Some(120));
         assert_eq!(
-            merged
+            plan.merged_config
                 .deployment
                 .monitor
                 .as_ref()
@@ -1764,16 +2152,16 @@ deployment:
     }
 
     #[test]
-    fn build_apply_plan_ignores_omitted_supported_fields() {
+    fn build_reconcile_plan_ignores_omitted_supported_fields() {
         let current = load_apply_test_config(Some(120), Some("30d"));
         let desired = load_apply_test_config(None, None);
 
-        let (plan, merged) = CmdExecutor::build_apply_plan(&current, &desired).unwrap();
+        let plan = CmdExecutor::build_reconcile_plan(&current, &desired, None).unwrap();
 
-        assert_eq!(plan, ApplyPlan::default());
-        assert_eq!(merged.deployment.checkpoint_interval, Some(120));
+        assert!(plan.is_empty());
+        assert_eq!(plan.merged_config.deployment.checkpoint_interval, Some(120));
         assert_eq!(
-            merged
+            plan.merged_config
                 .deployment
                 .monitor
                 .as_ref()

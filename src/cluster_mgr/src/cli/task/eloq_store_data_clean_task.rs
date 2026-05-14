@@ -42,7 +42,7 @@ fn compute_default_data_paths(
     if dss.is_local_mode() {
         // Local mode: compute default path for each EloqKV node
         deploy_config
-            .get_host_port_list(DeploymentPackage::MonographTx)
+            .get_host_port_list(DeploymentPackage::EloqTx)
             .iter()
             .filter_map(|hp| {
                 hp.split_once(':').map(|(_, port)| {
@@ -140,7 +140,7 @@ impl EloqStoreDataCleanTask {
             // Local mode: use EloqKV nodes (txservice nodes)
             // No DSS process check needed for Local mode
             let hosts = deploy_config
-                .get_host_port_list(DeploymentPackage::MonographTx)
+                .get_host_port_list(DeploymentPackage::EloqTx)
                 .iter()
                 .filter_map(|hp| hp.split(':').next())
                 .map(|h| h.to_string())
@@ -211,16 +211,9 @@ impl EloqStoreDataCleanTask {
             .collect();
         let clean_cmd = clean_commands.join(" && ");
 
-        let conn_user = config.conn_user();
-        let ssh_port = config.ssh_port();
-
         // Create one task per host
         for host in target_hosts {
-            let task_host = TaskHost::Remote {
-                user: conn_user.to_string(),
-                port: ssh_port as usize,
-                host: host.clone(),
-            };
+            let task_host = TaskHost::remote(&deploy_config.connection, &host);
 
             let task_id = TaskId {
                 cmd: cmd_arg.as_ref().to_string(),

@@ -5,10 +5,6 @@ use crate::cli::task::task_base::{
 };
 use crate::cli::task::task_utils::{ClusterNodesWithConfig, ScaleOperationType};
 use crate::config::config_base::{DeployConfig, SCALED_CLUSTER_CONFIG};
-use crate::state::deployment_operation::{DeploymentEntity, DeploymentOperation};
-use crate::state::state_base::{QueryCondition, StateOperation};
-use crate::state::state_mgr::{DEPLOYMENT_STATE, STATE_MGR};
-use crate::StateValue;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -16,7 +12,7 @@ use std::fs;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
-/// Task for updating the database (t_deployment table) after scale operation
+/// Task for updating the saved cluster topology after scale operation
 #[derive(Clone, Debug)]
 pub struct DbDeploymentUpdateTask {
     task_id: TaskId,
@@ -46,10 +42,13 @@ impl DbDeploymentUpdateTask {
         }
     }
 
-    /// Update the deployment configuration in the database
-    async fn update_database(&self, cluster_nodes: &ClusterNodesWithConfig) -> anyhow::Result<()> {
+    /// Update the saved deployment topology.
+    async fn update_saved_topology(
+        &self,
+        cluster_nodes: &ClusterNodesWithConfig,
+    ) -> anyhow::Result<()> {
         info!(
-            "Updating database for cluster {} after scaling operation",
+            "Updating saved topology for cluster {} after scaling operation",
             self.cluster_name
         );
 
@@ -109,67 +108,12 @@ impl DbDeploymentUpdateTask {
             self.update_config_from_cluster_nodes(&mut updated_config, cluster_nodes);
         }
 
-        // Regenerate the unique host list after updating the configuration
-        let all_hosts = updated_config.get_unique_host_list().join(";");
-
-        // Generate the updated config as YAML for storage
-        let config_string = updated_config.to_yaml();
-
-        // Use timestamps for the deployment entity
-        let now = chrono::Utc::now();
-
-        // Create the deployment entity for database update
-        let updated_entity = DeploymentEntity {
-            cluster_name: self.cluster_name.clone(),
-            deployment_config: config_string,
-            host_list: all_hosts,
-            create_timestamp: now,
-            update_timestamp: now,
-        };
-
-        // Get the deployment operation implementation from the global state manager
-        let deployment_operation =
-            STATE_MGR.get_state_operation::<DeploymentOperation>(DEPLOYMENT_STATE);
-
-        // Query existing deployment to preserve create_timestamp if it exists
-        let deployment_entity = deployment_operation
-            .load(|| -> Option<QueryCondition> {
-                Some(QueryCondition {
-                    cond_text: "cluster_name = $1".to_string(),
-                    bind_values: vec![StateValue::Varchar(self.cluster_name.clone())],
-                })
-            })
+        crate::state::state_mgr::STATE_MGR
+            .save_deployment_config(&updated_config, true)
             .await
-            .map_err(|e| anyhow!("Failed to query deployment: {}", e))?;
+            .map_err(|e| anyhow!("Failed to update saved topology: {}", e))?;
 
-        if !deployment_entity.is_empty() {
-            // Preserve the original creation timestamp
-            let mut updated_entity_with_original_timestamp = updated_entity.clone();
-            updated_entity_with_original_timestamp.create_timestamp =
-                deployment_entity[0].create_timestamp;
-
-            // Update the deployment entity in the database
-            let rows_affected = deployment_operation
-                .put(updated_entity_with_original_timestamp)
-                .await
-                .map_err(|e| anyhow!("Failed to update deployment in database: {}", e))?;
-
-            info!(
-                "Successfully updated existing deployment in database. Rows affected: {}",
-                rows_affected
-            );
-        } else {
-            // No existing entity found, insert as new
-            let rows_affected = deployment_operation
-                .put(updated_entity)
-                .await
-                .map_err(|e| anyhow!("Failed to insert new deployment in database: {}", e))?;
-
-            info!(
-                "Successfully inserted new deployment in database. Rows affected: {}",
-                rows_affected
-            );
-        }
+        info!("Successfully updated saved cluster topology");
 
         Ok(())
     }
@@ -269,7 +213,7 @@ impl TaskExecutor for DbDeploymentUpdateTask {
         _task_arg: HashMap<String, TaskArgValue>,
     ) -> anyhow::Result<Option<ExecutionValue>> {
         info!(
-            "Executing {} to update database",
+            "Executing {} to update saved topology",
             self.task_id.format_string()
         );
 
@@ -342,10 +286,10 @@ impl TaskExecutor for DbDeploymentUpdateTask {
             }
         };
 
-        // Update the database with the new configuration - this will use the cluster_config from RPC if available
-        if let Err(err) = self.update_database(&cluster_nodes_with_config).await {
+        // Update the saved topology with the new configuration from RPC if available.
+        if let Err(err) = self.update_saved_topology(&cluster_nodes_with_config).await {
             return Err(anyhow!(CmdErr::ScaleOpErr(
-                "Failed to update deployment configuration in database".to_string(),
+                "Failed to update saved deployment topology".to_string(),
                 err.to_string(),
             )));
         }
@@ -354,7 +298,7 @@ impl TaskExecutor for DbDeploymentUpdateTask {
         let response = HashMap::from([
             (
                 crate::cli::CMD.to_string(),
-                TaskArgValue::Str("Update database".to_string()),
+                TaskArgValue::Str("Update saved topology".to_string()),
             ),
             (crate::cli::CMD_STATUS.to_string(), TaskArgValue::Number(0)),
             (
