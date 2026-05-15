@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use cluster_mgr::cli::cmd_base::CmdExecutor;
 use cluster_mgr::cli::{Command, CompletionShell, SubCommand, HOME_DIR};
@@ -192,45 +193,47 @@ fn install_panic_hook() {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     install_panic_hook();
 
     let cmd = Command::parse();
     if let Some(SubCommand::Completion { shell, output }) = &cmd.subcmd {
-        let mut writer: Box<dyn io::Write> =
-            match output {
-                Some(path) => Box::new(std::fs::File::create(path).unwrap_or_else(|e| {
-                    panic!("failed to create completion file {:?}: {}", path, e)
-                })),
-                None => Box::new(io::stdout()),
-            };
+        let mut writer: Box<dyn io::Write> = match output {
+            Some(path) => Box::new(
+                std::fs::File::create(path)
+                    .with_context(|| format!("failed to create completion file {path:?}"))?,
+            ),
+            None => Box::new(io::stdout()),
+        };
         writer
             .write_all(completion_script(shell).as_bytes())
-            .expect("failed to write completion script");
-        return;
+            .context("failed to write completion script")?;
+        return Ok(());
     }
 
-    let home = CmdExecutor::home_init(cmd.home).expect("home dir init failed");
+    let home = CmdExecutor::home_init(cmd.home).context("home dir init failed")?;
     if let Some(SubCommand::CompleteClusters) = &cmd.subcmd {
         let executor = CmdExecutor::new(home);
         let clusters = executor
             .list_cluster_names()
             .await
-            .expect("failed to list clusters");
+            .context("failed to list clusters")?;
         for cluster in clusters {
             println!("{cluster}");
         }
-        return;
+        return Ok(());
     }
 
     if let Some(sub) = cmd.subcmd {
         let log_path = home.join("logs").join(format!("last-{}.log", sub.as_ref()));
-        let log_file = std::fs::File::create(&log_path).expect("can't create log");
+        let log_file = std::fs::File::create(&log_path).context("can't create log")?;
         tracing_subscriber::fmt()
             .with_writer(log_file)
             .with_ansi(false)
             .init();
 
+        // Box::leak is intentional: run() requires &'static self.
+        // This is a CLI tool with a single invocation, so the leak is harmless.
         let executor = Box::leak(Box::new(CmdExecutor::new(home)));
         info!("command: {:#?}", sub);
         if let Err(e) = executor.run(sub, None, cmd.quiet, cmd.verbose).await {
@@ -243,4 +246,5 @@ async fn main() {
         println!("{HOME_DIR}={home:?}");
         println!("Use `eloqctl --help` to see how to use it.");
     }
+    Ok(())
 }

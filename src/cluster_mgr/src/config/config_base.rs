@@ -7,7 +7,7 @@ use crate::config::{
     config_path_string, config_template, DeploymentPackage, StorageProvider, START_LOG_TEMPLATE,
 };
 use crate::config::{ConfigErr, DownloadUrl};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -336,7 +336,7 @@ impl DeployConfig {
 
         if let Some(standby_host_ports) = &standby_host_ports {
             if standby_host_ports.is_empty() {
-                panic!("standby_host_ports is empty, but it was expected to contain values.");
+                bail!("standby_host_ports is empty, but it was expected to contain values.");
             }
 
             let all_standby_config_path = standby_host_ports
@@ -362,7 +362,7 @@ impl DeployConfig {
 
         if let Some(voter_host_ports) = &voter_host_ports {
             if voter_host_ports.is_empty() {
-                panic!("voter_host_ports is empty, but it was expected to contain values.");
+                bail!("voter_host_ports is empty, but it was expected to contain values.");
             }
 
             let all_voter_config_path = voter_host_ports
@@ -402,11 +402,11 @@ impl DeployConfig {
                     let script_location = create_upload_cluster_dir(&dir).join(cmd_file_name);
                     if let Err(write_err) = fs::write(script_location.clone(), cmd) {
                         error!("Failed gen Log start command. cause by {write_err:#?}");
-                        panic!("Failed gen Log start command");
+                        bail!("Failed gen Log start command");
                     }
-                    script_location
+                    Ok(script_location)
                 })
-                .collect_vec();
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Ok(Some(log_cmd_locations))
         } else {
             Ok(None)
@@ -561,13 +561,10 @@ impl DeployConfig {
     }
 
     pub fn load_from_string(config_content: String) -> anyhow::Result<Self> {
-        let deployment_config_rs = serde_yaml::from_str::<DeployConfig>(config_content.as_str());
-        if let Ok(deployment_config) = deployment_config_rs {
-            deployment_config.validate_topology()?;
-            Ok(deployment_config)
-        } else {
-            Err(anyhow!(deployment_config_rs.err().unwrap().to_string()))
-        }
+        let deployment_config = serde_yaml::from_str::<DeployConfig>(config_content.as_str())
+            .context("failed to parse deployment config")?;
+        deployment_config.validate_topology()?;
+        Ok(deployment_config)
     }
 
     pub fn get_eloq_storage(&self) -> anyhow::Result<StorageProvider> {
@@ -586,8 +583,8 @@ impl DeployConfig {
         }
     }
 
-    pub fn to_yaml(&self) -> String {
-        serde_yaml::to_string(self).unwrap()
+    pub fn to_yaml(&self) -> anyhow::Result<String> {
+        Ok(serde_yaml::to_string(self)?)
     }
 
     /// Returns the runtime dependencies of EloqDB, with different return values depending on the installation platform.

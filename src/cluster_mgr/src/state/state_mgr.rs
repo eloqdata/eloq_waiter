@@ -11,7 +11,7 @@ use crate::state::task_status_operation::{TaskStatusEntity, TaskStatusOperation}
 use crate::state::topology_log_operation::{TopologyLogEntity, TopologyLogOperation};
 use crate::state::topology_tx_operation::{TopologyTxEntity, TopologyTxOperation};
 use crate::StateValue;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
@@ -36,6 +36,8 @@ pub(crate) static CLUSTER_MGR_CLI_DB: &str = "cluster_mgr_state.db";
 pub(crate) static MONO_CLUSTER_MGR_SCHEMA_PATH: &str = "MONO_CLUSTER_MGR_SCHEMA_PATH";
 
 pub static STATE_MGR: LazyLock<StateMgr> = LazyLock::new(|| {
+    // CAUTION: block_on inside LazyLock can deadlock if the initialization
+    // path triggers another LazyLock that also uses block_on in an async context.
     futures::executor::block_on(async move {
         let config_path = env::var(CONFIG_PATH_DIR);
         assert!(config_path.is_ok());
@@ -94,7 +96,7 @@ impl StateMgr {
         if let Some(parent) = topology_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&topology_path, config.to_yaml())?;
+        fs::write(&topology_path, config.to_yaml()?)?;
 
         let now = Utc::now();
         let create_timestamp = cluster_index
@@ -368,7 +370,7 @@ impl StateMgr {
     }
 
     pub fn get_or_init_db_location() -> Result<PathBuf> {
-        let db_location = PathBuf::from(env::var(HOME_DIR).unwrap()).join("db");
+        let db_location = PathBuf::from(env::var(HOME_DIR).context("HOME_DIR not set")?).join("db");
         info!(
             "StateMgr get_or_init_db_location db_location = {:?}",
             db_location
