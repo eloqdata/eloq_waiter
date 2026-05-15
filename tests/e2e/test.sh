@@ -108,5 +108,37 @@ run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-scale-rm.log" 
 }
 echo "  OK"
 
+# ---- [7] Stop + start cycle ----
+echo "[7/12] Stop cluster and validate topology"
+"${ELOQCTL}" stop "${CLUSTER}" --all --force > "${SCRIPT_DIR}/stop.log" 2>&1 || { echo "FAIL: stop"; exit 1; }
+sleep 3
+"${ELOQCTL}" check "${TOPO}" > "${SCRIPT_DIR}/check.log" 2>&1 && echo "  OK" || { echo "FAIL: check valid topology"; cat "${SCRIPT_DIR}/check.log"; exit 1; }
+
+echo "[8/12] Restart cluster"
+"${ELOQCTL}" start "${CLUSTER}" > "${SCRIPT_DIR}/start.log" 2>&1 || { echo "FAIL: start"; exit 1; }
+run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-start.log" "${ELOQCTL}" status "${CLUSTER}" --wait 60 || {
+    echo "FAIL: status after restart"
+    exit 1
+}
+echo "  OK"
+
+# ---- [9] Exec custom command ----
+echo "[9/12] Exec custom remote command"
+"${ELOQCTL}" exec "uname -a" "${TOPO}" > "${SCRIPT_DIR}/exec.log" 2>&1 || { echo "FAIL: exec"; cat "${SCRIPT_DIR}/exec.log"; exit 1; }
+echo "  OK"
+
+# ---- [10] Schema upgrade ----
+echo "[10/12] Schema upgrade"
+"${ELOQCTL}" upgrade > "${SCRIPT_DIR}/upgrade.log" 2>&1 || { echo "FAIL: upgrade"; exit 1; }
+echo "  OK"
+
+# ---- [11] Remove cluster ----
+echo "[11/12] Remove cluster"
+"${ELOQCTL}" stop "${CLUSTER}" --all --force >/dev/null 2>&1 || true
+"${ELOQCTL}" remove "${CLUSTER}" --force > "${SCRIPT_DIR}/remove.log" 2>&1 || { echo "FAIL: remove"; exit 1; }
+"${ELOQCTL}" list > "${SCRIPT_DIR}/post-remove-list.log" 2>&1
+grep -q "${CLUSTER}" "${SCRIPT_DIR}/post-remove-list.log" && { echo "FAIL: cluster still present after remove"; exit 1; }
+echo "  OK"
+
 echo ""
-echo "PASS: all E2E tests completed (launch, status, commands, rolling update, scale)"
+echo "PASS: all E2E tests completed"
