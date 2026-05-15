@@ -117,7 +117,18 @@ where
             cmd_exec_rs
         )
     });
-    if 0 != TaskArgValue::into_inner_value::<i32>(cmd_status.clone()) {
+    let status_code = TaskArgValue::into_inner_value::<i32>(cmd_status.clone());
+    if status_code != 0 {
+        // grep returns 1 when no matches found — this is normal, not an error.
+        if status_code == 1 {
+            let mut no_pid_result = cmd_exec_rs.clone();
+            no_pid_result.insert(
+                PROCESS_PID.to_string(),
+                TaskArgValue::Str(PID_NOT_FOUND.to_string()),
+            );
+            no_pid_result.insert(PROCESS_PID_LIST.to_string(), TaskArgValue::List(vec![]));
+            return Ok(no_pid_result);
+        }
         error!("check_process_pid fails status={:?}", cmd_status);
         return Err(anyhow!("Cmd {} execution fails", find_ps_cmd));
     }

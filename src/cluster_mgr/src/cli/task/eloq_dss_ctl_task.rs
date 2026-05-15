@@ -81,7 +81,7 @@ impl DssCtlCmd {
                 let ini_file = config.deployment.dss_srv_ini(&port);
 
                 let ps_cmd = format!(
-                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}'",
+                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}' | grep -v grep",
                     &config.connection.username, tx_home, ini_file
                 );
                 let ps_pids = format!("{} | awk '{{print $1}}'", ps_cmd);
@@ -232,7 +232,7 @@ impl TaskExecutor for EloqDssCtlTask {
                     .unwrap_or(tail.len());
                 let ini_file = &tail[..end];
                 let ps_cmd = format!(
-                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}'",
+                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}' | grep -v grep",
                     user, tx_home, ini_file
                 );
                 Some(ps_cmd)
