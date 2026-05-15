@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::process::Command;
 use strum_macros::Display;
 
 // pub(crate) static VERSION_PATT: LazyLock<Regex> =
@@ -277,6 +276,7 @@ impl Deployment {
     }
 
     fn ensure_tls_cert_for_node(&self, host: &str, port: &str) -> anyhow::Result<(String, String)> {
+        use rcgen::{CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, SanType};
         let (cert_name, key_name) = self.tls_file_names(host, port);
         let host_dir = create_upload_cluster_dir(&format!("{}/{}", self.cluster_name, host));
         let cert_path = host_dir.join(&cert_name);
@@ -286,64 +286,26 @@ impl Deployment {
             return Ok((cert_name, key_name));
         }
 
-        let mut subject_alt_names = vec![format!("DNS:{host}")];
+        let mut params = CertificateParams::default();
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, host);
+        params.distinguished_name = dn;
+        params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+
+        let mut san_list: Vec<SanType> = vec![SanType::DnsName(host.try_into()?)];
         if host == "localhost" {
-            subject_alt_names.push("DNS:localhost".to_string());
-            subject_alt_names.push("IP:127.0.0.1".to_string());
+            san_list.push(SanType::DnsName("localhost".try_into()?));
+            san_list.push(SanType::IpAddress("127.0.0.1".parse()?));
         } else if let Ok(ip) = host.parse::<IpAddr>() {
-            subject_alt_names.push(format!("IP:{ip}"));
+            san_list.push(SanType::IpAddress(ip));
         }
-        let san = subject_alt_names.join(",");
-        let subj = format!("/CN={host}");
-        let cert_path_str = cert_path.to_string_lossy().to_string();
-        let key_path_str = key_path.to_string_lossy().to_string();
+        params.subject_alt_names = san_list;
 
-        let output = Command::new("openssl")
-            .args([
-                "req",
-                "-x509",
-                "-nodes",
-                "-newkey",
-                "rsa:2048",
-                "-keyout",
-                key_path_str.as_str(),
-                "-out",
-                cert_path_str.as_str(),
-                "-days",
-                "3650",
-                "-subj",
-                subj.as_str(),
-                "-addext",
-                format!("subjectAltName={san}").as_str(),
-            ])
-            .output()?;
+        let key_pair = KeyPair::generate()?;
+        let cert = params.self_signed(&key_pair)?;
 
-        if !output.status.success() {
-            // Fallback for older OpenSSL versions that do not support -addext.
-            let fallback = Command::new("openssl")
-                .args([
-                    "req",
-                    "-x509",
-                    "-nodes",
-                    "-newkey",
-                    "rsa:2048",
-                    "-keyout",
-                    key_path_str.as_str(),
-                    "-out",
-                    cert_path_str.as_str(),
-                    "-days",
-                    "3650",
-                    "-subj",
-                    subj.as_str(),
-                ])
-                .output()?;
-            if !fallback.status.success() {
-                return Err(anyhow!(
-                    "failed to generate TLS cert for {host}:{port}. openssl stderr: {}",
-                    String::from_utf8_lossy(&fallback.stderr)
-                ));
-            }
-        }
+        std::fs::write(&cert_path, cert.pem())?;
+        std::fs::write(&key_path, key_pair.serialize_pem())?;
 
         Ok((cert_name, key_name))
     }

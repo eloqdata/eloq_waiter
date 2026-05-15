@@ -594,7 +594,7 @@ impl TaskGroup for ScaleLogTaskGroup {
                                     port,
                                 };
 
-                                let stop_cmd = format!("ps uxwe -u {} | grep '{}/bin/launch_sv' | grep 'wal_eloqkv/{}' | grep -v grep | awk '{{print $2}}' | xargs kill",   
+                                let stop_cmd = format!("ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/launch_sv' | grep 'wal_eloqkv/{}' | awk '{{print $1}}' | xargs -r kill",
                                     deploy_cfg.connection.username,
                                     deploy_cfg.deployment.log_srv_home(),
                                     port

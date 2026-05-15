@@ -81,12 +81,12 @@ impl DssCtlCmd {
                 let ini_file = config.deployment.dss_srv_ini(&port);
 
                 let ps_cmd = format!(
-                    "ps uxwe -u {} | grep '{}/bin/dss_server' | grep ' --config={}' | grep -v grep | awk '{{print $2}}'",
+                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}'",
                     &config.connection.username, tx_home, ini_file
                 );
+                let ps_pids = format!("{} | awk '{{print $1}}'", ps_cmd);
                 let ctl = match &cmd_arg {
                     SubCommand::Start { .. } | SubCommand::Launch { .. } | SubCommand::Install { .. } => {
-                        // Ensure dirs exist, then start with the uploaded config
                         let start_cmd = format!(
                             "cd {tx_home}; mkdir -p {logs_dir}; {dss_bin} --config={ini_file} \
 > {logs_dir}/std-{port}.log 2>&1 &"
@@ -96,13 +96,13 @@ impl DssCtlCmd {
                     SubCommand::Status { .. } => DssCtlCmd::Status(ps_cmd),
                     SubCommand::Stop { force, .. } => {
                         if *force {
-                            DssCtlCmd::ForceStop(format!("{ps_cmd} | xargs -r kill -9"))
+                            DssCtlCmd::ForceStop(format!("{ps_pids} | xargs -r kill -9"))
                         } else {
-                            DssCtlCmd::Stop(format!("{ps_cmd} | xargs -r kill"))
+                            DssCtlCmd::Stop(format!("{ps_pids} | xargs -r kill"))
                         }
                     }
                     SubCommand::Remove { .. } => {
-                        DssCtlCmd::ForceStop(format!("{ps_cmd} | xargs -r kill -9"))
+                        DssCtlCmd::ForceStop(format!("{ps_pids} | xargs -r kill -9"))
                     }
                     _ => unreachable!(),
                 };
@@ -232,7 +232,7 @@ impl TaskExecutor for EloqDssCtlTask {
                     .unwrap_or(tail.len());
                 let ini_file = &tail[..end];
                 let ps_cmd = format!(
-                    "ps uxwe -u {} | grep '{}/bin/dss_server' | grep ' --config={}' | grep -v grep | awk '{{print $2}}'",
+                    "ps -e -o pid,cmd --no-headers -u {} | grep '{}/bin/dss_server' | grep ' --config={}'",
                     user, tx_home, ini_file
                 );
                 Some(ps_cmd)

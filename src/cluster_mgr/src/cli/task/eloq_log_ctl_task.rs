@@ -18,7 +18,8 @@ use std::future::Future;
 use tracing::{debug, info, warn};
 
 const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
-const FIND_LOG_PROCESS_CMD: &str = r"ps uxwe -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' | grep -v grep | awk '{print _COLUMN}'";
+const FIND_LOG_PROCESS_CMD: &str =
+    r"ps -e -o pid,cmd --no-headers -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH'";
 
 // const AWK_PRINT_PID: &str =
 //     r#"awk '{printf "%s", sep $0; sep = "_SEP"}; END {if (NR) print ""}'"#;
@@ -79,8 +80,9 @@ impl LogCtlCmd {
                 let ps_cmd_part = FIND_LOG_PROCESS_CMD
                     .replace("_USER", user)
                     .replace("_LOG_BIN_CMD", format!("{log_home}/bin/launch_sv").as_str())
-                    .replace("_STORAGE_PATH", cmd_items.log_member.storage_path.as_str())
-                    .replace("_COLUMN", "$2");
+                    .replace("_STORAGE_PATH", cmd_items.log_member.storage_path.as_str());
+                // Extract PIDs only for kill commands
+                let ps_pids = format!("{} | awk '{{print $1}}'", ps_cmd_part);
                 let log_start_cmd = format!("/bin/bash {home_dir}/start_tx_log_{log_port}.bash");
                 let log_cmd = match &cmd_arg {
                     SubCommand::Start {
@@ -99,11 +101,10 @@ impl LogCtlCmd {
                         detail: _,
                     } => LogCtlCmd::Status(ps_cmd_part),
                     SubCommand::Stop { force, .. } => {
-                        let ps_log_info = ps_cmd_part;
                         let stop_cmd_string = if *force {
-                            format!("{ps_log_info} | xargs kill -9")
+                            format!("{ps_pids} | xargs -r kill -9")
                         } else {
-                            format!("{ps_log_info} | xargs kill")
+                            format!("{ps_pids} | xargs -r kill")
                         };
                         LogCtlCmd::Stop(stop_cmd_string)
                     }
@@ -111,8 +112,7 @@ impl LogCtlCmd {
                         cluster: _,
                         force: _,
                     } => {
-                        let ps_log_info = ps_cmd_part;
-                        let stop_cmd_string = format!("{ps_log_info} | xargs kill -9");
+                        let stop_cmd_string = format!("{ps_pids} | xargs -r kill -9");
                         LogCtlCmd::Stop(stop_cmd_string)
                     }
                     SubCommand::LogService {

@@ -359,26 +359,24 @@ impl SSHSession {
 
     pub async fn used_tcp_ports(&self) -> anyhow::Result<Vec<u16>> {
         let host = &self.host;
-        let cmd = "ss -tnl | awk 'NR>1 {print $4}' | awk -F':' '{print $NF}'";
+        let cmd = "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null";
         let (code, output) = self.execute(cmd).await?;
         if code != 0 {
             bail!("can't read used port at {host}, return {code}")
         }
-        info!(
-            "socket {host}:{} is already used",
-            output.replace('\n', ",")
-        );
-        let used = output
+        let used: Vec<u16> = output
             .lines()
-            .filter_map(|s| match s.parse::<u16>() {
-                Ok(port) => Some(port),
-                Err(err) => {
-                    warn!("can't parse port '{s}': {err}");
-                    None
-                }
+            .filter(|line| {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                fields.len() >= 4 && fields[3] == "0A"
+            })
+            .filter_map(|line| {
+                let local = line.split_whitespace().nth(1)?;
+                u16::from_str_radix(local.split(':').next_back()?, 16).ok()
             })
             .unique()
             .collect();
+        info!("socket {host}:{} is already used", used.iter().join(","));
         Ok(used)
     }
 

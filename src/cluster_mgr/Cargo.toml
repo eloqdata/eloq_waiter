@@ -83,6 +83,7 @@ uuid = { version = "1", features = ["v4"] }
 prettytable = "0.10.0"
 aws-sdk-s3 = "1.0"
 aws-config = "1.0"
+rcgen = "0.13"
 
 [build-dependencies]
 tonic-build = "0.9"

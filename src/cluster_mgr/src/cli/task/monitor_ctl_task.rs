@@ -85,9 +85,7 @@ impl MonitorComponentCommand {
             MonitorComponentCommand::Prometheus { home } => home,
             MonitorComponentCommand::Grafana { home } => home,
         };
-        let ps_pid = format!(r#"ps uxwe | grep "{monitor_component_home}" | grep -v grep | "#);
-        let output_pid = r#"awk '{print $2}'"#;
-        format!("{ps_pid} {output_pid}")
+        format!("ps -e -o pid,cmd --no-headers | grep \"{monitor_component_home}\"")
     }
 }
 
