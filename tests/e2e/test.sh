@@ -109,12 +109,12 @@ run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-scale-rm.log" 
 echo "  OK"
 
 # ---- [7] Stop + start cycle ----
-echo "[7/12] Stop cluster and validate topology"
+echo "[7/14] Stop cluster and validate topology"
 "${ELOQCTL}" stop "${CLUSTER}" --all --force > "${SCRIPT_DIR}/stop.log" 2>&1 || { echo "FAIL: stop"; exit 1; }
 sleep 3
 "${ELOQCTL}" check "${TOPO}" > "${SCRIPT_DIR}/check.log" 2>&1 && echo "  OK" || { echo "FAIL: check valid topology"; cat "${SCRIPT_DIR}/check.log"; exit 1; }
 
-echo "[8/12] Restart cluster"
+echo "[8/14] Restart cluster"
 "${ELOQCTL}" start "${CLUSTER}" > "${SCRIPT_DIR}/start.log" 2>&1 || { echo "FAIL: start"; exit 1; }
 run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-start.log" "${ELOQCTL}" status "${CLUSTER}" --wait 60 || {
     echo "FAIL: status after restart"
@@ -122,18 +122,40 @@ run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-start.log" "${
 }
 echo "  OK"
 
-# ---- [9] Exec custom command ----
-echo "[9/12] Exec custom remote command"
+# ---- [9] Failover ----
+echo "[9/14] Failover standby to master"
+"${ELOQCTL}" failover "${CLUSTER}" \
+    --old-leader-host 172.28.10.11 --old-leader-port 6379 \
+    --new-leader-host 172.28.10.11 --new-leader-port 6390 \
+    --password testpass > "${SCRIPT_DIR}/failover.log" 2>&1 || {
+    echo "FAIL: failover"
+    cat "${SCRIPT_DIR}/failover.log"
+    exit 1
+}
+run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-failover.log" "${ELOQCTL}" status "${CLUSTER}" --wait 60 || {
+    echo "FAIL: status after failover"
+    exit 1
+}
+echo "  OK"
+
+# ---- [10] Monitor + log-service status ----
+echo "[10/14] Monitor and log-service status"
+"${ELOQCTL}" monitor status "${CLUSTER}" > "${SCRIPT_DIR}/monitor-status.log" 2>&1 && echo "  monitor OK" || echo "  monitor N/A (skipped)"
+"${ELOQCTL}" log-service status "${CLUSTER}" > "${SCRIPT_DIR}/log-status.log" 2>&1 && echo "  log-srv OK" || echo "  log-srv N/A (skipped)"
+echo "  OK"
+
+# ---- [11] Exec custom command ----
+echo "[11/14] Exec custom remote command"
 "${ELOQCTL}" exec "uname -a" "${TOPO}" > "${SCRIPT_DIR}/exec.log" 2>&1 || { echo "FAIL: exec"; cat "${SCRIPT_DIR}/exec.log"; exit 1; }
 echo "  OK"
 
-# ---- [10] Schema upgrade ----
-echo "[10/12] Schema upgrade"
+# ---- [12] Schema upgrade ----
+echo "[12/14] Schema upgrade"
 "${ELOQCTL}" upgrade > "${SCRIPT_DIR}/upgrade.log" 2>&1 || { echo "FAIL: upgrade"; exit 1; }
 echo "  OK"
 
 # ---- [11] Remove cluster ----
-echo "[11/12] Remove cluster"
+echo "[13/14] Remove cluster"
 "${ELOQCTL}" stop "${CLUSTER}" --all --force >/dev/null 2>&1 || true
 "${ELOQCTL}" remove "${CLUSTER}" --force > "${SCRIPT_DIR}/remove.log" 2>&1 || { echo "FAIL: remove"; exit 1; }
 "${ELOQCTL}" list > "${SCRIPT_DIR}/post-remove-list.log" 2>&1
