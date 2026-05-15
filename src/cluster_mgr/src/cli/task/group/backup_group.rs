@@ -749,13 +749,8 @@ impl TaskGroup for BackupTaskGroup {
 
                         // Construct the command string
                         let command = format!(
-                            r#"bash -c 'export LD_LIBRARY_PATH={}/lib; for i in $(ls -1 "{}"); do "{}/bin/eloqkv_to_aof" --rocksdb_path "{}/$i" --output_file_dir "{}/$i" --thread_count "{}"; done'"#,
-                            tx_srv_home,
-                            rocksdb_path,
-                            tx_srv_home,
-                            rocksdb_path,
-                            output_file_dir,
-                            thread_count
+                            r#"export LD_LIBRARY_PATH="{0}/lib"; for i in "{1}"/*/; do name=$(basename "$i"); "{0}/bin/eloqkv_to_aof" --rocksdb_path "{1}/$name" --output_file_dir "{2}/$name" --thread_count "{3}"; done"#,
+                            tx_srv_home, rocksdb_path, output_file_dir, thread_count
                         );
 
                         // Create the task instance
@@ -807,13 +802,8 @@ impl TaskGroup for BackupTaskGroup {
 
                         // Construct the command string
                         let command = format!(
-                            r#"bash -c 'export LD_LIBRARY_PATH={}/lib; for i in $(ls -1 "{}"); do "{}/bin/eloqkv_to_rdb" --rocksdb_path "{}/$i" --output_file "{}/$i.rdb" --thread_count "{}"; done'"#,
-                            tx_srv_home,
-                            rocksdb_path,
-                            tx_srv_home,
-                            rocksdb_path,
-                            output_file_dir,
-                            thread_count
+                            r#"export LD_LIBRARY_PATH="{0}/lib"; for i in "{1}"/*/; do name=$(basename "$i"); "{0}/bin/eloqkv_to_rdb" --rocksdb_path "{1}/$name" --output_file "{2}/$name.rdb" --thread_count "{3}"; done"#,
+                            tx_srv_home, rocksdb_path, output_file_dir, thread_count
                         );
 
                         // Create the task instance

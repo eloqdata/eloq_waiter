@@ -65,21 +65,19 @@ macro_rules! eloq_cmd_with_port {
     ($ctl_cmd:ty, $tx_srv_bin:expr, $user:expr, $port:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
         let pid_cmd = format!(
-            "ps uxwe -u {} | grep {} | grep {}.ini | grep -v grep | ",
+            "ps -e -o pid,cmd --no-headers -u {} | grep {} | grep {}.ini",
             $user, $tx_srv_bin, $port
         );
-        let output_pid = r#"awk '{print $2}'"#;
         match ctl_cmd {
             "TxCtlCmd::ForceStop" => {
-                TxCtlCmd::ForceStop(format!("{} {} | xargs -r kill -9", pid_cmd, output_pid))
+                let pid_output = format!("{} | awk '{{print $1}}'", pid_cmd);
+                TxCtlCmd::ForceStop(format!("{} | xargs -r kill -9", pid_output))
             }
             "TxCtlCmd::Stop" => {
-                TxCtlCmd::Stop(format!("{} {} | xargs -r kill", pid_cmd, output_pid))
+                let pid_output = format!("{} | awk '{{print $1}}'", pid_cmd);
+                TxCtlCmd::Stop(format!("{} | xargs -r kill", pid_output))
             }
-            "TxCtlCmd::Status" => {
-                let ps_cmd = format!(r#"{} {} "#, pid_cmd, output_pid);
-                TxCtlCmd::Status(ps_cmd)
-            }
+            "TxCtlCmd::Status" => TxCtlCmd::Status(pid_cmd),
             _ => {
                 unreachable!()
             }

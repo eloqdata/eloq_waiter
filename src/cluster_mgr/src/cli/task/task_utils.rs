@@ -77,9 +77,11 @@ fn ps_cmd_output_extract(cmd_output: String) -> Vec<i32> {
     cmd_output
         .lines()
         .map(|line| line.trim())
-        .filter(|output_normal| !output_normal.is_empty())
-        .filter(|line| line.chars().all(char::is_numeric))
-        .map(|pid_str| pid_str.parse::<i32>().unwrap())
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let first_field = line.split_whitespace().next()?;
+            first_field.parse::<i32>().ok()
+        })
         .unique()
         .collect_vec()
 }
