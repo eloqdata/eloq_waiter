@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/monographdb/eloq_waiter/compare/v1.6.1...v1.6.2) (2026-05-15)
+
+
+### Documentation
+
+* backfill missing v1.6.0 refactor entries in changelog ([#383](https://github.com/monographdb/eloq_waiter/issues/383)) ([5f52ab6](https://github.com/monographdb/eloq_waiter/commit/5f52ab6ba57c4a4651dda437c11da4d3b9bf0b00))
+
 ## [1.6.1](https://github.com/monographdb/eloq_waiter/compare/v1.6.0...v1.6.1) (2026-05-15)
 
 
