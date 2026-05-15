@@ -13,6 +13,13 @@
 
 * move alert_thresholds under prometheus in config hierarchy ([#375](https://github.com/monographdb/eloq_waiter/issues/375)) ([0ecdc46](https://github.com/monographdb/eloq_waiter/commit/0ecdc4656fc44eb8afe2c90d840ff7b0376596ce))
 
+
+### Code Refactoring
+
+* replace fragile shell pipelines with native Rust or simpler commands ([#376](https://github.com/monographdb/eloq_waiter/issues/376)) ([810b2db](https://github.com/monographdb/eloq_waiter/commit/810b2db)) ([#377](https://github.com/monographdb/eloq_waiter/issues/377)) ([319f0d9](https://github.com/monographdb/eloq_waiter/commit/319f0d9))
+* improve production reliability and security — eliminate panics, SQL injection, hardcoded credentials ([#378](https://github.com/monographdb/eloq_waiter/issues/378)) ([92bcc39](https://github.com/monographdb/eloq_waiter/commit/92bcc39))
+* replace residual mono/monograph naming with eloq ([#379](https://github.com/monographdb/eloq_waiter/issues/379)) ([be2e64d](https://github.com/monographdb/eloq_waiter/commit/be2e64d))
+
 ## [1.5.0](https://github.com/monographdb/eloq_waiter/compare/v1.4.0...v1.5.0) (2026-05-15)
 
 
