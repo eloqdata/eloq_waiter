@@ -18,8 +18,7 @@ use std::future::Future;
 use tracing::{debug, info, warn};
 
 const CLUSTER_COMMAND_STR: &str = "cluster_cmd";
-const FIND_LOG_PROCESS_CMD: &str =
-    r"ps -e -o pid,cmd --no-headers -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH'";
+const FIND_LOG_PROCESS_CMD: &str = r"ps -e -o pid,cmd --no-headers -u _USER | grep '_LOG_BIN_CMD' | grep '_STORAGE_PATH' | grep -v grep";
 
 // const AWK_PRINT_PID: &str =
 //     r#"awk '{printf "%s", sep $0; sep = "_SEP"}; END {if (NR) print ""}'"#;

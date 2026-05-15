@@ -65,7 +65,7 @@ macro_rules! eloq_cmd_with_port {
     ($ctl_cmd:ty, $tx_srv_bin:expr, $user:expr, $port:expr) => {{
         let ctl_cmd = stringify!($ctl_cmd);
         let pid_cmd = format!(
-            "ps -e -o pid,cmd --no-headers -u {} | grep {} | grep {}.ini",
+            "ps -e -o pid,cmd --no-headers -u {} | grep {} | grep {}.ini | grep -v grep",
             $user, $tx_srv_bin, $port
         );
         match ctl_cmd {

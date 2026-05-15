@@ -85,7 +85,7 @@ impl MonitorComponentCommand {
             MonitorComponentCommand::Prometheus { home } => home,
             MonitorComponentCommand::Grafana { home } => home,
         };
-        format!("ps -e -o pid,cmd --no-headers | grep \"{monitor_component_home}\"")
+        format!("ps -e -o pid,cmd --no-headers | grep \"{monitor_component_home}\" | grep -v grep")
     }
 }
 
