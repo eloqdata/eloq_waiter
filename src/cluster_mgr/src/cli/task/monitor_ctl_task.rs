@@ -69,6 +69,16 @@ impl MonitorComponentCommand {
         format!("kill {pid}")
     }
 
+    pub fn reload_url(&self, monitor: &Monitor) -> Option<String> {
+        match self {
+            MonitorComponentCommand::Prometheus { .. } => monitor
+                .prometheus
+                .as_ref()
+                .map(|prom| format!("http://{}:{}/-/reload", prom.host, prom.port)),
+            _ => None,
+        }
+    }
+
     pub fn process_info(&self) -> String {
         let monitor_component_home = match &self {
             MonitorComponentCommand::NodeExporter { home } => home,
@@ -97,6 +107,7 @@ mod tests {
                 retention_time: Some("30d".to_string()),
                 retention_size: Some("50GB".to_string()),
                 remote_write_urls: None,
+                alertmanager_targets: None,
             }),
             grafana: None,
             node_exporter: None,
@@ -338,9 +349,29 @@ impl TaskExecutor for MonitorCtlTask {
                             is_some
                         )
                     } else {
-                        // Skip execution and return success
                         Ok(process_rs)
                     }
+                } else if let Some(reload_url) = self.monitor_ctl.reload_url(monitor_ref) {
+                    info!("Prometheus reload: POST {reload_url}");
+                    let resp = reqwest::Client::new()
+                        .post(&reload_url)
+                        .timeout(std::time::Duration::from_secs(10))
+                        .send()
+                        .await;
+                    match resp {
+                        Ok(r) if r.status().is_success() => {
+                            info!("Prometheus reloaded successfully");
+                        }
+                        Ok(r) => {
+                            let status = r.status();
+                            let body = r.text().await.unwrap_or_default();
+                            info!("Prometheus reload returned {status}: {body}");
+                        }
+                        Err(e) => {
+                            info!("Prometheus reload request failed: {e}");
+                        }
+                    }
+                    Ok(process_rs)
                 } else {
                     Ok(process_rs)
                 }
