@@ -60,6 +60,8 @@ pub struct Prometheus {
     pub remote_write_urls: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alertmanager_targets: Option<Vec<String>>,
+    #[serde(default)]
+    pub alert_thresholds: Option<AlertThresholds>,
 }
 
 impl Prometheus {
@@ -160,8 +162,6 @@ pub struct Monitor {
     pub grafana: Option<Grafana>,
     pub node_exporter: Option<Exporter>,
     pub eloq_metrics: Option<EloqMetrics>,
-    #[serde(default)]
-    pub alert_thresholds: Option<AlertThresholds>,
 }
 
 impl Monitor {
@@ -298,7 +298,11 @@ impl Monitor {
 
     pub fn gen_alert_rules(&self, cluster_name: &str) -> anyhow::Result<PathBuf> {
         use crate::config::ALERT_RULES_TEMPLATE;
-        let threshold = self.alert_thresholds.as_ref().cloned().unwrap_or_default();
+        let threshold = self
+            .prometheus
+            .as_ref()
+            .and_then(|p| p.alert_thresholds.clone())
+            .unwrap_or_default();
         let template_path = config_template(ALERT_RULES_TEMPLATE)?;
         let mut template = std::fs::read_to_string(&template_path)?;
 

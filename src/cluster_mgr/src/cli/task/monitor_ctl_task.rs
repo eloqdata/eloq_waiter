@@ -108,11 +108,11 @@ mod tests {
                 retention_size: Some("50GB".to_string()),
                 remote_write_urls: None,
                 alertmanager_targets: None,
+                alert_thresholds: None,
             }),
             grafana: None,
             node_exporter: None,
             eloq_metrics: None,
-            alert_thresholds: None,
         };
         let cmd = MonitorComponentCommand::Prometheus {
             home: "/tmp/prometheus".to_string(),
