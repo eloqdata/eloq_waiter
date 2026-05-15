@@ -9,10 +9,9 @@ use crate::config::{
     ELOQKV_NODE_INI, ELOQKV_TEMPLATE_INI, SECTION_CLUSTER, SECTION_LOCAL, SECTION_METRIC,
     SECTION_STORE,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use chrono::Local;
 use configparser::ini::Ini;
-use core::panic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -215,7 +214,7 @@ pub struct Deployment {
 
 impl Deployment {
     pub fn tx_image(&self) -> &str {
-        self.tx_service.image.as_ref().unwrap()
+        self.tx_service.image.as_deref().unwrap_or("latest")
     }
 
     pub fn log_image(&self) -> Option<&str> {
@@ -239,7 +238,7 @@ impl Deployment {
     }
 
     pub fn version_str(&self) -> &str {
-        self.version.as_ref().unwrap()
+        self.version.as_deref().unwrap_or("latest")
     }
 
     pub fn version(&self) -> Option<Version> {
@@ -427,7 +426,9 @@ impl Deployment {
             self.gen_eloqkv_node_config(None, None)?;
         }
         let mut my_ini_local = Ini::new();
-        let _config_map_rs = my_ini_local.load(my_local).unwrap();
+        let _config_map_rs = my_ini_local
+            .load(&my_local)
+            .map_err(|e| anyhow!("Failed to load local ini: {e}"))?;
         if let Some(keyspace) = my_ini_local.get(SECTION_STORE, "cass_keyspace") {
             Ok(keyspace)
         } else {
@@ -463,10 +464,12 @@ impl Deployment {
         ])
     }
 
-    pub fn bootstrap_host(&self) -> String {
+    pub fn bootstrap_host(&self) -> anyhow::Result<String> {
         let all_hosts = self.tx_service.merge_hosts();
-        assert!(!all_hosts.is_empty());
-        all_hosts.first().unwrap().to_string()
+        if all_hosts.is_empty() {
+            bail!("No hosts configured for bootstrap");
+        }
+        Ok(all_hosts.first().unwrap().to_string())
     }
 
     pub fn build_eloqkv_config(&self, set_ip_list: bool, port: String) -> anyhow::Result<Ini> {
@@ -476,7 +479,7 @@ impl Deployment {
             &self.cluster_name,
             ELOQKV_TEMPLATE_INI,
         )?)
-        .unwrap();
+        .map_err(|e| anyhow!("Failed to load template ini: {e}"))?;
 
         // Each eloqkv process will store data in {tx_srv_home}/data/port-{}, need to differentiate between different ports in case multiple eloqkv processes are running on the same host
         ini.set(
@@ -510,7 +513,7 @@ impl Deployment {
         // Only configure storage if storage_service is provided
         if let Some(storage) = self.storage_service.as_ref() {
             match storage.provider().unwrap() {
-                StorageProvider::Dynamodb => panic!("not supported"),
+                StorageProvider::Dynamodb => bail!("Dynamodb storage provider is not supported"),
                 StorageProvider::Rocksdb => match storage.rocksdb.clone().unwrap() {
                     RocksDB::LOCAL(local) => {
                         let rocks_path = match &local.path {
@@ -1148,7 +1151,7 @@ impl Deployment {
 
             if let Some(standby_host_ports) = &self.tx_service.standby_host_ports {
                 if standby_host_ports.is_empty() {
-                    panic!("standby_host_ports is empty, but it was expected to contain values.");
+                    bail!("standby_host_ports is empty, but it was expected to contain values.");
                 }
 
                 // Process each string in the standby_host_ports vector
@@ -1183,7 +1186,7 @@ impl Deployment {
 
             if let Some(voter_host_ports) = &self.tx_service.voter_host_ports {
                 if voter_host_ports.is_empty() {
-                    panic!("voter_host_ports is empty, but it was expected to contain values.");
+                    bail!("voter_host_ports is empty, but it was expected to contain values.");
                 }
 
                 // Process each string in the voter_host_ports vector
@@ -1472,7 +1475,9 @@ impl Deployment {
                 if let Some(val) = set_by_user!(ini.get(SECTION_LOCAL, key), u16) {
                     core_tx = val;
                 } else {
-                    assert!(hw.cpu > 0);
+                    if hw.cpu == 0 {
+                        bail!("Hardware CPU count must be greater than 0");
+                    }
                     core_tx = match hw.cpu {
                         1 | 2 => 1,
                         3 | 4 => 2,
@@ -1500,7 +1505,9 @@ impl Deployment {
                     if union_cass {
                         limit /= 2;
                     }
-                    assert!(limit > 0);
+                    if limit == 0 {
+                        bail!("Memory limit must be greater than 0");
+                    }
                     ini.set(SECTION_LOCAL, key, Some(limit.to_string()));
                 }
             }
@@ -1640,7 +1647,7 @@ impl Deployment {
             &self.cluster_name,
             ELOQDSS_TEMPLATE_INI,
         )?)
-        .unwrap();
+        .map_err(|e| anyhow!("Failed to load template ini: {e}"))?;
 
         ini.set("local", "ip", Some(host));
         ini.set("local", "port", Some(port.clone()));

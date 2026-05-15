@@ -26,9 +26,10 @@ use serde_yaml::Value as YamlValue;
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{env, fs};
+use tokio::sync::OnceCell;
 use tokio_postgres::config::SslMode;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
@@ -62,7 +63,7 @@ pub static HTTP_INTERNAL: LazyLock<reqwest::Client> = LazyLock::new(|| {
 pub struct CmdExecutor {
     task_mgr: Arc<TaskMgr>,
     state_mgr: Arc<StateMgr>,
-    pg_client: OnceLock<tokio_postgres::Client>,
+    pg_client: OnceCell<tokio_postgres::Client>,
     pub home: PathBuf,
 }
 
@@ -127,8 +128,17 @@ impl ClusterMutationLock {
         })
     }
 
+    /// Check whether a process with the given pid exists by examining /proc/<pid>.
+    /// This is Linux-specific; on other platforms we conservatively assume the process
+    /// still exists to avoid incorrectly reclaiming a live lock.
+    #[cfg(target_os = "linux")]
     fn process_exists(pid: u32) -> bool {
         Path::new("/proc").join(pid.to_string()).exists()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn process_exists(_pid: u32) -> bool {
+        true
     }
 
     fn is_stale(path: &Path) -> bool {
@@ -153,7 +163,7 @@ impl CmdExecutor {
         Self {
             task_mgr: Arc::new(TaskMgr::new()),
             state_mgr: Arc::new(STATE_MGR.clone()),
-            pg_client: OnceLock::new(),
+            pg_client: OnceCell::new(),
             home,
         }
     }
@@ -196,29 +206,30 @@ impl CmdExecutor {
     }
 
     async fn pg_client(&self) -> Result<&tokio_postgres::Client> {
-        if let Some(client) = self.pg_client.get() {
-            Ok(client)
-        } else {
-            let (client, conn) = tokio_postgres::Config::new()
-                .user("readonly_user")
-                .password("eloq_readonly123!")
-                .host("18.177.72.104")
-                .port(5432)
-                .dbname("eloq_release")
-                .ssl_mode(SslMode::Prefer)
-                .connect(NoTls)
-                .await
-                .map_err(|e| anyhow!("connect postgres failed: {e}"))?;
-            // The connection object performs the actual communication with the database,
-            // so spawn it off to run on its own.
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    error!("PG connection error: {}", e);
-                }
-            });
-            self.pg_client.set(client).unwrap();
-            Ok(self.pg_client.get().unwrap())
-        }
+        self.pg_client
+            .get_or_try_init(|| async {
+                let pg_password = env::var("ELOQCTL_PG_PASSWORD")
+                    .unwrap_or_else(|_| "eloq_readonly123!".to_string());
+                let (client, conn) = tokio_postgres::Config::new()
+                    .user("readonly_user")
+                    .password(pg_password)
+                    .host("18.177.72.104")
+                    .port(5432)
+                    .dbname("eloq_release")
+                    .ssl_mode(SslMode::Prefer)
+                    .connect(NoTls)
+                    .await
+                    .map_err(|e| anyhow!("connect postgres failed: {e}"))?;
+                // The connection object performs the actual communication with the database,
+                // so spawn it off to run on its own.
+                tokio::spawn(async move {
+                    if let Err(e) = conn.await {
+                        error!("PG connection error: {}", e);
+                    }
+                });
+                Ok(client)
+            })
+            .await
     }
 
     pub fn task_mgr(&self) -> &Arc<TaskMgr> {
@@ -1035,7 +1046,7 @@ impl CmdExecutor {
                 }
             }
 
-            _ => unreachable!(),
+            _ => Err(anyhow!("unexpected command: {cmd:?}")),
         }
     }
 
@@ -1152,7 +1163,7 @@ impl CmdExecutor {
                         println!("{}", deploy_config.client_conn());
                     }
                     SubCommand::Export { cluster, output } => {
-                        let yaml_str = deploy_config.to_yaml();
+                        let yaml_str = deploy_config.to_yaml()?;
                         if let Some(path) = output {
                             std::fs::write(path.clone(), &yaml_str)
                                 .map_err(|e| anyhow!("failed to write {}: {}", path, e))?;
@@ -1565,16 +1576,24 @@ impl CmdExecutor {
         store: Option<StorageProvider>,
     ) -> Result<()> {
         let client = self.pg_client().await?;
+        let arch = cpu_arch();
+        let os = self.os_vers();
+        let product_name = product.as_ref().map(|p| p.name().to_string());
+        let store_name = store.as_ref().map(|s| s.to_string());
+
         let mut sql = "SELECT * FROM tx_release WHERE arch=$1 AND os=$2".to_owned();
-        if let Some(p) = product {
-            sql.push_str(&format!(" AND product='{}'", p.name()));
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![&arch, &os];
+        if let Some(ref p) = product_name {
+            sql.push_str(&format!(" AND product=${}", params.len() + 1));
+            params.push(p);
         }
-        if let Some(s) = store {
-            sql.push_str(&format!(" AND store='{s}'"));
+        if let Some(ref s) = store_name {
+            sql.push_str(&format!(" AND store=${}", params.len() + 1));
+            params.push(s);
         }
 
         let list = client
-            .query(&sql, &[&cpu_arch(), &self.os_vers()])
+            .query(&sql, &params)
             .await?
             .into_iter()
             .map(|row| {
@@ -1816,7 +1835,7 @@ impl CmdExecutor {
                 self.save_deployment_config(&config, false).await?;
                 Ok(Config::Cluster(config))
             }
-            _ => unreachable!(),
+            _ => Err(anyhow!("unexpected command: {cmd:?}")),
         }
     }
 
