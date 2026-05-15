@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/monographdb/eloq_waiter/compare/v1.4.0...v1.5.0) (2026-05-15)
+
+
+### Features
+
+* modernize eloqctl for EloqKV operations ([#368](https://github.com/monographdb/eloq_waiter/issues/368)) ([b8e35a4](https://github.com/monographdb/eloq_waiter/commit/b8e35a425d3479e83c0905bd8c6a23e56920fabd))
+
+
+### Bug Fixes
+
+* resolve clippy collapsible_match warnings on nightly ([#370](https://github.com/monographdb/eloq_waiter/issues/370)) ([4e88ccb](https://github.com/monographdb/eloq_waiter/commit/4e88ccbf123c6ec8f1214e47ad6ed7e1fe328095))
+
 ## [1.4.0](https://github.com/monographdb/eloq_waiter/compare/v1.3.0...v1.4.0) (2026-05-13)
 
 
