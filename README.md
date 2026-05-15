@@ -108,9 +108,16 @@ The push gate is `scripts/test-before-push.sh`. It performs:
 1. Local dev install of `eloqctl`.
 2. Rust formatting check.
 3. `cargo check -p cluster_mgr`.
-4. Docker HA EloqKV E2E.
-5. Docker rolling update E2E.
-6. Docker scale E2E.
+4. `cargo clippy --all-targets --all-features -- -D warnings`.
+5. Docker HA EloqKV E2E.
+6. Docker rolling update E2E.
+7. Docker scale E2E.
+
+The gate uses the Rust nightly toolchain specified in `rust-toolchain.toml`. Ensure the clippy component is installed:
+
+```sh
+rustup component add clippy
+```
 
 Install the pre-push hook with:
 
