@@ -58,6 +58,8 @@ pub struct Prometheus {
     pub retention_size: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_write_urls: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alertmanager_targets: Option<Vec<String>>,
 }
 
 impl Prometheus {
@@ -407,6 +409,33 @@ impl Monitor {
                 "remote_write".to_string(),
                 Value::Sequence(remote_write_entries),
             );
+        }
+
+        if let Some(alertmanager_targets) = &self
+            .prometheus
+            .as_ref()
+            .and_then(|p| p.alertmanager_targets.as_ref())
+        {
+            let am_static_targets: Vec<Value> = alertmanager_targets
+                .iter()
+                .map(|t| Value::String(t.clone()))
+                .collect();
+            let mut am_static_config = serde_yaml::Mapping::new();
+            am_static_config.insert(
+                Value::String("targets".to_string()),
+                Value::Sequence(am_static_targets),
+            );
+            let mut am_target_entry = serde_yaml::Mapping::new();
+            am_target_entry.insert(
+                Value::String("static_configs".to_string()),
+                Value::Sequence(vec![Value::Mapping(am_static_config)]),
+            );
+            let mut alerting_section = serde_yaml::Mapping::new();
+            alerting_section.insert(
+                Value::String("alertmanagers".to_string()),
+                Value::Sequence(vec![Value::Mapping(am_target_entry)]),
+            );
+            prometheus_config_map.insert("alerting".to_string(), Value::Mapping(alerting_section));
         }
 
         let prometheus_config_file = upload_dir()
