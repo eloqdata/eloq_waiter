@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.4](https://github.com/monographdb/eloq_waiter/compare/v1.6.3...v1.6.4) (2026-05-20)
+
+
+### Bug Fixes
+
+* verify standby Redis readiness after mutations ([#390](https://github.com/monographdb/eloq_waiter/issues/390)) ([716ecac](https://github.com/monographdb/eloq_waiter/commit/716ecacffff91fd31a335701a05930e86fcdbc72))
+
+
+### Documentation
+
+* update E2E README with coverage table, cleanup old tests, remove --password ([#392](https://github.com/monographdb/eloq_waiter/issues/392)) ([0b89cae](https://github.com/monographdb/eloq_waiter/commit/0b89cae979d8ad26ac1d7b95f180f3d33e4a79ed))
+
 ## [1.6.3](https://github.com/monographdb/eloq_waiter/compare/v1.6.2...v1.6.3) (2026-05-15)
 
 
