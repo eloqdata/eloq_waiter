@@ -85,7 +85,7 @@ echo "  OK"
 # ---- [5] Scale add + remove ----
 echo "[5/6] Scale add standby"
 "${ELOQCTL}" status "${CLUSTER}" >/dev/null 2>&1
-"${ELOQCTL}" scale "${CLUSTER}" --add-nodes "172.28.10.11:6390" --ng-id 0 --is-candidate true --password testpass > "${SCRIPT_DIR}/scale-add.log" 2>&1 || {
+"${ELOQCTL}" scale "${CLUSTER}" --add-nodes "172.28.10.11:6390" --ng-id 0 --is-candidate true > "${SCRIPT_DIR}/scale-add.log" 2>&1 || {
     echo "FAIL: scale add"
     dump_failure_diagnostics "${SCRIPT_DIR}/scale-add.log"
     exit 1
@@ -97,7 +97,7 @@ run_with_progress "${STATUS_TIMEOUT_SECONDS}" "${SCRIPT_DIR}/post-scale-add.log"
 echo "  OK"
 
 echo "[6/6] Scale remove old standby"
-"${ELOQCTL}" scale "${CLUSTER}" --remove-nodes "172.28.10.12:6379" --password testpass > "${SCRIPT_DIR}/scale-remove.log" 2>&1 || {
+"${ELOQCTL}" scale "${CLUSTER}" --remove-nodes "172.28.10.12:6379" > "${SCRIPT_DIR}/scale-remove.log" 2>&1 || {
     echo "FAIL: scale remove"
     dump_failure_diagnostics "${SCRIPT_DIR}/scale-remove.log"
     exit 1
@@ -127,7 +127,7 @@ echo "[9/14] Failover standby to master"
 "${ELOQCTL}" failover "${CLUSTER}" \
     --old-leader-host 172.28.10.11 --old-leader-port 6379 \
     --new-leader-host 172.28.10.11 --new-leader-port 6390 \
-    --password testpass > "${SCRIPT_DIR}/failover.log" 2>&1 || {
+    > "${SCRIPT_DIR}/failover.log" 2>&1 || {
     echo "FAIL: failover"
     cat "${SCRIPT_DIR}/failover.log"
     exit 1
