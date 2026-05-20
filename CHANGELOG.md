@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.5](https://github.com/monographdb/eloq_waiter/compare/v1.6.4...v1.6.5) (2026-05-20)
+
+
+### Bug Fixes
+
+* add Cargo.lock to release-please extra-files ([#393](https://github.com/monographdb/eloq_waiter/issues/393)) ([b5b3c4c](https://github.com/monographdb/eloq_waiter/commit/b5b3c4cdfa6cd2f76ca531cf880572fdd5285b7d))
+
 ## [1.6.4](https://github.com/monographdb/eloq_waiter/compare/v1.6.3...v1.6.4) (2026-05-20)
 
 
