@@ -216,7 +216,7 @@ impl CmdExecutor {
                     .host("18.177.72.104")
                     .port(5432)
                     .dbname("eloq_release")
-                    .ssl_mode(SslMode::Prefer)
+                    .ssl_mode(SslMode::Disable)
                     .connect(NoTls)
                     .await
                     .map_err(|e| anyhow!("connect postgres failed: {e}"))?;
