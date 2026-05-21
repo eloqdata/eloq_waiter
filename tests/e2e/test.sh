@@ -190,22 +190,12 @@ echo "[12/14] Schema upgrade"
 "${ELOQCTL}" upgrade > "${SCRIPT_DIR}/upgrade.log" 2>&1 || { echo "FAIL: upgrade"; exit 1; }
 echo "  OK"
 
-# ---- [11] Remove cluster ----
-echo "[13/14] Remove cluster"
-"${ELOQCTL}" stop "${CLUSTER}" --all --force >/dev/null 2>&1 || true
-"${ELOQCTL}" remove "${CLUSTER}" --force > "${SCRIPT_DIR}/remove.log" 2>&1 || { echo "FAIL: remove"; exit 1; }
-"${ELOQCTL}" list > "${SCRIPT_DIR}/post-remove-list.log" 2>&1
-grep -q "${CLUSTER}" "${SCRIPT_DIR}/post-remove-list.log" && { echo "FAIL: cluster still present after remove"; exit 1; }
-echo "  OK"
-
-echo ""
-
 # ---- [S] Stress test (STRESS=1) ----
 if [ "${STRESS}" = "1" ]; then
     echo "[S] Concurrent connection stress test (maxclients=60000)"
-    echo "  installing redis-py..."
+    echo "  installing redis-py on test nodes..."
     for port in 2221 2222 2223; do
-        ssh_cmd "${port}" "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip >/dev/null 2>&1 && pip3 install --quiet redis >/dev/null 2>&1" &
+        ssh_cmd "${port}" "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip >/dev/null 2>&1 && pip3 install --quiet redis >/dev/null 2>&1" &
     done
     wait
     scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
@@ -213,7 +203,7 @@ if [ "${STRESS}" = "1" ]; then
         -i "${ELOQCTL_DOCKER_SSH_KEY}" -P 2221 \
         "${SCRIPT_DIR}/stress.py" "eloq@127.0.0.1:/home/eloq/${CLUSTER}/stress.py" \
         >/dev/null 2>&1 || { echo "FAIL: cannot upload stress script"; exit 1; }
-    echo "  Starting 30000 concurrent connections (PING, INFO, CLUSTER INFO, CLUSTER SLOTS)..."
+    echo "  Starting 30000 concurrent connections..."
     ssh_cmd 2221 "python3 /home/eloq/${CLUSTER}/stress.py --host 172.28.10.11 --port 6379 --password ${PASSWD} --connections 30000" \
         > "${SCRIPT_DIR}/stress.log" 2>&1 || {
         echo "FAIL: stress test failed"
@@ -226,4 +216,13 @@ if [ "${STRESS}" = "1" ]; then
     echo "  OK"
 fi
 
+# ---- [11] Remove cluster ----
+echo "[13/14] Remove cluster"
+"${ELOQCTL}" stop "${CLUSTER}" --all --force >/dev/null 2>&1 || true
+"${ELOQCTL}" remove "${CLUSTER}" --force > "${SCRIPT_DIR}/remove.log" 2>&1 || { echo "FAIL: remove"; exit 1; }
+"${ELOQCTL}" list > "${SCRIPT_DIR}/post-remove-list.log" 2>&1
+grep -q "${CLUSTER}" "${SCRIPT_DIR}/post-remove-list.log" && { echo "FAIL: cluster still present after remove"; exit 1; }
+echo "  OK"
+
+echo ""
 echo "PASS: all E2E tests completed"
