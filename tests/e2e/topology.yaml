@@ -8,7 +8,7 @@ deployment:
   product: "EloqKV"
   version: "${ELOQKV_VERSION}"
   install_dir: "/home/eloq"
-  enable_wal: true
+  enable_wal: false
   enable_io_uring: false
   enable_tls: true
   cluster_mode: true
