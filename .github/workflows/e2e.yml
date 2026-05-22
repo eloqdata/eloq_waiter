@@ -12,9 +12,9 @@ on:
         required: false
         default: "1.2.2"
       storage:
-        description: "Storage type (rocks_s3 / rocksdb)"
+        description: "Storage type (rocksdb / rocks_s3)"
         required: false
-        default: "rocks_s3"
+        default: "rocksdb"
       workers:
         description: "Stress test workers"
         required: false
@@ -70,7 +70,7 @@ jobs:
         id: vars
         run: |
           V="${VERSION:-${{ github.event.inputs.version || '1.2.2' }}}"
-          S="${STORAGE:-${{ github.event.inputs.storage || 'rocks_s3' }}}"
+          S="${STORAGE:-${{ github.event.inputs.storage || 'rocksdb' }}}"
           echo "version=${V}" >> "$GITHUB_OUTPUT"
           echo "storage=${S}" >> "$GITHUB_OUTPUT"
           echo "tx_tarball=eloqkv-${V}-ubuntu24-amd64.tar.gz" >> "$GITHUB_OUTPUT"

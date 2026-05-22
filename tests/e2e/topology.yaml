@@ -34,7 +34,7 @@ deployment:
     voter_host_ports: [172.28.10.13:6379]
     requirepass: "testpass"
   storage_service:
-    rocks_s3: !MINIO
+    rocksdb: !MINIO
       aws_access_key_id: "minioadmin"
       aws_secret_key: "minioadmin"
       bucket_name: "eloqservice"
