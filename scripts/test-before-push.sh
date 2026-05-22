@@ -18,7 +18,7 @@ cargo check -p cluster_mgr
 cargo clippy --all-targets --all-features -- -D warnings
 
 echo "[4/5] Run Docker E2E suite"
-bash tests/e2e/test.sh
+bash tests/e2e/cmd_stress_test.sh
 
 echo "[5/5] Done"
 echo "PASS: pre-push test suite completed"
