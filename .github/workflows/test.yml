@@ -1,4 +1,4 @@
-name: E2E Test
+name: Test
 
 on:
   pull_request:
@@ -31,8 +31,8 @@ permissions:
   contents: read
 
 jobs:
-  e2e:
-    name: E2E (Python + Go + TS)
+  test:
+    name: Test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -44,19 +44,31 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: protobuf-compiler pkg-config libssl-dev
-          version: e2e-ubuntu24-v1
+          version: test-ubuntu24-v1
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-04-21
+          components: rustfmt, clippy
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          shared-key: e2e-ubuntu24
+          shared-key: test-ubuntu24
           cache-on-failure: true
 
+      # ── Rust quality checks ──
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --tests -- --test-threads=1
+
+      # ── Build eloqctl ──
       - name: Build eloqctl
         run: |
           cargo build -p cluster_mgr
@@ -66,6 +78,7 @@ jobs:
           rm -f ~/.eloqctl/config
           ln -s "$PWD/src/cluster_mgr/config" ~/.eloqctl/config
 
+      # ── Resolve E2E inputs ──
       - name: Resolve inputs
         id: vars
         run: |
@@ -73,30 +86,8 @@ jobs:
           S="${STORAGE:-${{ github.event.inputs.storage || 'rocksdb' }}}"
           echo "version=${V}" >> "$GITHUB_OUTPUT"
           echo "storage=${S}" >> "$GITHUB_OUTPUT"
-          echo "tx_tarball=eloqkv-${V}-ubuntu24-amd64.tar.gz" >> "$GITHUB_OUTPUT"
-          echo "log_tarball=log-service-${V}-ubuntu24-amd64.tar.gz" >> "$GITHUB_OUTPUT"
 
-      - name: Cache eloqkv binaries
-        id: cache-eloqkv
-        uses: actions/cache@v4
-        with:
-          path: ~/.eloqctl/download
-          key: eloqkv-${{ steps.vars.outputs.version }}-${{ steps.vars.outputs.storage }}
-
-      - name: Download eloqkv binaries (if not cached)
-        if: steps.cache-eloqkv.outputs.cache-hit != 'true'
-        run: |
-          S="${{ steps.vars.outputs.storage }}"
-          TX="eloqkv/${S}/${{ steps.vars.outputs.tx_tarball }}"
-          LOG="eloqkv/logservice/rocks_s3/${{ steps.vars.outputs.log_tarball }}"
-          BASE="https://download.eloqdata.com"
-
-          mkdir -p "$HOME/.eloqctl/download/$(dirname "${TX}")"
-          curl -fsSL --retry 3 -o "$HOME/.eloqctl/download/${TX}" "${BASE}/${TX}"
-
-          mkdir -p "$HOME/.eloqctl/download/$(dirname "${LOG}")"
-          curl -fsSL --retry 3 -o "$HOME/.eloqctl/download/${LOG}" "${BASE}/${LOG}"
-
+      # ── E2E test ──
       - name: Run E2E test
         run: |
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
