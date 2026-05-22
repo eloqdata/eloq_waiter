@@ -100,7 +100,11 @@ jobs:
       - name: Run E2E test
         run: |
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
-          export COMPOSE_OVERRIDE_FILE="$DOCKER_E2E_DIR/docker-compose.ci.yml"
+          # Strip seccomp/cap_add for CI compatibility
+          grep -q 'seccomp:unconfined' "$DOCKER_E2E_DIR/docker-compose.yaml" && {
+            sed -i '/cap_add:/d; /- SYS_PTRACE/d; /security_opt:/d; /- seccomp:unconfined/d' \
+              "$DOCKER_E2E_DIR/docker-compose.yaml"
+          }
           export ELOQCTL_HOME="$HOME/.eloqctl"
           export ELOQCTL="$HOME/.eloqctl/bin/cluster_mgr"
           export HOST_ELOQCTL_HOME="${ELOQCTL_HOME}"
