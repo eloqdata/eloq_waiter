@@ -16,13 +16,11 @@ HOST_ELOQCTL_HOME="${HOST_ELOQCTL_HOME:-${REPO_ROOT}/.tmp-eloqctl}"
 export ELOQCTL_DOCKER_SSH_KEY
 CLEANUP_TIMEOUT_SECONDS="${CLEANUP_TIMEOUT_SECONDS:-20}"
 ELOQKV_VERSION="${ELOQKV_VERSION:-1.2.2}"
-ELOQKV_STORAGE="${ELOQKV_STORAGE:-rocksdb}"
 MINIO_ALIAS="${MINIO_ALIAS:-e2e-minio}"
 MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://127.0.0.1:19000}"
 MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minioadmin}"
 MINIO_BUCKET="${MINIO_BUCKET:-storeeloqservice}"
-MINIO_LOG_BUCKET="${MINIO_LOG_BUCKET:-eloqlogservice}"
 
 COMPOSE_BASE="${DOCKER_E2E_DIR}/docker-compose.yaml"
 COMPOSE_OVERRIDE=""
@@ -109,74 +107,6 @@ prepare_control_node() {
     "
 }
 
-seed_control_download_cache() {
-    local host_cache_root="${HOST_ELOQCTL_HOME}/download"
-    local control_cache_root="${CONTROL_ELOQCTL_HOME}/download"
-    local tx_tarball="eloqkv-${ELOQKV_VERSION}-ubuntu24-amd64.tar.gz"
-    local log_tarball="log-service-${ELOQKV_VERSION}-ubuntu24-amd64.tar.gz"
-
-    if [ ! -d "${host_cache_root}" ]; then
-        return
-    fi
-
-    echo "[docker] Seed control-node download cache"
-    compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-        set -eu
-        install -d -m 755 -o eloq -g eloq '${control_cache_root}/eloqkv'
-    "
-
-    # tx service (path uses storage type from topology, e.g. rocksdb)
-    if [ -f "${host_cache_root}/eloqkv/${ELOQKV_STORAGE}/${tx_tarball}" ]; then
-        compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-            set -eu
-            install -d -m 755 -o eloq -g eloq '${control_cache_root}/eloqkv/${ELOQKV_STORAGE}'
-        "
-        compose cp \
-            "${host_cache_root}/eloqkv/${ELOQKV_STORAGE}/${tx_tarball}" \
-            "${CONTROL_NODE_SERVICE}:${control_cache_root}/eloqkv/${ELOQKV_STORAGE}/${tx_tarball}"
-        compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-            set -eu
-            chown eloq:eloq '${control_cache_root}/eloqkv/${ELOQKV_STORAGE}/${tx_tarball}'
-        "
-    fi
-
-    # log service
-    if [ -f "${host_cache_root}/eloqkv/logservice/rocks_s3/${log_tarball}" ]; then
-        compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-            set -eu
-            install -d -m 755 -o eloq -g eloq '${control_cache_root}/eloqkv/logservice/rocks_s3'
-        "
-        compose cp \
-            "${host_cache_root}/eloqkv/logservice/rocks_s3/${log_tarball}" \
-            "${CONTROL_NODE_SERVICE}:${control_cache_root}/eloqkv/logservice/rocks_s3/${log_tarball}"
-        compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-            set -eu
-            chown eloq:eloq '${control_cache_root}/eloqkv/logservice/rocks_s3/${log_tarball}'
-        "
-    fi
-}
-
-seed_control_upload_configs() {
-    local host_upload_root="${HOST_ELOQCTL_HOME}/upload/${CLUSTER_NAME}"
-    local control_upload_root="${CONTROL_ELOQCTL_HOME}/upload/${CLUSTER_NAME}"
-
-    if [ ! -d "${host_upload_root}" ]; then
-        return
-    fi
-
-    echo "[docker] Seed control-node upload configs"
-    compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-        set -eu
-        rm -rf '${control_upload_root}'
-        install -d -m 755 -o eloq -g eloq '${CONTROL_ELOQCTL_HOME}/upload'
-    "
-    compose cp "${host_upload_root}" "${CONTROL_NODE_SERVICE}:${CONTROL_ELOQCTL_HOME}/upload/"
-    compose exec -T "${CONTROL_NODE_SERVICE}" bash -lc "
-        set -eu
-        chown -R eloq:eloq '${control_upload_root}'
-    "
-}
-
 start_docker_env() {
     ensure_dev_eloqctl
     ensure_ssh_key
@@ -208,8 +138,6 @@ start_docker_env() {
         alias set "${MINIO_ALIAS}" "${MINIO_ENDPOINT}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null
     docker run --rm --network host minio/mc:RELEASE.2025-05-21T01-59-54Z \
         mb --ignore-existing "${MINIO_ALIAS}/${MINIO_BUCKET}" >/dev/null
-    docker run --rm --network host minio/mc:RELEASE.2025-05-21T01-59-54Z \
-        mb --ignore-existing "${MINIO_ALIAS}/${MINIO_LOG_BUCKET}" >/dev/null
 
     echo "[docker] Wait for SSH"
     for host in 2221 2222 2223 2224; do
@@ -229,8 +157,6 @@ start_docker_env() {
 
     echo "[docker] Prepare control node ${CONTROL_NODE_SERVICE}"
     prepare_control_node
-    seed_control_download_cache
-    seed_control_upload_configs
 }
 
 dump_failure_diagnostics() {

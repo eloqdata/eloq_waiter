@@ -38,6 +38,7 @@ src/log/
 log/
 .monograph_waiter/
 .bin/
+.tmp-eloqctl/
 tests/ssh_keys/test_rsa
 tests/**/.eloqctl/
 tests/**/topology.generated.yaml

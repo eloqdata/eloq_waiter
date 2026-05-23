@@ -199,18 +199,59 @@ const CMD_TESTS: [string, CmdFn][] = [
 // Stats
 // ---------------------------------------------------------------------------
 class CmdStats {
-  private counts = new Map<string, { ok: number; fail: number }>();
+  private counts = new Map<string, {
+    ok: number;
+    fail: number;
+    errorTypes: Map<string, number>;
+    samples: string[];
+  }>();
+  private get(name: string) {
+    let v = this.counts.get(name);
+    if (!v) {
+      v = { ok: 0, fail: 0, errorTypes: new Map(), samples: [] };
+      this.counts.set(name, v);
+    }
+    return v;
+  }
   addOK(name: string) {
-    const v = this.counts.get(name) || { ok: 0, fail: 0 };
-    v.ok++; this.counts.set(name, v);
+    const v = this.get(name);
+    v.ok++;
   }
-  addFail(name: string) {
-    const v = this.counts.get(name) || { ok: 0, fail: 0 };
-    v.fail++; this.counts.set(name, v);
+  addFail(name: string, err: unknown) {
+    const v = this.get(name);
+    v.fail++;
+    const signature = errorSignature(err);
+    v.errorTypes.set(signature, (v.errorTypes.get(signature) || 0) + 1);
+    if (v.samples.length < 3 && !v.samples.includes(signature)) v.samples.push(signature);
   }
-  snapshot(): Map<string, { ok: number; fail: number }> {
-    return new Map(this.counts);
+  snapshot(): Map<string, {
+    ok: number;
+    fail: number;
+    errorTypes: Map<string, number>;
+    samples: string[];
+  }> {
+    return new Map(Array.from(this.counts.entries(), ([name, value]) => [name, {
+      ok: value.ok,
+      fail: value.fail,
+      errorTypes: new Map(value.errorTypes),
+      samples: [...value.samples],
+    }]));
   }
+}
+
+function errorSignature(err: unknown): string {
+  if (err instanceof Error) {
+    const message = err.message.replace(/\s+/g, " ").trim();
+    return `${err.name}: ${message || err.toString()}`;
+  }
+  const message = String(err).replace(/\s+/g, " ").trim();
+  return `Error: ${message}`;
+}
+
+function topErrorCounts(errorTypes: Map<string, number>): [string, number][] {
+  return Array.from(errorTypes.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,8 +270,8 @@ async function stressWorker(
       try {
         await fn(client, ki);
         stats.addOK(name);
-      } catch {
-        stats.addFail(name);
+      } catch (err) {
+        stats.addFail(name, err);
       }
     }
     cmdIdx++;
@@ -371,8 +412,8 @@ async function main() {
   clearInterval(progressInterval);
   clearInterval(checkStop);
 
-  await master.quit();
-  if (replica) await replica.quit();
+  master.disconnect();
+  if (replica) replica.disconnect();
   cluster.disconnect();
 
   // Report
@@ -383,7 +424,15 @@ async function main() {
     console.log(`--- ${label} ---`);
     console.log(`total_commands: ok=${totalOK} fail=${totalFail}`);
     for (const [name, v] of snap) {
-      if (v.fail > 0) console.log(`  ${name}: ok=${v.ok} fail=${v.fail}`);
+      if (v.fail > 0) {
+        console.log(`  ${name}: ok=${v.ok} fail=${v.fail}`);
+        for (const [signature, count] of topErrorCounts(v.errorTypes)) {
+          console.log(`    error[${count}]: ${signature.slice(0, 200)}`);
+        }
+        for (const sample of v.samples) {
+          console.log(`    sample: ${sample.slice(0, 200)}`);
+        }
+      }
     }
     return { totalOK, totalFail };
   }

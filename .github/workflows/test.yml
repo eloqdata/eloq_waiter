@@ -11,14 +11,10 @@ on:
         description: "EloqKV version"
         required: false
         default: "1.2.2"
-      storage:
-        description: "Storage type (rocksdb / rocks_s3)"
-        required: false
-        default: "rocksdb"
       workers:
         description: "Stress test workers"
         required: false
-        default: "16"
+        default: "32"
       duration:
         description: "Stress duration (seconds)"
         required: false
@@ -37,8 +33,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -58,7 +53,6 @@ jobs:
           shared-key: test-ubuntu24
           cache-on-failure: true
 
-      # ── Rust quality checks ──
       - name: Format check
         run: cargo fmt --all -- --check
 
@@ -68,7 +62,6 @@ jobs:
       - name: Unit tests
         run: cargo test --tests -- --test-threads=1
 
-      # ── Build eloqctl ──
       - name: Build eloqctl
         run: |
           cargo build -p cluster_mgr
@@ -78,24 +71,12 @@ jobs:
           rm -f ~/.eloqctl/config
           ln -s "$PWD/src/cluster_mgr/config" ~/.eloqctl/config
 
-      # ── Resolve E2E inputs ──
-      - name: Resolve inputs
-        id: vars
-        run: |
-          V="${VERSION:-${{ github.event.inputs.version || '1.2.2' }}}"
-          S="${STORAGE:-${{ github.event.inputs.storage || 'rocksdb' }}}"
-          echo "version=${V}" >> "$GITHUB_OUTPUT"
-          echo "storage=${S}" >> "$GITHUB_OUTPUT"
-
-      # ── E2E test ──
       - name: Run E2E test
         run: |
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
           export ELOQCTL_HOME="$HOME/.eloqctl"
           export ELOQCTL="$HOME/.eloqctl/bin/cluster_mgr"
-          export HOST_ELOQCTL_HOME="${ELOQCTL_HOME}"
-          export ELOQKV_VERSION="${{ steps.vars.outputs.version }}"
-          export ELOQKV_STORAGE="${{ steps.vars.outputs.storage }}"
+          export ELOQKV_VERSION="${{ github.event.inputs.version || '1.2.2' }}"
           export DURATION_SECONDS="${{ github.event.inputs.duration || '60' }}"
           export WORKERS="${{ github.event.inputs.workers || '16' }}"
           export SKIP_DEPS=1

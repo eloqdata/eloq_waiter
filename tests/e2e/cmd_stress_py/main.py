@@ -7,6 +7,7 @@ Runs comprehensive Redis commands across all supported families:
 
 import argparse
 import concurrent.futures
+from collections import Counter
 import json
 import os
 import signal
@@ -59,9 +60,14 @@ if args.tls:
     TLS_KWARGS = {"ssl": True, "ssl_cert_reqs": ssl.CERT_NONE,
                   "ssl_check_hostname": False}
 
-startup_nodes = [
-    ClusterNode(*node.rsplit(":", 1)) for node in args.startup_node
-]
+def parse_cluster_node(value: str) -> ClusterNode:
+    host, sep, port_str = value.rpartition(":")
+    if not sep or not host or not port_str:
+        raise ValueError(f"invalid startup node {value!r}, expected host:port")
+    return ClusterNode(host, int(port_str))
+
+
+startup_nodes = [parse_cluster_node(node) for node in args.startup_node if node]
 master_node = startup_nodes[0]
 replica_node = startup_nodes[1] if len(startup_nodes) > 1 else startup_nodes[0]
 
@@ -91,6 +97,29 @@ def build_cluster_client() -> RedisCluster:
 def close_client(c: Redis) -> None:
     try: c.close()
     except Exception: pass
+
+
+ERROR_SAMPLE_LIMIT = 3
+ERROR_TYPE_LIMIT = 5
+
+
+def make_cmd_stats() -> Dict[str, Dict[str, Any]]:
+    return {
+        name: {"ok": 0, "fail": 0, "error_types": Counter(), "samples": []}
+        for name in _CMD_ORDER
+    }
+
+
+def record_failure(stats: Dict[str, Dict[str, Any]], cmd_name: str, err: Exception) -> None:
+    entry = stats[cmd_name]
+    entry["fail"] += 1
+    err_type = type(err).__name__
+    message = " ".join(str(err).split()) or repr(err)
+    signature = f"{err_type}: {message}"
+    entry["error_types"][signature] += 1
+    samples: List[str] = entry["samples"]
+    if len(samples) < ERROR_SAMPLE_LIMIT and signature not in samples:
+        samples.append(signature)
 
 # ---------------------------------------------------------------------------
 # Command coverage definitions
@@ -258,7 +287,7 @@ _CMD_ORDER = [name for name, _ in COMMAND_TESTS]
 _CMD_FNS = {name: fn for name, fn in COMMAND_TESTS}
 
 def stress_worker(client: Redis, stop_event: threading.Event, phase_event: threading.Event,
-                  stats_lock: threading.Lock, cmd_stats: Dict[str, Dict[str, int]],
+                  stats_lock: threading.Lock, cmd_stats: Dict[str, Dict[str, Any]],
                   worker_id: int) -> None:
     phase_event.wait()
     idx = worker_id
@@ -281,14 +310,14 @@ def stress_worker(client: Redis, stop_event: threading.Event, phase_event: threa
                     if cmd_name == "ECHO" and "Missing key" in str(e):
                         continue
                     with stats_lock:
-                        cmd_stats[cmd_name]["fail"] += 1
+                        record_failure(cmd_stats, cmd_name, e)
             idx += 1
 
 
 # ---------------------------------------------------------------------------
 # Progress reporter
 # ---------------------------------------------------------------------------
-def fmt_cmd_stats(cmd_stats: Dict[str, Dict[str, int]]) -> str:
+def fmt_cmd_stats(cmd_stats: Dict[str, Dict[str, Any]]) -> str:
     total_ok = sum(v["ok"] for v in cmd_stats.values())
     total_fail = sum(v["fail"] for v in cmd_stats.values())
     failures = [f"{k}:{v['fail']}" for k, v in cmd_stats.items() if v["fail"] > 0]
@@ -350,12 +379,8 @@ def main() -> None:
     cluster_client = build_cluster_client()
 
     workers: List[Tuple[Redis, threading.Thread]] = []
-    standalone_stats: Dict[str, Dict[str, int]] = {
-        name: {"ok": 0, "fail": 0} for name in _CMD_ORDER
-    }
-    cluster_stats: Dict[str, Dict[str, int]] = {
-        name: {"ok": 0, "fail": 0} for name in _CMD_ORDER
-    }
+    standalone_stats = make_cmd_stats()
+    cluster_stats = make_cmd_stats()
     stats_lock = threading.Lock()
     phase_event = threading.Event()
 
@@ -413,7 +438,7 @@ def main() -> None:
     close_client(cluster_client)
 
     # ── Report ──
-    def _report(title: str, stats: dict) -> None:
+    def _report(title: str, stats: Dict[str, Dict[str, Any]]) -> None:
         total_ok = sum(v["ok"] for v in stats.values())
         total_fail = sum(v["fail"] for v in stats.values())
         print(f"\n--- {title} ---")
@@ -422,6 +447,10 @@ def main() -> None:
             ok, fail = stats[name]["ok"], stats[name]["fail"]
             if fail > 0:
                 print(f"  {name}: ok={ok} fail={fail}")
+                for signature, count in stats[name]["error_types"].most_common(ERROR_TYPE_LIMIT):
+                    print(f"    error[{count}]: {signature[:200]}")
+                for sample in stats[name]["samples"]:
+                    print(f"    sample: {sample[:200]}")
     _report("Standalone Client Results", standalone_stats)
     _report("Cluster Client Results", cluster_stats)
     s_fail = sum(v["fail"] for v in standalone_stats.values())
@@ -432,7 +461,26 @@ def main() -> None:
     total_fail = s_fail + c_fail
     if args.results_file:
         with open(args.results_file, "w") as f:
-            json.dump({"standalone": standalone_stats, "cluster": cluster_stats}, f, indent=2)
+            json.dump({
+                "standalone": {
+                    name: {
+                        "ok": data["ok"],
+                        "fail": data["fail"],
+                        "error_types": dict(data["error_types"]),
+                        "samples": data["samples"],
+                    }
+                    for name, data in standalone_stats.items()
+                },
+                "cluster": {
+                    name: {
+                        "ok": data["ok"],
+                        "fail": data["fail"],
+                        "error_types": dict(data["error_types"]),
+                        "samples": data["samples"],
+                    }
+                    for name, data in cluster_stats.items()
+                },
+            }, f, indent=2)
     # Tolerate <2% sporadic failures (race conditions from concurrent key access)
     if total_fail > 0 and (total_ok == 0 or total_fail / (total_ok + total_fail) > 0.02):
         sys.exit(1)

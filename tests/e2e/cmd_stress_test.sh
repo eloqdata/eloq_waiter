@@ -111,6 +111,10 @@ r.close()
 # ── Launch ──
 do_launch() {
     echo "=== Launch cluster ==="
+    local launch_args=()
+    if [ "${SKIP_DEPS}" = "1" ]; then
+        launch_args+=(--skip-deps)
+    fi
     render_topology_for_control "${SCRIPT_DIR}/topology.yaml" "${TOPO}"
     start_docker_env
     control_eloqctl_cmd stop "${CLUSTER}" --all --force >/dev/null 2>&1 || true
@@ -118,7 +122,7 @@ do_launch() {
     run_with_progress 420 "${SCRIPT_DIR}/launch-cmd-stress.log" \
         docker compose -f "${DOCKER_E2E_DIR}/docker-compose.yaml" exec -T -u eloq \
             "${CONTROL_NODE_SERVICE}" env HOME=/home/eloq ELOQCTL_HOME="${CONTROL_ELOQCTL_HOME}" \
-            "${CONTROL_ELOQCTL}" launch $([ "${SKIP_DEPS}" = "1" ] && echo "--skip-deps") "${CONTROL_TOPO}" \
+            "${CONTROL_ELOQCTL}" launch "${launch_args[@]}" "${CONTROL_TOPO}" \
         || { dump_failure_diagnostics "${SCRIPT_DIR}/launch-cmd-stress.log"; return 1; }
     run_with_progress 240 "${SCRIPT_DIR}/launch-cmd-stress.log" \
         docker compose -f "${DOCKER_E2E_DIR}/docker-compose.yaml" exec -T -u eloq \
@@ -133,8 +137,12 @@ do_launch() {
 do_py_stress() {
     [ -z "$MASTER" ] && discover_master
     echo "=== Python command stress (redis-py) ==="
+    local py_startup_args=(--startup-node "${MASTER}")
+    if [ -n "${REPLICA}" ]; then
+        py_startup_args+=(--startup-node "${REPLICA}")
+    fi
     compose exec -T stress-client python3 -u tests/e2e/cmd_stress_py/main.py \
-        --startup-node "${MASTER}" --startup-node "${REPLICA}" \
+        "${py_startup_args[@]}" \
         --password "${PASSWD}" --cmd-timeout "${CMD_TIMEOUT}" \
         --progress-interval "${PROGRESS_INTERVAL}" --key-count "${KEY_COUNT}" \
         --workers "${WORKERS}" --duration "${DURATION}" --repeat "${REPEAT}" \

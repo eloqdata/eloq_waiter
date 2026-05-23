@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -448,37 +449,106 @@ func cmdTests(replicaAddr string) []cmdTestCase {
 // ---------------------------------------------------------------------------
 type cmdStats struct {
 	mu     sync.Mutex
-	counts map[string]struct{ ok, fail int64 }
+	counts map[string]*cmdStatEntry
 }
 
+type cmdStatEntry struct {
+	ok         int64
+	fail       int64
+	errorTypes map[string]int64
+	samples    []string
+}
+
+type errorCount struct {
+	signature string
+	count     int64
+}
+
+const errorSampleLimit = 3
+const errorTypeLimit = 5
+
 func newCmdStats() *cmdStats {
-	return &cmdStats{counts: map[string]struct{ ok, fail int64 }{}}
+	return &cmdStats{counts: map[string]*cmdStatEntry{}}
 }
 
 func (s *cmdStats) addOK(name string) {
 	s.mu.Lock()
-	c := s.counts[name]
+	c := s.getOrCreateLocked(name)
 	c.ok++
-	s.counts[name] = c
 	s.mu.Unlock()
 }
 
-func (s *cmdStats) addFail(name string) {
+func (s *cmdStats) addFail(name string, err error) {
 	s.mu.Lock()
-	c := s.counts[name]
+	c := s.getOrCreateLocked(name)
 	c.fail++
-	s.counts[name] = c
+	signature := errorSignature(err)
+	c.errorTypes[signature]++
+	if len(c.samples) < errorSampleLimit && !contains(c.samples, signature) {
+		c.samples = append(c.samples, signature)
+	}
 	s.mu.Unlock()
 }
 
-func (s *cmdStats) snapshot() map[string]struct{ ok, fail int64 } {
+func (s *cmdStats) getOrCreateLocked(name string) *cmdStatEntry {
+	if c, ok := s.counts[name]; ok {
+		return c
+	}
+	c := &cmdStatEntry{errorTypes: map[string]int64{}}
+	s.counts[name] = c
+	return c
+}
+
+func (s *cmdStats) snapshot() map[string]cmdStatEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := map[string]struct{ ok, fail int64 }{}
+	out := map[string]cmdStatEntry{}
 	for k, v := range s.counts {
-		out[k] = v
+		errorTypes := map[string]int64{}
+		for sig, count := range v.errorTypes {
+			errorTypes[sig] = count
+		}
+		samples := append([]string(nil), v.samples...)
+		out[k] = cmdStatEntry{ok: v.ok, fail: v.fail, errorTypes: errorTypes, samples: samples}
 	}
 	return out
+}
+
+func errorSignature(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	msg := strings.Join(strings.Fields(err.Error()), " ")
+	if msg == "" {
+		msg = fmt.Sprintf("%v", err)
+	}
+	return fmt.Sprintf("%T: %s", err, msg)
+}
+
+func contains(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
+func topErrorCounts(errorTypes map[string]int64) []errorCount {
+	counts := make([]errorCount, 0, len(errorTypes))
+	for signature, count := range errorTypes {
+		counts = append(counts, errorCount{signature: signature, count: count})
+	}
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].count == counts[j].count {
+			return counts[i].signature < counts[j].signature
+		}
+		return counts[i].count > counts[j].count
+	})
+	if len(counts) > errorTypeLimit {
+		counts = counts[:errorTypeLimit]
+	}
+	return counts
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +575,7 @@ func stressWorker(ctx context.Context, client redis.UniversalClient, tests []cmd
 			}
 			err := tc.Fn(ctx, client, ki)
 			if err != nil {
-				stats.addFail(tc.Name)
+				stats.addFail(tc.Name, err)
 			} else {
 				stats.addOK(tc.Name)
 			}
@@ -762,6 +832,12 @@ func main() {
 		for name, v := range snap {
 			if v.fail > 0 {
 				logger.Printf("  %s: ok=%d fail=%d", name, v.ok, v.fail)
+				for _, ec := range topErrorCounts(v.errorTypes) {
+					logger.Printf("    error[%d]: %.200s", ec.count, ec.signature)
+				}
+				for _, sample := range v.samples {
+					logger.Printf("    sample: %.200s", sample)
+				}
 			}
 		}
 		return totalOK, totalFail

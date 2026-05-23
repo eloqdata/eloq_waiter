@@ -15,8 +15,8 @@ use crate::config::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 pub struct EloqUploadBuilder;
 
@@ -150,19 +150,31 @@ impl EloqUploadBuilder {
             }
         }
 
+        let _ = all_files_path;
+
         all_hosts_cloned
             .into_iter()
-            .map(|host| {
-                let source_files = list_files_by_host(&host, &config.deployment).join(" ");
-                UploadFile {
-                    source: source_files,
-                    dest: dest_file.clone(),
-                    extension: "ini".to_string(),
-                    host,
-                    copy_dir: false,
-                }
+            .flat_map(|host| {
+                let dest_file = dest_file.clone();
+                list_files_by_host(&host, &config.deployment)
+                    .into_iter()
+                    .map(move |source| {
+                        let extension = Path::new(&source)
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .unwrap_or("upload")
+                            .to_string();
+                        UploadFile {
+                            source,
+                            dest: dest_file.clone(),
+                            extension,
+                            host: host.clone(),
+                            copy_dir: false,
+                        }
+                    })
+                    .collect_vec()
             })
-            .unique_by(|upload_file| upload_file.source.clone())
+            .unique()
             .collect_vec()
     }
 }
@@ -246,8 +258,11 @@ impl UploadTaskBuilder for EloqUploadBuilder {
         final_files
             .iter()
             .map(|upload_file| {
-                let extension = &upload_file.extension;
-                let task_name = format!("deploy_eloq_all_{extension}");
+                let file_name = Path::new(&upload_file.source)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("upload");
+                let task_name = format!("deploy_eloq_all_{}", file_name.replace('.', "_"));
                 build_task_instance(
                     source_host.clone(),
                     upload_file.clone(),
@@ -264,39 +279,7 @@ pub struct EloqUpload;
 
 impl EloqUpload {
     fn upload_group_by_dest(upload_files: Vec<UploadFile>) -> Vec<UploadFile> {
-        // Group the upload files by (host, dest)
-        let grouped: HashMap<(String, String), Vec<UploadFile>> = upload_files
-            .into_iter()
-            .into_group_map_by(|upload| (upload.host.clone(), upload.dest.clone()));
-
-        // Transform each group into a single UploadFile with aggregated fields
-        grouped
-            .into_iter()
-            .map(|((host, dest), group)| {
-                // Initialize vectors to collect sources and extensions
-                let mut sources = Vec::with_capacity(group.len());
-                let mut extensions = Vec::with_capacity(group.len());
-
-                // Iterate once through the group to collect sources and extensions
-                for upload in group {
-                    sources.push(upload.source);
-                    extensions.push(upload.extension);
-                }
-
-                // Join the collected sources and extensions
-                let aggregated_source = sources.join(" ");
-                let aggregated_extension = extensions.join(",");
-
-                // Create a new UploadFile with aggregated data
-                UploadFile {
-                    source: aggregated_source,
-                    dest,
-                    extension: aggregated_extension,
-                    host,
-                    copy_dir: false,
-                }
-            })
-            .collect()
+        upload_files.into_iter().unique().collect_vec()
     }
 
     pub fn eloq_image_upload(config: &Deployment) -> Vec<UploadFile> {
