@@ -360,13 +360,11 @@ impl Step for StopLog {
     }
 }
 
-pub struct UnpackTxLog {
-    ctx: UpgradeContext,
-}
+pub struct UnpackTxLog;
 
 impl UnpackTxLog {
-    pub fn new(ctx: UpgradeContext) -> Self {
-        Self { ctx }
+    pub fn new(_ctx: UpgradeContext) -> Self {
+        Self
     }
 }
 
@@ -606,13 +604,11 @@ impl Step for FailoverBackAndStopStandby {
     }
 }
 
-pub struct UnpackStandby {
-    ctx: UpgradeContext,
-}
+pub struct UnpackStandby;
 
 impl UnpackStandby {
-    pub fn new(ctx: UpgradeContext) -> Self {
-        Self { ctx }
+    pub fn new(_ctx: UpgradeContext) -> Self {
+        Self
     }
 }
 
