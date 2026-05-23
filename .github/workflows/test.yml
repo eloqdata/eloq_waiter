@@ -25,6 +25,10 @@ on:
         description: "Per-command repeat factor"
         required: false
         default: "10"
+      inflight:
+        description: "Concurrent execution slots per worker"
+        required: false
+        default: "4"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -83,14 +87,17 @@ jobs:
             workers="${{ github.event.inputs.workers || '32' }}"
             duration="${{ github.event.inputs.duration || '60' }}"
             repeat="${{ github.event.inputs.repeat || '10' }}"
+            inflight="${{ github.event.inputs.inflight || '4' }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             workers="16"
             duration="60"
             repeat="10"
+            inflight="4"
           else
             workers="32"
             duration="60"
             repeat="20"
+            inflight="4"
           fi
 
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
@@ -99,10 +106,11 @@ jobs:
           export ELOQKV_VERSION="${{ github.event.inputs.version || '1.2.2' }}"
           export DURATION_SECONDS="${duration}"
           export WORKERS="${workers}"
+          export INFLIGHT="${inflight}"
           export REPEAT="${repeat}"
           export SKIP_DEPS=1
           export STEPS="launch,py-stress,go-stress,ts-stress,remove"
-          echo "Running E2E with WORKERS=${WORKERS} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT}"
+          echo "Running E2E with WORKERS=${WORKERS} INFLIGHT=${INFLIGHT} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT}"
           bash tests/e2e/cmd_stress_test.sh
 
       - name: Cleanup Docker

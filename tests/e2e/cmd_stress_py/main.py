@@ -43,6 +43,8 @@ parser.add_argument("--duration", type=int, default=0,
                     help="Phase-2 seconds; <=0 means run until interrupted")
 parser.add_argument("--workers", type=int, default=16,
                     help="Worker threads for command execution")
+parser.add_argument("--inflight", type=int, default=4,
+                    help="Concurrent execution slots per worker")
 parser.add_argument("--repeat", type=int, default=10,
                     help="Times to repeat each command per round (higher = more concurrency per command)")
 parser.add_argument("--skip-cmd-coverage", action="store_true",
@@ -75,21 +77,25 @@ replica_node = startup_nodes[1] if len(startup_nodes) > 1 else startup_nodes[0]
 # Helpers
 # ---------------------------------------------------------------------------
 def build_client(node: ClusterNode, decode: bool = True) -> Redis:
+    max_connections = max(64, args.workers * args.inflight * 8)
     return Redis(
         host=node.host, port=node.port,
         password=args.password,
         socket_timeout=args.cmd_timeout,
         socket_connect_timeout=args.cmd_timeout,
+        max_connections=max_connections,
         decode_responses=decode, **TLS_KWARGS,
     )
 
 
 def build_cluster_client() -> RedisCluster:
+    max_connections = max(64, args.workers * args.inflight * 8)
     return RedisCluster(
         startup_nodes=startup_nodes,
         password=args.password,
         socket_timeout=args.cmd_timeout,
         socket_connect_timeout=args.cmd_timeout,
+        max_connections=max_connections,
         decode_responses=True, **TLS_KWARGS,
     )
 
@@ -386,8 +392,15 @@ def main() -> None:
 
     n_standalone = args.workers // 2
     n_cluster = args.workers - n_standalone
-    print(f"Starting {n_standalone} standalone + {n_cluster} cluster stress workers ...", flush=True)
-    for i in range(n_standalone):
+    total_standalone_slots = n_standalone * args.inflight
+    total_cluster_slots = n_cluster * args.inflight
+    print(
+        f"Starting {n_standalone} standalone + {n_cluster} cluster workers "
+        f"with inflight={args.inflight} "
+        f"({total_standalone_slots} + {total_cluster_slots} execution slots) ...",
+        flush=True,
+    )
+    for i in range(total_standalone_slots):
         cli = standalone_client
         th = threading.Thread(target=stress_worker,
                                args=(cli, stop_event, phase_event,
@@ -395,11 +408,11 @@ def main() -> None:
                                daemon=True)
         th.start()
         workers.append((cli, th))
-    for i in range(n_cluster):
+    for i in range(total_cluster_slots):
         cli = cluster_client
         th = threading.Thread(target=stress_worker,
                                args=(cli, stop_event, phase_event,
-                                     stats_lock, cluster_stats, i),
+                                     stats_lock, cluster_stats, i + total_standalone_slots),
                                daemon=True)
         th.start()
         workers.append((cli, th))

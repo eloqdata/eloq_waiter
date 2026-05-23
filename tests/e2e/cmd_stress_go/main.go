@@ -599,6 +599,7 @@ func main() {
 	var keyCount int
 	var insecureTLS bool
 	var cmdTimeout time.Duration
+	var inflight int
 	var repeat int
 	var logPrefix string
 
@@ -606,6 +607,7 @@ func main() {
 		"comma-separated startup nodes (host:port)")
 	flag.StringVar(&password, "password", "testpass", "redis password")
 	flag.IntVar(&workers, "workers", 16, "number of concurrent stress workers")
+	flag.IntVar(&inflight, "inflight", 4, "concurrent execution slots per worker")
 	flag.DurationVar(&duration, "duration", 60*time.Second, "test duration")
 	flag.DurationVar(&progressInterval, "progress-interval", 5*time.Second, "progress print interval")
 	flag.IntVar(&keyCount, "key-count", 256, "key space size")
@@ -628,8 +630,10 @@ func main() {
 	}
 
 	logger.Printf("%sstarting eloqkv command stress test", pref(logPrefix))
-	logger.Printf("%snodes=%s workers=%d duration=%s key_count=%d",
-		pref(logPrefix), strings.Join(addrs, ","), workers, duration, keyCount)
+	logger.Printf("%snodes=%s workers=%d inflight=%d duration=%s key_count=%d",
+		pref(logPrefix), strings.Join(addrs, ","), workers, inflight, duration, keyCount)
+
+	totalSlots := workers * inflight
 
 	// Cluster client for discovery
 	clusterOpts := &redis.ClusterOptions{
@@ -638,6 +642,8 @@ func main() {
 		DialTimeout:  cmdTimeout,
 		ReadTimeout:  cmdTimeout,
 		WriteTimeout: cmdTimeout,
+		PoolSize: totalSlots * 2,
+		MinIdleConns: totalSlots,
 		ReadOnly: true,
 	}
 	if insecureTLS {
@@ -686,8 +692,8 @@ func main() {
 			DialTimeout:   cmdTimeout,
 			ReadTimeout:   cmdTimeout,
 			WriteTimeout:  cmdTimeout,
-			PoolSize:      workers * 2,
-			MinIdleConns:  workers,
+			PoolSize:      totalSlots * 2,
+			MinIdleConns:  totalSlots,
 		}
 	}
 
@@ -772,19 +778,21 @@ func main() {
 	clusterStats := newCmdStats()
 	nStandalone := workers / 2
 	nCluster := workers - nStandalone
-	logger.Printf("%sStarting %d standalone + %d cluster stress workers ...",
-		pref(logPrefix), nStandalone, nCluster)
+	totalStandaloneSlots := nStandalone * inflight
+	totalClusterSlots := nCluster * inflight
+	logger.Printf("%sStarting %d standalone + %d cluster workers with inflight=%d (%d + %d execution slots) ...",
+		pref(logPrefix), nStandalone, nCluster, inflight, totalStandaloneSlots, totalClusterSlots)
 	testCtx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	for w := 0; w < nStandalone; w++ {
+	for w := 0; w < totalStandaloneSlots; w++ {
 		wg.Add(1)
 		go stressWorker(testCtx, masterClient, tests, standaloneStats, &wg, w, keyCount, repeat)
 	}
-	for w := 0; w < nCluster; w++ {
+	for w := 0; w < totalClusterSlots; w++ {
 		wg.Add(1)
-		go stressWorker(testCtx, clusterClient, tests, clusterStats, &wg, w+nStandalone, keyCount, repeat)
+		go stressWorker(testCtx, clusterClient, tests, clusterStats, &wg, w+totalStandaloneSlots, keyCount, repeat)
 	}
 
 	// Progress reporter

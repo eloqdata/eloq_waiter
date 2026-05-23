@@ -20,6 +20,7 @@ const { values: args } = parseArgs({
     "progress-interval": { type: "string", default: "5000" },
     "key-count": { type: "string", default: "256" },
     workers: { type: "string", default: "16" },
+    inflight: { type: "string", default: "4" },
     repeat: { type: "string", default: "10" },
     duration: { type: "string", default: "0" },
     "tls-insecure": { type: "string", default: "true" },
@@ -33,6 +34,7 @@ const CMD_TIMEOUT = parseInt(args["cmd-timeout"]!) * 1000;
 const PROGRESS_INTERVAL = parseInt(args["progress-interval"]!) * 1000;
 const KEY_COUNT = parseInt(args["key-count"]!);
 const WORKERS = parseInt(args.workers!);
+const INFLIGHT = parseInt(args.inflight!);
 const REPEAT = parseInt(args.repeat!);
 const DURATION = parseInt(args.duration!);
 const TLS_INSECURE = args["tls-insecure"] !== "false";
@@ -54,6 +56,10 @@ function mkClient(addr: string): Redis {
     host, port, password,
     connectTimeout: CMD_TIMEOUT,
     commandTimeout: CMD_TIMEOUT,
+    maxRetriesPerRequest: 1,
+    maxLoadingRetryTime: 1000,
+    family: 4,
+    connectionName: "cmd-stress",
     retryStrategy: () => null,
     lazyConnect: false,
     ...tlsOpts,
@@ -284,13 +290,14 @@ async function stressWorker(
 // ---------------------------------------------------------------------------
 async function main() {
   console.log(P(`starting eloqkv command stress test (TypeScript/ioredis)`));
-  console.log(P(`nodes=${startupNodes} workers=${WORKERS} duration=${DURATION}s key_count=${KEY_COUNT}`));
+  console.log(P(`nodes=${startupNodes} workers=${WORKERS} inflight=${INFLIGHT} duration=${DURATION}s key_count=${KEY_COUNT}`));
 
   // Cluster discovery
   const cluster = new Cluster(startupNodes.map(addr => {
     const [host, portStr] = addr.split(":");
     return { host, port: parseInt(portStr || "6379") };
   }), {
+    slotsRefreshTimeout: CMD_TIMEOUT,
     redisOptions: {
       password,
       connectTimeout: CMD_TIMEOUT,
@@ -317,6 +324,8 @@ async function main() {
 
   const master = mkClient(masterAddr);
   const replica = replicaAddr && replicaAddr !== masterAddr ? mkClient(replicaAddr) : null;
+  await master.ping();
+  if (replica) await replica.ping();
 
   // Preload keys
   console.log(P(`Preloading ${KEY_COUNT} keys ...`));
@@ -372,17 +381,19 @@ async function main() {
   // Stress workers
   const nStandalone = WORKERS / 2 | 0;
   const nCluster = WORKERS - nStandalone;
-  console.log(P(`Starting ${nStandalone} standalone + ${nCluster} cluster stress workers ...`));
+  const totalStandaloneSlots = nStandalone * INFLIGHT;
+  const totalClusterSlots = nCluster * INFLIGHT;
+  console.log(P(`Starting ${nStandalone} standalone + ${nCluster} cluster workers with inflight=${INFLIGHT} (${totalStandaloneSlots} + ${totalClusterSlots} execution slots) ...`));
   const standaloneStats = new CmdStats();
   const clusterStats = new CmdStats();
   const controller = new AbortController();
 
   const workers: Promise<void>[] = [];
-  for (let w = 0; w < nStandalone; w++) {
+  for (let w = 0; w < totalStandaloneSlots; w++) {
     workers.push(stressWorker(master, CMD_TESTS, standaloneStats, controller.signal, w, KEY_COUNT, REPEAT));
   }
-  for (let w = 0; w < nCluster; w++) {
-    workers.push(stressWorker(cluster, CMD_TESTS, clusterStats, controller.signal, w + nStandalone, KEY_COUNT, REPEAT));
+  for (let w = 0; w < totalClusterSlots; w++) {
+    workers.push(stressWorker(cluster, CMD_TESTS, clusterStats, controller.signal, w + totalStandaloneSlots, KEY_COUNT, REPEAT));
   }
 
   const start = Date.now();

@@ -8,7 +8,7 @@
 #
 # Env overrides:
 #   STEPS=launch,py-stress,go-stress,ts-stress,remove
-#   DURATION_SECONDS=60   WORKERS=8   KEY_COUNT=256   REPEAT=10
+#   DURATION_SECONDS=60   WORKERS=8   INFLIGHT=4   KEY_COUNT=256   REPEAT=10
 #   CMD_TIMEOUT=5         PROGRESS_INTERVAL=5
 #   TLS_ENABLED=1         SKIP_DEPS=1
 set -euo pipefail
@@ -24,6 +24,7 @@ STEPS="${STEPS:-launch,py-stress,go-stress,ts-stress,remove}"
 
 DURATION="${DURATION_SECONDS:-60}"
 WORKERS="${WORKERS:-16}"
+INFLIGHT="${INFLIGHT:-4}"
 REPEAT="${REPEAT:-10}"
 KEY_COUNT="${KEY_COUNT:-256}"
 CMD_TIMEOUT="${CMD_TIMEOUT:-5}"
@@ -145,7 +146,7 @@ do_py_stress() {
         "${py_startup_args[@]}" \
         --password "${PASSWD}" --cmd-timeout "${CMD_TIMEOUT}" \
         --progress-interval "${PROGRESS_INTERVAL}" --key-count "${KEY_COUNT}" \
-        --workers "${WORKERS}" --duration "${DURATION}" --repeat "${REPEAT}" \
+        --workers "${WORKERS}" --inflight "${INFLIGHT}" --duration "${DURATION}" --repeat "${REPEAT}" \
         ${TLS_FLAG} 2>&1 | tee "${SCRIPT_DIR}/cmd-stress-py.log"
     return ${PIPESTATUS[0]}
 }
@@ -161,6 +162,7 @@ do_go_stress() {
             --startup-nodes '${STARTUP_NODES}' \
             --password '${PASSWD}' \
             --workers ${WORKERS} \
+            --inflight ${INFLIGHT} \
             --duration ${DURATION}s \
             --repeat ${REPEAT} \
             --progress-interval ${PROGRESS_INTERVAL}s \
@@ -182,6 +184,7 @@ do_ts_stress() {
             --startup-nodes '${STARTUP_NODES}' \
             --password '${PASSWD}' \
             --workers ${WORKERS} \
+            --inflight ${INFLIGHT} \
             --duration ${DURATION} \
             --repeat ${REPEAT} \
             --progress-interval ${PROGRESS_INTERVAL} \
