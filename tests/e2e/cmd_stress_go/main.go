@@ -50,7 +50,7 @@ func cmdTests(replicaAddr string) []cmdTestCase {
 			return err
 		}},
 		{"INFO", func(ctx context.Context, c redis.UniversalClient, i int) error {
-			return c.Info(ctx, "stats").Err()
+			return c.Info(ctx).Err()
 		}},
 		{"CLUSTER_INFO", func(ctx context.Context, c redis.UniversalClient, i int) error {
 			return c.Do(ctx, "CLUSTER", "INFO").Err()

@@ -70,7 +70,7 @@ const CMD_TESTS: [string, CmdFn][] = [
   ["ECHO",      (c, i) => c.echo(String(i))],
   ["DBSIZE",    (c) => c.dbsize()],
   ["TIME",      (c) => c.time()],
-  ["INFO",      (c) => c.info("stats")],
+  ["INFO",      (c) => c.info()],
   ["CLUSTER_INFO", (c) => c.call("CLUSTER", "INFO")],
 
   // ── String ──

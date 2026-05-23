@@ -113,7 +113,7 @@ COMMAND_TESTS: List[Tuple[str, Callable[[Redis, int], Any]]] = [
     ("DBSIZE",   lambda c, i: c.dbsize()),
     ("TIME",     lambda c, i: c.time()),
     ("READONLY", lambda c, i: c.execute_command("READONLY")),
-    ("INFO",    lambda c, i: c.info("stats")),
+    ("INFO",    lambda c, i: c.info()),
     ("CLUSTER_INFO", lambda c, i: c.cluster_info() if hasattr(c, 'cluster_info') else c.execute_command("CLUSTER", "INFO")),
 
     # ── String ──
