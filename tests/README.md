@@ -93,3 +93,78 @@ Check cluster health:
 ```
 
 Logs auto-clean unless `KEEP_LOGS=1` is set.
+
+## Connecting from Host
+
+The cluster nodes are exposed on localhost ports. After `docker compose up` and
+a successful `eloqctl launch`:
+
+| Node | Host Port | Docker IP |
+|------|-----------|-----------|
+| node-1 | `127.0.0.1:16371` | `172.28.10.11:6379` |
+| node-2 | `127.0.0.1:16372` | `172.28.10.12:6379` |
+| node-3 | `127.0.0.1:16373` | `172.28.10.13:6379` |
+
+### Check cluster topology
+
+```sh
+redis-cli -h 127.0.0.1 -p 16371 --tls --insecure -a testpass CLUSTER NODES
+```
+
+The output shows which node is `master` and which is `slave`:
+
+```
+<id> 172.28.10.11:6379@16380 myself,slave ...
+<id> 172.28.10.12:6379@16380 master ...
+```
+
+### Connect with redis-py (Python)
+
+```python
+import ssl, redis
+TLS = {'ssl': True, 'ssl_cert_reqs': ssl.CERT_NONE, 'ssl_check_hostname': False}
+
+# standalone — connect directly to one node
+r = redis.Redis(host='127.0.0.1', port=16371, password='testpass', **TLS)
+
+# cluster mode — auto-routes to correct node
+from redis.cluster import RedisCluster, ClusterNode
+rc = RedisCluster(startup_nodes=[
+    ClusterNode('127.0.0.1', 16371),
+    ClusterNode('127.0.0.1', 16372),
+], password='testpass', **TLS)
+```
+
+### Connect with go-redis (Go)
+
+```go
+// standalone
+c := redis.NewClient(&redis.Options{
+    Addr: "127.0.0.1:16371", Password: "testpass",
+    TLSConfig: &tls.Config{InsecureSkipVerify: true},
+})
+
+// cluster
+cc := redis.NewClusterClient(&redis.ClusterOptions{
+    Addrs: []string{"127.0.0.1:16371", "127.0.0.1:16372"},
+    Password: "testpass",
+    TLSConfig: &tls.Config{InsecureSkipVerify: true},
+})
+```
+
+### Connect with ioredis (TypeScript)
+
+```typescript
+// standalone
+const r = new Redis({
+    host: "127.0.0.1", port: 16371, password: "testpass",
+    tls: { rejectUnauthorized: false },
+});
+
+// cluster
+const c = new Cluster([
+    { host: "127.0.0.1", port: 16371 },
+    { host: "127.0.0.1", port: 16372 },
+], { redisOptions: { password: "testpass",
+    tls: { rejectUnauthorized: false } } });
+```

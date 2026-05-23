@@ -31,11 +31,11 @@ TLS_ENABLED="${TLS_ENABLED:-1}"
 SKIP_DEPS="${SKIP_DEPS:-1}"
 
 PASSWD="testpass"
-M="172.28.10.11"
-S="172.28.10.12"
-MASTER="${M}:6379"
-REPLICA="${S}:6379"
-STARTUP_NODES="${MASTER},${REPLICA}"
+N1="172.28.10.11"
+N2="172.28.10.12"
+STARTUP_NODES="${N1}:6379,${N2}:6379"
+MASTER=""  # discovered after cluster launch
+REPLICA=""
 
 TLS_FLAG=""
 [ "${TLS_ENABLED}" = "1" ] && TLS_FLAG="--tls"
@@ -81,8 +81,35 @@ do_launch() {
             "${CONTROL_ELOQCTL}" status "${CLUSTER}" --wait 180 >/dev/null 2>&1 \
         || { echo "FAIL: cluster not healthy after launch"; exit 1; }
     echo "  cluster ready"
+
+    # Dynamically discover actual master from CLUSTER NODES
+    echo "  discovering cluster topology ..."
+    local nodes_info
+    nodes_info=$(compose exec -T stress-client python3 -c "
+import ssl
+TLS={'ssl':True,'ssl_cert_reqs':ssl.CERT_NONE,'ssl_check_hostname':False}
+from redis import Redis
+r=Redis(host='${N1}',port=6379,password='${PASSWD}',socket_timeout=5,**TLS)
+print(r.execute_command('CLUSTER','NODES').decode())
+r.close()
+" 2>/dev/null)
+    while IFS= read -r line; do
+        local addr role
+        addr=$(echo "$line" | awk '{print $2}' | cut -d@ -f1)
+        role=$(echo "$line" | awk '{print $3}')
+        if echo "$role" | grep -q 'master'; then
+            MASTER="${addr}"
+        elif echo "$role" | grep -q 'slave'; then
+            REPLICA="${addr}"
+        fi
+    done <<< "$nodes_info"
+    if [ -z "$MASTER" ]; then
+        echo "FAIL: could not discover master from CLUSTER NODES"
+        exit 1
+    fi
+    echo "  master=${MASTER} replica=${REPLICA}"
     echo "  waiting for cluster stabilization ..."
-    sleep 15
+    sleep 5
 }
 
 # ── Python stress (inside stress-client container) ──
