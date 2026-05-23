@@ -297,9 +297,9 @@ def fmt_cmd_stats(cmd_stats: Dict[str, Dict[str, int]]) -> str:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
-    # ── Preload keys ──
+    # ── Preload keys (via cluster client to handle MOVED redirects) ──
     print(f"Preloading keyspace: key_count={args.key_count}", flush=True)
-    client = build_client(master_node)
+    client = build_cluster_client()
     try:
         for i in range(args.key_count):
             client.set(_k(i), Str(i))
