@@ -81,6 +81,8 @@ do_launch() {
             "${CONTROL_ELOQCTL}" status "${CLUSTER}" --wait 180 >/dev/null 2>&1 \
         || { echo "FAIL: cluster not healthy after launch"; exit 1; }
     echo "  cluster ready"
+    echo "  waiting for cluster stabilization ..."
+    sleep 15
 }
 
 # ── Python stress (inside stress-client container) ──
