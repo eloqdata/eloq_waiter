@@ -655,6 +655,7 @@ mod tests {
         schema_path
     }
 
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     pub async fn test_db_init() {
         let _guard = test_guard();
@@ -682,6 +683,7 @@ mod tests {
         fs::remove_dir_all(home).ok();
     }
 
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     pub async fn test_state_load() {
         let _guard = test_guard();

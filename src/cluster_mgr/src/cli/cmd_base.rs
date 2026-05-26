@@ -755,7 +755,7 @@ impl CmdExecutor {
                     .map(|component| component.host.clone())
             })
             .unwrap_or_else(|| default_host.clone());
-        let monitor = config.deployment.monitor.get_or_insert_with(|| Monitor {
+        let monitor = config.deployment.monitor.get_or_insert(Monitor {
             data_dir: None,
             prometheus: None,
             alertmanager: None,
@@ -2006,7 +2006,7 @@ impl CmdExecutor {
                         ..
                     },
             } => {
-                let cluster = Self::monitor_cluster(&cluster, &command)?;
+                let cluster = Self::monitor_cluster(&cluster, command)?;
                 let mut config = self
                     .state_mgr
                     .load_deployment_from_state(&cluster)

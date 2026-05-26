@@ -692,7 +692,7 @@ mod tests {
         dir
     }
 
-    fn set_template_dirs(upload_dir: &PathBuf) {
+    fn set_template_dirs(upload_dir: &std::path::Path) {
         std::env::set_var(
             CONFIG_PATH_DIR,
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
