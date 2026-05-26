@@ -86,13 +86,17 @@ fn build_command_from_str(cmd_str: &str, cluster: Option<String>) -> SubCommand 
             topology_file: "_NONE".to_string(),
         },
         "start_monitor" => SubCommand::Monitor {
+            cluster: Some(cluster.clone().unwrap()),
             command: MonitorCommand::Start {
-                cluster: cluster.unwrap(),
+                cluster: Some(cluster.unwrap()),
+                components: Vec::new(),
             },
         },
         "stop_monitor" => SubCommand::Monitor {
+            cluster: Some(cluster.clone().unwrap()),
             command: MonitorCommand::Stop {
-                cluster: cluster.unwrap(),
+                cluster: Some(cluster.unwrap()),
+                components: Vec::new(),
             },
         },
         "start_log" => SubCommand::LogService {
