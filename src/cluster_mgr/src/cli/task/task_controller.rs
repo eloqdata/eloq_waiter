@@ -10,6 +10,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use futures_async_stream::try_stream;
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -48,70 +49,76 @@ impl TaskController {
             .collect_vec();
 
         if task_ids.iter().all(|id| id.cmd == "ssh-check") {
-            return "Check SSH connectivity".to_string();
+            return "Checking SSH connectivity".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "run_deps") {
-            return "Install runtime dependencies".to_string();
+            return "Installing runtime dependencies".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "check") {
-            return "Check port availability".to_string();
+            return "Checking port availability".to_string();
         }
         if task_ids
             .iter()
             .all(|id| id.cmd == "deploy" && id.task == "mkdir")
         {
-            return "Create remote directories".to_string();
+            return "Creating remote directories".to_string();
         }
         if task_ids
             .iter()
             .all(|id| id.cmd == "deploy" && id.task.ends_with("_download"))
         {
-            return "Download release packages".to_string();
+            return "Downloading release packages".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "extract") {
-            return "Extract release packages locally".to_string();
+            return "Extracting release packages".to_string();
         }
         if task_ids.iter().all(|id| {
             matches!(id.cmd.as_str(), "deploy" | "update")
                 && (id.task.contains("upload") || id.task.starts_with("deploy_eloq_all_"))
         }) {
-            return "Sync binaries and support files".to_string();
+            return "Syncing binaries and config files".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "config-update") {
-            return "Upload generated configuration".to_string();
+            return "Uploading configuration files".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "install") {
-            return "Bootstrap cluster metadata".to_string();
+            return "Bootstrapping cluster metadata".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "start") {
-            return "Start services".to_string();
+            return "Starting services".to_string();
+        }
+        if task_ids.iter().all(|id| id.cmd == "stop") {
+            return "Stopping services".to_string();
+        }
+        if task_ids.iter().all(|id| id.cmd == "restart") {
+            return "Restarting services".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "topology") {
-            return "Refresh cluster topology".to_string();
+            return "Refreshing cluster topology".to_string();
         }
         if task_ids.iter().all(|id| id.cmd == "monitor") {
             if task_ids.iter().all(|id| id.task.contains("-stop-")) {
-                return "Stop monitor components".to_string();
+                return "Stopping monitor components".to_string();
             }
             if task_ids.iter().all(|id| id.task.contains("-status-")) {
-                return "Check monitor status".to_string();
+                return "Checking monitor status".to_string();
             }
             if task_ids.iter().all(|id| id.task.contains("-start-")) {
-                return "Start monitor components".to_string();
+                return "Starting monitor components".to_string();
             }
-            return "Manage monitor components".to_string();
+            return "Managing monitor components".to_string();
         }
         if task_ids
             .iter()
             .all(|id| id.cmd == "remove" && id.task.starts_with("clean_log@"))
         {
-            return "Delete log service data".to_string();
+            return "Deleting log service data".to_string();
         }
         if task_ids
             .iter()
             .all(|id| id.cmd == "remove" && id.task.starts_with("clean@"))
         {
-            return "Delete cluster install directories".to_string();
+            return "Deleting cluster files".to_string();
         }
         if task_ids.iter().all(|id| {
             id.cmd == "backup"
@@ -119,7 +126,13 @@ impl TaskController {
                     || id.task.starts_with("remove-local-")
                     || id.task.starts_with("clean-backup"))
         }) {
-            return "Delete backup data".to_string();
+            return "Deleting backup data".to_string();
+        }
+        if task_ids.iter().all(|id| id.cmd == "backup") {
+            return "Running backup".to_string();
+        }
+        if task_ids.iter().all(|id| id.cmd == "scale") {
+            return "Scaling cluster nodes".to_string();
         }
 
         Self::stage_label(task_group)
@@ -198,67 +211,68 @@ impl TaskController {
             Config::Proxy(cfg) => cfg.proxy_service.proxy_name.clone(),
         };
 
-        splits
-            .iter()
-            //.enumerate()
-            .for_each(|execution_context| {
-                let tx_arc = Arc::new(&self.tx);
-                let task_group_arc = Arc::new(task_group.clone());
-                let name = name.clone();
-                let join = tokio::task::spawn(async move {
-                    let task = &execution_context.task;
-                    let task_input = execution_context.task_input.clone();
-                    let task_host = &execution_context.task_host;
-                    let task_id = task.identifier();
-                    if is_verbose_task_output() {
-                        println!("  -> {}", task_id.format_string());
+        splits.iter().for_each(|execution_context| {
+            let tx_arc = Arc::new(&self.tx);
+            let task_group_arc = Arc::new(task_group.clone());
+            let name = name.clone();
+            let join = tokio::task::spawn(async move {
+                let task = &execution_context.task;
+                let task_input = execution_context.task_input.clone();
+                let task_host = &execution_context.task_host;
+                let task_id = task.identifier();
+                if is_verbose_task_output() {
+                    println!("  {} {}", "→".cyan(), user_friendly_task_summary(&task_id));
+                }
+                let start_time = std::time::Instant::now();
+                let execution_rs = task.execute(task_host.clone(), task_input).await;
+                let elapsed = start_time.elapsed();
+                info!("Task {:?} execution complete", task_id);
+                let conn_tuple = task_host.ssh_conn_tuple();
+                let post_execute_rs = post_task_execute!(
+                    execution_rs,
+                    name,
+                    task_id.as_json_string(),
+                    task_group_arc.as_str(),
+                    conn_tuple.2
+                );
+                info!("Save Task {:?} execution status complete", task_id);
+                assert!(post_execute_rs.is_ok());
+                let result = match execution_rs {
+                    Ok(rs) => {
+                        if is_verbose_task_output() {
+                            println!(
+                                "  {} {:.1}s {}",
+                                "✓".green(),
+                                elapsed.as_secs_f32(),
+                                user_friendly_task_summary(&task_id)
+                            );
+                        }
+                        TaskResultEnum::Success(rs)
                     }
-                    let start_time = std::time::Instant::now();
-                    let execution_rs = task.execute(task_host.clone(), task_input).await;
-                    let elapsed = start_time.elapsed();
-                    info!("Task {:?} execution complete", task_id);
-                    let conn_tuple = task_host.ssh_conn_tuple();
-                    let post_execute_rs = post_task_execute!(
-                        execution_rs,
-                        name,
-                        task_id.as_json_string(),
-                        task_group_arc.as_str(),
-                        conn_tuple.2
-                    );
-                    info!("Save Task {:?} execution status complete", task_id);
-                    assert!(post_execute_rs.is_ok());
-                    let result = match execution_rs {
-                        Ok(rs) => {
-                            if is_verbose_task_output() {
-                                println!(
-                                    "  ok {:.1}s {}",
-                                    elapsed.as_secs_f32(),
-                                    task_id.format_string()
-                                );
-                            }
-                            TaskResultEnum::Success(rs)
+                    Err(err_msg) => {
+                        let err_msg_str = err_msg.to_string();
+                        error!("Task {:?} execution fail {:?}", task_id, err_msg_str);
+                        if is_verbose_task_output() {
+                            eprintln!(
+                                "  {} {} -- {}",
+                                "✗".red(),
+                                user_friendly_task_summary(&task_id),
+                                summarize_error(&err_msg_str)
+                            );
                         }
-                        Err(err_msg) => {
-                            let err_msg_str = err_msg.to_string();
-                            error!("Task {:?} execution fail {:?}", task_id, err_msg_str);
-                            if is_verbose_task_output() {
-                                println!("  FAIL {} -- {}", task_id.format_string(), err_msg_str);
-                            } else {
-                                println!("  failed: {}", user_friendly_task_summary(&task_id));
-                            }
-                            TaskResultEnum::Error(err_msg_str)
-                        }
-                    };
-                    let task_pair = TaskResultPair {
-                        task_id: task_id.format_string(),
-                        result,
-                    };
-                    let send_rs = tx_arc.send(task_pair.clone());
-                    assert!(send_rs.is_ok());
-                    task_pair
-                });
-                joins.push(join);
+                        TaskResultEnum::Error(err_msg_str)
+                    }
+                };
+                let task_pair = TaskResultPair {
+                    task_id: task_id.format_string(),
+                    result,
+                };
+                let send_rs = tx_arc.send(task_pair.clone());
+                assert!(send_rs.is_ok());
+                task_pair
             });
+            joins.push(join);
+        });
 
         let join_result = futures::future::join_all(joins).await;
         let task_result = join_result
@@ -318,6 +332,11 @@ impl TaskController {
         let split = TaskController::split_task(&task_execution_context);
         let total_stages = split.len();
         let mut task_result_vec = vec![];
+
+        if !is_verbose_task_output() {
+            println!();
+        }
+
         for (stage_idx, task_split) in split.into_iter().enumerate() {
             let stage_num = stage_idx + 1;
             let task_names: Vec<String> = task_split
@@ -331,10 +350,12 @@ impl TaskController {
                 );
             } else {
                 let stage_label = Self::stage_label_from_tasks(&task_group_string, task_split);
+                let progress = format!("[{stage_num}/{total_stages}]");
                 println!(
-                    "[{stage_num}/{total_stages}] {} ({})",
-                    stage_label,
-                    Self::stage_summary(task_split.len())
+                    "{} {} {}",
+                    progress.cyan(),
+                    stage_label.bold(),
+                    format!("({})", Self::stage_summary(task_split.len())).dimmed()
                 );
             }
             let rs = self
@@ -344,14 +365,14 @@ impl TaskController {
                 for pair in rs.iter() {
                     if let TaskResultEnum::Error(err) = &pair.result {
                         if !is_verbose_task_output() {
-                            println!("  reason: {}", summarize_error(err));
+                            eprintln!("  {} {}", "Error:".red().bold(), summarize_error(err));
                         }
                         bail!("operation failed: {err}");
                     }
                 }
             }
             if !is_verbose_task_output() {
-                println!("  done");
+                println!("  {} {}", "✓".green(), "done".dimmed());
             }
             task_result_vec.push(rs);
         }

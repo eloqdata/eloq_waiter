@@ -425,8 +425,6 @@ impl TaskMgr {
                     if execution_value.contains_key("_FINISH_SIGNAL") {
                         break;
                     }
-                    let start = "=> ";
-                    let end = "---------------------------";
                     let cmd = execution_value
                         .get(CMD)
                         .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
@@ -435,17 +433,24 @@ impl TaskMgr {
                         .get(CMD_STATUS)
                         .map(|v| TaskArgValue::into_inner_value::<i32>(v.clone()))
                         .unwrap_or(0);
-                    let status = if status_code == 0 {
-                        "Success".green().to_string()
-                    } else {
-                        "Failure".red().to_string()
-                    };
                     let cmd_out = execution_value
                         .get(CMD_OUTPUT)
                         .map(|v| TaskArgValue::into_inner_value::<String>(v.clone()))
                         .unwrap_or_else(|| "".to_string());
-                    let s = format!("{start}{task_id}\n{cmd}\n{status}; {cmd_out}\n{end}\n");
+
                     if verbose || status_code != 0 {
+                        let status = if status_code == 0 {
+                            format!("{}", "✓ Success".green())
+                        } else {
+                            format!("{}", "✗ Failed".red())
+                        };
+                        let s = format!(
+                            "  ┌─ {}\n  │ {}\n  │ {}\n  │ {}\n  └────\n",
+                            task_id.dimmed(),
+                            cmd.dimmed(),
+                            status,
+                            if cmd_out.is_empty() { "" } else { &cmd_out }
+                        );
                         match writer {
                             Some(ref mut w) => w.write_all(s.as_bytes())?,
                             None => println!("{s}"),
@@ -464,7 +469,11 @@ impl TaskMgr {
                         .map(|id| id.host.clone())
                         .unwrap_or_else(|| "unknown".to_string());
                     let s = format!(
-                        "=> {task_id}\nAction: {action}\nHost: {host}\nFailure: {}\n---------------------------\n",
+                        "  {} {}\n    Action: {}\n    Host: {}\n    Detail: {}\n",
+                        "✗".red(),
+                        task_id.red(),
+                        action,
+                        host,
                         summarize_error(&err_msg)
                     );
                     match writer {
