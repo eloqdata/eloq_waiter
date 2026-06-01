@@ -71,6 +71,7 @@ ensure_docker_images() {
         "eloqctl-e2e-stress:latest"
         "eloqctl-e2e-stress-go:latest"
         "eloqctl-e2e-stress-ts:latest"
+        "eloqctl-e2e-resp-compat:latest"
     )
     local image
     for image in "${required_images[@]}"; do
