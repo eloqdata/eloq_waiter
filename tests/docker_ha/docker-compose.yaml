@@ -20,6 +20,9 @@ services:
     image: eloqctl-e2e-ubuntu:24.04
     container_name: eloqctl-e2e-tx
     hostname: eloq-tx
+    privileged: true
+    ulimits:
+      core: -1
     ports:
       - "127.0.0.1:2221:22"
       - "127.0.0.1:16371:6379"
@@ -35,6 +38,9 @@ services:
     image: eloqctl-e2e-ubuntu:24.04
     container_name: eloqctl-e2e-standby
     hostname: eloq-standby
+    privileged: true
+    ulimits:
+      core: -1
     ports:
       - "127.0.0.1:2222:22"
       - "127.0.0.1:16372:6379"
@@ -50,6 +56,9 @@ services:
     image: eloqctl-e2e-ubuntu:24.04
     container_name: eloqctl-e2e-voter
     hostname: eloq-voter
+    privileged: true
+    ulimits:
+      core: -1
     ports:
       - "127.0.0.1:2223:22"
       - "127.0.0.1:16373:6379"
@@ -141,6 +150,23 @@ services:
     networks:
       eloqctl-e2e-net:
         ipv4_address: 172.28.10.32
+
+  resp-compat:
+    build:
+      context: ../..
+      dockerfile: tests/docker_ha/Dockerfile.resp_compat
+    image: eloqctl-e2e-resp-compat:latest
+    container_name: eloqctl-e2e-resp-compat
+    hostname: resp-compat
+    command: ["sleep", "infinity"]
+    depends_on:
+      - eloq-tx
+      - eloq-standby
+      - eloq-voter
+      - eloq-control
+    networks:
+      eloqctl-e2e-net:
+        ipv4_address: 172.28.10.33
 
 networks:
   eloqctl-e2e-net:

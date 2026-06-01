@@ -50,3 +50,6 @@ tests/**/exported.yaml
 tests/**/node_modules/
 tests/**/__pycache__/
 tests/**/go-cluster-tls-stress
+tests/e2e/cmd-stress-*.log
+tests/e2e/*.generated.yaml
+.tmp-e2e-download-cache/

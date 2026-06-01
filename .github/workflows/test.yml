@@ -29,6 +29,10 @@ on:
         description: "Concurrent execution slots per worker"
         required: false
         default: "4"
+      resp_compat_version:
+        description: "RESP compatibility target Redis version"
+        required: false
+        default: "7.0.0"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -83,11 +87,13 @@ jobs:
             duration="${{ github.event.inputs.duration || '20' }}"
             repeat="${{ github.event.inputs.repeat || '8' }}"
             inflight="${{ github.event.inputs.inflight || '4' }}"
+            resp_compat_version="${{ github.event.inputs.resp_compat_version || '7.0.0' }}"
           else
             workers="8"
             duration="20"
             repeat="8"
             inflight="4"
+            resp_compat_version="7.0.0"
           fi
 
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
@@ -99,9 +105,10 @@ jobs:
           export WORKERS="${workers}"
           export INFLIGHT="${inflight}"
           export REPEAT="${repeat}"
+          export RESP_COMPAT_VERSION="${resp_compat_version}"
           export SKIP_DEPS=1
-          export STEPS="launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,remove"
-          echo "Running E2E with WORKERS=${WORKERS} INFLIGHT=${INFLIGHT} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT}"
+          export STEPS="launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,resp-compat,remove"
+          echo "Running E2E with WORKERS=${WORKERS} INFLIGHT=${INFLIGHT} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT} RESP_COMPAT_VERSION=${RESP_COMPAT_VERSION}"
           tests/e2e/devctl.sh stress "${STEPS}"
 
       - name: Cleanup Docker

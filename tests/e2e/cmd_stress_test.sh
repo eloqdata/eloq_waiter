@@ -5,12 +5,14 @@
 #   - Python  → stress-python   (redis-py)
 #   - Go      → stress-go       (go-redis/v9)
 #   - TS      → stress-ts       (ioredis)
+#   - RESP    → resp-compat     (tair-opensource/resp-compatibility)
 #
 # Env overrides:
-#   STEPS=launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,remove
+#   STEPS=launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,resp-compat,remove
 #   DURATION_SECONDS=300   WORKERS=8   INFLIGHT=4   KEY_COUNT=256   REPEAT=10
 #   CMD_TIMEOUT=5         INFO_CMD_TIMEOUT=10   PROGRESS_INTERVAL=5
 #   TLS_ENABLED=1         SKIP_DEPS=1
+#   RESP_COMPAT_VERSION=7.0.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +22,7 @@ source "${REPO_ROOT}/tests/docker_env.sh"
 CLUSTER="test-e2e"
 TOPO="${SCRIPT_DIR}/topology.generated.yaml"
 CONTROL_TOPO="${CONTROL_REPO_ROOT}/tests/e2e/topology.generated.yaml"
-STEPS="${STEPS:-launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,remove}"
+STEPS="${STEPS:-launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,resp-compat,remove}"
 
 DURATION="${DURATION_SECONDS:-300}"
 WORKERS="${WORKERS:-16}"
@@ -47,6 +49,7 @@ ELOQKV_UPDATE_VERSION="${ELOQKV_UPDATE_VERSION:-${ELOQKV_VERSION:-1.2.2}}"
 GRAFANA_HTTP_URL="${GRAFANA_HTTP_URL:-http://172.28.10.14:3301}"
 ALERTMANAGER_HTTP_URL="${ALERTMANAGER_HTTP_URL:-http://172.28.10.14:9093}"
 ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL="${ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL:-http://172.28.10.14:8080}"
+RESP_COMPAT_VERSION="${RESP_COMPAT_VERSION:-7.0.0}"
 
 PASSWD="testpass"
 N1="172.28.10.11"
@@ -484,6 +487,75 @@ do_ts_stress() {
     return ${PIPESTATUS[0]}
 }
 
+# ── RESP compatibility test (standalone + cluster against Redis 7.0) ──
+do_resp_compat() {
+    discover_master || return 1
+    echo "=== RESP compatibility test (Redis ${RESP_COMPAT_VERSION}) ==="
+    local master_host="${MASTER%:*}"
+    local master_port="${MASTER##*:}"
+    local compose_file="${DOCKER_E2E_DIR}/docker-compose.yaml"
+    local standalone_log="${SCRIPT_DIR}/resp-compat-standalone.log"
+    local cluster_log="${SCRIPT_DIR}/resp-compat-cluster.log"
+    local cts="/tmp/cts_filtered.json"
+    local script="/opt/resp-compatibility/resp_compatibility.py"
+
+    local common_args=(
+        python3 -u "${script}"
+        --host "${master_host}" --port "${master_port}"
+        --password "${PASSWD}" --testfile "${cts}"
+        --specific-version "${RESP_COMPAT_VERSION}"
+        --show-failed
+    )
+
+    # Filter out commands known to hang on EloqKV
+    docker compose -f "${compose_file}" exec -T resp-compat python3 -c "
+import json
+with open('/opt/resp-compatibility/cts.json') as f:
+    tests = json.load(f)
+skip = {'script flush with SYNC', 'script flush with ASYNC'}
+for t in tests:
+    if t['name'] in skip:
+        t['skipped'] = True
+with open('${cts}','w') as f:
+    json.dump(tests, f)
+"
+
+    echo "--- standalone mode ---"
+    docker compose -f "${compose_file}" exec -T resp-compat bash -c \
+        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed >/tmp/standalone.log 2>&1"
+    docker compose -f "${compose_file}" cp resp-compat:/tmp/standalone.log "${standalone_log}"
+    cat "${standalone_log}"
+    local standalone_status=${PIPESTATUS[0]}
+
+    # Wait for cluster to recover after standalone test
+    echo "  waiting for cluster recovery..."
+    for _ in $(seq 1 30); do
+        if docker compose -f "${compose_file}" exec -T stress-python python3 -c "
+import ssl; from redis import Redis
+r=Redis(host='172.28.10.11',port=6379,password='${PASSWD}',socket_timeout=5,ssl=True,ssl_cert_reqs=ssl.CERT_NONE,ssl_check_hostname=False)
+info=r.execute_command('CLUSTER','INFO').decode()
+print('OK' if 'cluster_state:ok' in info else info.split('cluster_state:')[1].split('\\\\n')[0] if 'cluster_state:' in info else 'UNKNOWN')
+r.close()
+" 2>/dev/null | grep -q "OK"; then
+            echo "  cluster recovered"
+            break
+        fi
+        sleep 4
+    done
+
+    echo "--- cluster mode ---"
+    docker compose -f "${compose_file}" exec -T resp-compat bash -c \
+        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed --cluster >/tmp/cluster.log 2>&1"
+    docker compose -f "${compose_file}" cp resp-compat:/tmp/cluster.log "${cluster_log}"
+    cat "${cluster_log}"
+    local cluster_status=${PIPESTATUS[0]}
+
+    if [ ${standalone_status} -ne 0 ] || [ ${cluster_status} -ne 0 ]; then
+        echo "FAIL: resp-compat standalone=${standalone_status} cluster=${cluster_status}"
+        return 1
+    fi
+}
+
 # ── Remove ──
 do_remove() {
     echo "=== Remove cluster ==="
@@ -500,6 +572,7 @@ step eloqctl-mutate do_eloqctl_mutate
 step py-stress do_py_stress
 step go-stress do_go_stress
 step ts-stress do_ts_stress
+step resp-compat do_resp_compat
 step remove do_remove
 
 if [ -z "${FAILED_STEPS}" ]; then

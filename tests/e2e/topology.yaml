@@ -40,6 +40,17 @@ deployment:
       bucket_name: "eloqservice"
       bucket_prefix: "store"
       endpoint: "http://172.28.10.20:9000"
+  log_service:
+    nodes:
+      - host: "172.28.10.14"
+        port: 9000
+        data_dir: ["/home/eloq/log-data"]
+    replica: 1
+    aws_access_key_id: "minioadmin"
+    aws_secret_key: "minioadmin"
+    bucket_name: "eloqservice"
+    bucket_prefix: "log"
+    endpoint: "http://172.28.10.20:9000"
   monitor:
     data_dir: ""
     eloq_metrics:
