@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0](https://github.com/monographdb/eloq_waiter/compare/v1.6.8...v1.7.0) (2026-06-01)
+
+
+### Features
+
+* add RESP compatibility E2E coverage and improve task output ([#412](https://github.com/monographdb/eloq_waiter/issues/412)) ([9d810ec](https://github.com/monographdb/eloq_waiter/commit/9d810eceb6ef533aa8873c1dcbe435a09ee4a90a))
+
+
+### Bug Fixes
+
+* cover rolling update and speed local e2e downloads ([#410](https://github.com/monographdb/eloq_waiter/issues/410)) ([5902f28](https://github.com/monographdb/eloq_waiter/commit/5902f28444ff67c56763eb962483fa0fb7fdc20c))
+
 ## [1.6.8](https://github.com/monographdb/eloq_waiter/compare/v1.6.7...v1.6.8) (2026-05-27)
 
 
