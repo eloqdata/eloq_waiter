@@ -93,6 +93,26 @@ compose_down() {
     fi
 }
 
+clear_minio_data() {
+    if ! docker ps --format '{{.Names}}' | grep -qx 'eloqctl-e2e-minio'; then
+        return 0
+    fi
+
+    if ! curl -fsS "${MINIO_ENDPOINT}/minio/health/live" >/dev/null 2>&1; then
+        echo "[docker] Skip MinIO cleanup because ${MINIO_ENDPOINT} is not ready"
+        return 0
+    fi
+
+    echo "[docker] Clear MinIO bucket ${MINIO_BUCKET}"
+    docker run --rm --network host --entrypoint /bin/sh \
+        minio/mc:RELEASE.2025-05-21T01-59-54Z -lc "
+            set -euo pipefail
+            mc alias set '${MINIO_ALIAS}' '${MINIO_ENDPOINT}' \
+                '${MINIO_ROOT_USER}' '${MINIO_ROOT_PASSWORD}' >/dev/null
+            mc rm --recursive --force '${MINIO_ALIAS}/${MINIO_BUCKET}' >/dev/null 2>&1 || true
+        "
+}
+
 ssh_cmd() {
     ssh -o UserKnownHostsFile=/dev/null \
         -o StrictHostKeyChecking=no \
@@ -150,10 +170,34 @@ render_topology_for_control() {
         "${source_topology}" > "${rendered_topology}"
 }
 
+e2e_eloqkv_store_for_topology() {
+    local topology_path="$1"
+    if rg -q 'backend:\s*!eloqstore' "${topology_path}"; then
+        local provider
+        provider="$(sed -n 's/.*eloq_store_cloud_provider:[[:space:]]*"\([^"]*\)".*/\1/p' "${topology_path}" | head -n1)"
+        case "${provider:-aws}" in
+            gcs)
+                echo "eloqstore_gcs"
+                ;;
+            *)
+                echo "eloqstore_s3"
+                ;;
+        esac
+        return 0
+    fi
+
+    echo "rocks_s3"
+}
+
 e2e_eloqkv_url() {
     local version="${1:-${ELOQKV_VERSION}}"
+    local topology_path="${2:-}"
+    local store="rocks_s3"
+    if [ -n "${topology_path}" ] && [ -f "${topology_path}" ]; then
+        store="$(e2e_eloqkv_store_for_topology "${topology_path}")"
+    fi
     printf '%s\n' \
-        "https://github.com/eloqdata/eloqkv/releases/download/${version}/eloqkv-${version}-rocks_s3-ubuntu24-amd64.tar.gz"
+        "https://github.com/eloqdata/eloqkv/releases/download/${version}/eloqkv-${version}-${store}-ubuntu24-amd64.tar.gz"
 }
 
 _download_cache_target_for_url() {
@@ -188,8 +232,13 @@ prefetch_url_to_host_cache() {
         mv "${target}" "${part}"
     fi
 
-    curl -fL --retry 8 --retry-delay 3 --retry-all-errors --continue-at - \
-        -o "${part}" "${url}"
+    if ! curl -fL --retry 8 --retry-delay 3 --retry-all-errors --continue-at - \
+        -o "${part}" "${url}"; then
+        echo "[docker] Resume failed, restarting download from scratch"
+        rm -f "${part}"
+        curl -fL --retry 8 --retry-delay 3 --retry-all-errors \
+            -o "${part}" "${url}"
+    fi
     mv "${part}" "${target}"
 }
 
@@ -202,7 +251,7 @@ prefetch_control_download_cache() {
     fi
 
     local urls=()
-    urls+=("$(e2e_eloqkv_url)")
+    urls+=("$(e2e_eloqkv_url "${ELOQKV_VERSION}" "${topology_path}")")
     while IFS= read -r url; do
         [ -n "${url}" ] && urls+=("${url}")
     done < <(sed -n 's/.*: "\(https\?:[^"]*\)".*/\1/p' "${topology_path}")
