@@ -20,7 +20,7 @@ futures = { version = "0.3", default-features = false, features = [
     "alloc",
     "thread-pool",
 ] }
-flate2 = "1"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 futures-async-stream = "0.2"
 indexmap = "2.1.0"
 indicatif = "0.17"

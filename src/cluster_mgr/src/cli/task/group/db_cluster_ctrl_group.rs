@@ -481,24 +481,23 @@ impl CtrlDBTaskGroup {
                     );
                 }
 
-                let start_tx =
+                let mut start_tx =
                     EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Tx);
-                barrier.push(start_tx.len());
-                executable.extend(start_tx);
 
                 if config.deployment.tx_service.standby_host_ports.is_some() {
                     let start_standby =
                         EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Standby);
-                    barrier.push(start_standby.len());
-                    executable.extend(start_standby);
+                    start_tx.extend(start_standby);
                 }
 
                 if config.deployment.tx_service.voter_host_ports.is_some() {
                     let start_voter =
                         EloqTxCtlTask::from_config(start_cmd.clone(), config, ServerType::Voter);
-                    barrier.push(start_voter.len());
-                    executable.extend(start_voter);
+                    start_tx.extend(start_voter);
                 }
+
+                barrier.push(start_tx.len());
+                executable.extend(start_tx);
             }
 
             // Wait until service processes are up after start. Redis cluster readiness is

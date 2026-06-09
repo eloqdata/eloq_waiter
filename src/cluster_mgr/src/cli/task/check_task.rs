@@ -5,6 +5,7 @@ use crate::{
     },
     config::{config_base::DeployConfig, DeploymentPackage},
 };
+use crate::cli::task::task_utils::configured_eloq_metrics_port;
 use anyhow::{bail, Ok, Result};
 use std::collections::HashMap;
 
@@ -40,9 +41,13 @@ impl CheckTask {
         let ssh_k = self.config.connection.ssh_auth_key().unwrap();
         let sess = ssh::SSHSession::from_task_host(host, ssh_k).await?;
         let needed = self.configured_ports_for_host();
+        let metrics_port = configured_eloq_metrics_port(&self.config);
         for p in sess.used_tcp_ports().await? {
             if needed.contains(&p) {
                 bail!("tx-service socket {}:{p} is already used", self.host);
+            }
+            if metrics_port == Some(p) {
+                bail!("eloq metrics socket {}:{p} is already used", self.host);
             }
             if let Some(moni) = &self.config.deployment.monitor {
                 if let Some(noex) = &moni.node_exporter {

@@ -21,6 +21,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
+use tokio::time::sleep;
 use tracing::{error, info};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,6 +55,8 @@ macro_rules! wait_command_complete {
 pub(crate) const PID_NOT_FOUND: &str = "NONE";
 pub(crate) const PROCESS_PID: &str = "_process_pid_";
 pub(crate) const PROCESS_PID_LIST: &str = "_process_pid_list_";
+pub(crate) const DEFAULT_ELOQ_METRICS_PORT: u16 = 18081;
+pub(crate) const TX_INTERNAL_PORT_DELTA: u16 = 10000;
 
 pub(crate) type NodeId = u32;
 pub(crate) type NodeGroupId = u32;
@@ -94,6 +97,51 @@ pub fn parse_process_pid(process_info: String) -> Option<i32> {
         let pid_vec = ps_cmd_output_extract(output_normal.to_string());
         pid_vec.first().cloned()
     }
+}
+
+pub(crate) fn configured_eloq_metrics_port(config: &DeployConfig) -> Option<u16> {
+    config
+        .deployment
+        .monitor
+        .as_ref()
+        .and_then(|monitor| monitor.eloq_metrics.as_ref())
+        .map(|metrics| metrics.port.unwrap_or(DEFAULT_ELOQ_METRICS_PORT))
+}
+
+pub(crate) fn critical_runtime_ports(config: &DeployConfig, base_port: u16) -> Vec<u16> {
+    let mut ports = vec![base_port, base_port.saturating_add(TX_INTERNAL_PORT_DELTA)];
+    if let Some(metrics_port) = configured_eloq_metrics_port(config) {
+        ports.push(metrics_port);
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+pub(crate) fn ports_match_state(used_ports: &[u16], target_ports: &[u16], should_exist: bool) -> bool {
+    target_ports.iter().all(|port| used_ports.contains(port) == should_exist)
+}
+
+pub(crate) async fn wait_tcp_ports_state(
+    ssh_conn: &SSHSession,
+    target_ports: &[u16],
+    should_exist: bool,
+    wait_timeout: Duration,
+) -> anyhow::Result<bool> {
+    if target_ports.is_empty() {
+        return Ok(true);
+    }
+    let sleep_duration = Duration::from_secs(1);
+    let mut timeout_remaining = wait_timeout;
+    while timeout_remaining.as_secs() > 0 {
+        let used_ports = ssh_conn.used_tcp_ports().await?;
+        if ports_match_state(&used_ports, target_ports, should_exist) {
+            return Ok(true);
+        }
+        sleep(sleep_duration).await;
+        timeout_remaining = timeout_remaining.saturating_sub(sleep_duration);
+    }
+    Ok(false)
 }
 
 pub(crate) async fn check_pid<F, T>(
@@ -278,8 +326,8 @@ where
         if process_ready {
             break;
         } else {
-            std::thread::sleep(sleep_duration);
-            timeout_remaining -= sleep_duration;
+            sleep(sleep_duration).await;
+            timeout_remaining = timeout_remaining.saturating_sub(sleep_duration);
         }
     }
     Ok(process_ready)
@@ -414,6 +462,103 @@ pub async fn stop_with_hot_standby(
 
         barrier.push(stop_tx.len());
         executable.extend(stop_tx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        configured_eloq_metrics_port, critical_runtime_ports, ports_match_state,
+        DEFAULT_ELOQ_METRICS_PORT,
+    };
+    use crate::config::config_base::DeployConfig;
+    use crate::config::connection::{Auth, Connection};
+    use crate::config::deployment::{Deployment, EloqService, Product};
+    use crate::config::monitor::{EloqMetrics, Monitor};
+
+    fn metrics_config(port: Option<u16>) -> DeployConfig {
+        DeployConfig {
+            connection: Connection {
+                username: "eloq".to_string(),
+                auth_type: "key".to_string(),
+                auth: Auth {
+                    password: None,
+                    keypair: None,
+                },
+                port: None,
+                ssh_endpoints: None,
+                service_endpoints: None,
+            },
+            deployment: Deployment {
+                product: Product::EloqKV,
+                version: None,
+                cluster_name: "test".to_string(),
+                install_dir: "/tmp".to_string(),
+                tx_service: EloqService {
+                    image: Some("https://example.com/eloq.tar.gz".to_string()),
+                    tx_host_ports: vec!["10.0.0.1:6379".to_string()],
+                    standby_host_ports: None,
+                    voter_host_ports: None,
+                    requirepass: None,
+                    enable_cache_replacement: None,
+                    client_port: None,
+                    max_standby_lag: None,
+                },
+                log_service: None,
+                storage_service: None,
+                monitor: Some(Monitor {
+                    data_dir: None,
+                    prometheus: None,
+                    alertmanager: None,
+                    grafana: None,
+                    node_exporter: None,
+                    eloq_metrics: Some(EloqMetrics {
+                        path: Some("/eloq_metrics".to_string()),
+                        port,
+                    }),
+                }),
+                hardware: None,
+                enable_wal: None,
+                enable_io_uring: None,
+                checkpoint_interval: None,
+                enable_tls: None,
+                maxclients: None,
+                cluster_mode: None,
+                environment_variables: None,
+            },
+            conf_opts: None,
+            tx_version_override: None,
+            tx_image_override: None,
+        }
+    }
+
+    #[test]
+    fn critical_runtime_ports_include_metrics_when_enabled() {
+        let cfg = metrics_config(Some(18081));
+        assert_eq!(configured_eloq_metrics_port(&cfg), Some(18081));
+        assert_eq!(critical_runtime_ports(&cfg, 6379), vec![6379, 16379, 18081]);
+    }
+
+    #[test]
+    fn critical_runtime_ports_use_default_metrics_port_when_unspecified() {
+        let cfg = metrics_config(None);
+        assert_eq!(
+            configured_eloq_metrics_port(&cfg),
+            Some(DEFAULT_ELOQ_METRICS_PORT)
+        );
+        assert_eq!(
+            critical_runtime_ports(&cfg, 6379),
+            vec![6379, 16379, DEFAULT_ELOQ_METRICS_PORT]
+        );
+    }
+
+    #[test]
+    fn ports_match_state_checks_presence_and_absence() {
+        let used = vec![6379, 16379, 18081];
+        assert!(ports_match_state(&used, &[6379, 18081], true));
+        assert!(!ports_match_state(&used, &[6379, 19000], true));
+        assert!(ports_match_state(&used, &[19000, 19001], false));
+        assert!(!ports_match_state(&used, &[6379, 19001], false));
     }
 }
 

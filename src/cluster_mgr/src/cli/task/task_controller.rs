@@ -290,6 +290,13 @@ impl TaskController {
             "cluster-control-start" => "Starting Eloq services".to_string(),
             "cluster-control-status" => "Checking cluster status".to_string(),
             "update-tx-conf" => "Updating Eloq configuration".to_string(),
+            "download-and-extract" => "Preparing upgrade package".to_string(),
+            "upload-to-standby" => "Uploading binaries to standby nodes".to_string(),
+            "upload-to-master" => "Uploading binaries to old master nodes".to_string(),
+            "stop-standby" => "Stopping standby nodes".to_string(),
+            "rolling-restart-failover-stop-master" => {
+                "Failing over to standby and stopping old master".to_string()
+            }
             "rolling-restart-round1" => "Moving traffic away from the current master".to_string(),
             "start-tx" => "Starting the original master node".to_string(),
             "wait-current-master" => "Waiting for a serving master".to_string(),

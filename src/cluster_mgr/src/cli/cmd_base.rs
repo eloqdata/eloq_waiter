@@ -426,7 +426,7 @@ impl CmdExecutor {
         operation: &str,
     ) -> Result<()> {
         use crate::cli::task::eloq_tx_ctl_task::RedisProbe;
-        let observed = self.observe_cluster(config, None).await?;
+        let observed = self.observe_cluster(config, Some(30)).await?;
         if observed.has_errors() || !observed.unavailable_services().is_empty() {
             observed.print();
             bail!(
@@ -438,7 +438,7 @@ impl CmdExecutor {
         let password = config.redis_password(None);
         let mut redis_nodes = config.get_host_port_list(DeploymentPackage::EloqStandby);
         redis_nodes.extend(config.get_host_port_list(DeploymentPackage::EloqVoter));
-        for node in &redis_nodes {
+        let probes = redis_nodes.iter().map(|node| {
             let (host, port_str) = node.split_once(':').unwrap_or((node, "6379"));
             let port: u16 = port_str.parse().unwrap_or(6379);
             let tls_enabled = config.deployment.tls_enabled();
@@ -449,10 +449,17 @@ impl CmdExecutor {
                 password.clone(),
                 tls_enabled,
             );
-            // Wait up to 120s for each node to respond to PING.
-            probe.probe(120).await.map_err(|e| {
-                anyhow!("cannot {operation}: node {node} is not serving Redis after waiting: {e}")
-            })?;
+            let node = node.clone();
+            let operation = operation.to_string();
+            async move {
+                probe.probe(10).await.map_err(|e| {
+                    anyhow!("cannot {operation}: node {node} is not serving Redis after waiting: {e}")
+                })
+            }
+        });
+        let results = futures::future::join_all(probes).await;
+        for result in results {
+            result?;
         }
         Ok(())
     }

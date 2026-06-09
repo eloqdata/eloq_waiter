@@ -19,6 +19,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from redis import Redis
+from redis import exceptions as redis_exc
 from redis.cluster import ClusterNode, RedisCluster
 
 # ---------------------------------------------------------------------------
@@ -53,6 +54,9 @@ parser.add_argument("--skip-cmd-coverage", action="store_true",
                     help="Skip full command coverage (only SET/GET)")
 parser.add_argument("--results-file", default="",
                     help="Write JSON results to file")
+parser.add_argument("--client-mode", choices=["all", "cluster-only", "standalone-only"],
+                    default="all",
+                    help="Which client type to run during stress phase")
 args = parser.parse_args()
 
 if not args.startup_node:
@@ -74,6 +78,7 @@ def parse_cluster_node(value: str) -> ClusterNode:
 startup_nodes = [parse_cluster_node(node) for node in args.startup_node if node]
 master_node = startup_nodes[0]
 replica_node = startup_nodes[1] if len(startup_nodes) > 1 else startup_nodes[0]
+STOP_EVENT = threading.Event()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -106,6 +111,79 @@ def build_cluster_client() -> RedisCluster:
 def close_client(c: Redis) -> None:
     try: c.close()
     except Exception: pass
+
+
+def handle_termination(signum: int, _frame: Any) -> None:
+    signal_name = signal.Signals(signum).name
+    print(f"Received {signal_name}, shutting down stress workers...", flush=True)
+    STOP_EVENT.set()
+
+
+def is_transient_error(err: Exception) -> bool:
+    transient_types = (
+        redis_exc.ConnectionError,
+        redis_exc.TimeoutError,
+        redis_exc.BusyLoadingError,
+        redis_exc.ClusterDownError,
+        redis_exc.TryAgainError,
+        redis_exc.AskError,
+        redis_exc.MovedError,
+        redis_exc.SlotNotCoveredError,
+    )
+    if isinstance(err, transient_types):
+        return True
+    message = str(err).lower()
+    transient_markers = (
+        "connection refused",
+        "connection reset",
+        "broken pipe",
+        "i/o timeout",
+        "socket closed",
+        "cluster down",
+        "moved",
+        "ask",
+        "tryagain",
+        "readonly",
+        "loading",
+    )
+    return any(marker in message for marker in transient_markers)
+
+
+class ResilientClient:
+    def __init__(self, factory: Callable[[], Redis], label: str):
+        self._factory = factory
+        self._label = label
+        self._lock = threading.Lock()
+        self._client = factory()
+
+    def close(self) -> None:
+        with self._lock:
+            close_client(self._client)
+
+    def _rebuild(self) -> None:
+        with self._lock:
+            old = self._client
+            self._client = self._factory()
+        close_client(old)
+
+    def __getattr__(self, name: str):
+        def _call(*args, **kwargs):
+            last_err: Optional[Exception] = None
+            for attempt in range(2):
+                with self._lock:
+                    client = self._client
+                attr = getattr(client, name)
+                try:
+                    return attr(*args, **kwargs)
+                except Exception as err:
+                    last_err = err
+                    if attempt == 0 and is_transient_error(err):
+                        self._rebuild()
+                        continue
+                    raise
+            if last_err is not None:
+                raise last_err
+        return _call
 
 
 ERROR_SAMPLE_LIMIT = 3
@@ -371,31 +449,35 @@ def main() -> None:
 
     # ── Quick command coverage check (standalone + cluster) ──
     if not args.skip_cmd_coverage:
-        print("Running command coverage check (standalone) ...", flush=True)
-        coverage = run_cmd_coverage(client := build_client(master_node), command_tests)
-        close_client(client)
-        total_ok = sum(v[0] for v in coverage.values())
-        total_fail = sum(v[1] for v in coverage.values())
-        failures = [(n, errs) for n, (ok, fail, errs) in coverage.items() if fail]
-        print(f"  standalone coverage: {total_ok}/{total_ok + total_fail}", flush=True)
-        for name, errs in failures:
-            print(f"    FAIL {name}: {errs[0][:120] if errs else ''}", flush=True)
+        if args.client_mode != "cluster-only":
+            print("Running command coverage check (standalone) ...", flush=True)
+            coverage = run_cmd_coverage(client := build_client(master_node), command_tests)
+            close_client(client)
+            total_ok = sum(v[0] for v in coverage.values())
+            total_fail = sum(v[1] for v in coverage.values())
+            failures = [(n, errs) for n, (ok, fail, errs) in coverage.items() if fail]
+            print(f"  standalone coverage: {total_ok}/{total_ok + total_fail}", flush=True)
+            for name, errs in failures:
+                print(f"    FAIL {name}: {errs[0][:120] if errs else ''}", flush=True)
 
-        print("Running command coverage check (cluster) ...", flush=True)
-        ccoverage = run_cmd_coverage(client := build_cluster_client(), command_tests)
-        close_client(client)
-        ctotal_ok = sum(v[0] for v in ccoverage.values())
-        ctotal_fail = sum(v[1] for v in ccoverage.values())
-        cfailures = [(n, errs) for n, (ok, fail, errs) in ccoverage.items() if fail]
-        print(f"  cluster coverage: {ctotal_ok}/{ctotal_ok + ctotal_fail}", flush=True)
-        for name, errs in cfailures:
-            print(f"    FAIL {name}: {errs[0][:120] if errs else ''}", flush=True)
+        if args.client_mode != "standalone-only":
+            print("Running command coverage check (cluster) ...", flush=True)
+            ccoverage = run_cmd_coverage(client := build_cluster_client(), command_tests)
+            close_client(client)
+            ctotal_ok = sum(v[0] for v in ccoverage.values())
+            ctotal_fail = sum(v[1] for v in ccoverage.values())
+            cfailures = [(n, errs) for n, (ok, fail, errs) in ccoverage.items() if fail]
+            print(f"  cluster coverage: {ctotal_ok}/{ctotal_ok + ctotal_fail}", flush=True)
+            for name, errs in cfailures:
+                print(f"    FAIL {name}: {errs[0][:120] if errs else ''}", flush=True)
 
-    stop_event = threading.Event()
+    stop_event = STOP_EVENT
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, handle_termination)
 
     # ── Build clients: standalone + cluster ──
-    standalone_client = build_client(master_node)
-    cluster_client = build_cluster_client()
+    standalone_client = build_client(master_node) if args.client_mode != "cluster-only" else None
+    cluster_client = build_cluster_client() if args.client_mode != "standalone-only" else None
 
     workers: List[Tuple[Redis, threading.Thread]] = []
     standalone_stats = {
@@ -409,8 +491,15 @@ def main() -> None:
     stats_lock = threading.Lock()
     phase_event = threading.Event()
 
-    n_standalone = args.workers // 2
-    n_cluster = args.workers - n_standalone
+    if args.client_mode == "cluster-only":
+        n_standalone = 0
+        n_cluster = args.workers
+    elif args.client_mode == "standalone-only":
+        n_standalone = args.workers
+        n_cluster = 0
+    else:
+        n_standalone = args.workers // 2
+        n_cluster = args.workers - n_standalone
     total_standalone_slots = n_standalone * args.inflight
     total_cluster_slots = n_cluster * args.inflight
     print(
@@ -423,7 +512,7 @@ def main() -> None:
         cli = standalone_client
         th = threading.Thread(target=stress_worker,
                                args=(cli, stop_event, phase_event,
-                                     stats_lock, standalone_stats, i),
+                                      stats_lock, standalone_stats, i),
                                 daemon=True)
         th.start()
         workers.append((cli, th))
@@ -431,7 +520,7 @@ def main() -> None:
         cli = cluster_client
         th = threading.Thread(target=stress_worker,
                                args=(cli, stop_event, phase_event,
-                                     stats_lock, cluster_stats, i + total_standalone_slots),
+                                      stats_lock, cluster_stats, i + total_standalone_slots),
                                 daemon=True)
         th.start()
         workers.append((cli, th))
@@ -446,6 +535,10 @@ def main() -> None:
 
     try:
         last = time.time()
+        last_s_ok = 0
+        last_s_fail = 0
+        last_c_ok = 0
+        last_c_fail = 0
         while not _should_stop():
             time.sleep(args.progress_interval)
             now = time.time()
@@ -454,20 +547,35 @@ def main() -> None:
             s_fail = sum(v["fail"] for v in standalone_stats.values())
             c_ok = sum(v["ok"] for v in cluster_stats.values())
             c_fail = sum(v["fail"] for v in cluster_stats.values())
-            total_ok = s_ok + c_ok
-            total_fail = s_fail + c_fail
-            qps = (total_ok + total_fail) / max(elapsed, 0.001)
-            print(f"[progress] standalone: ok={s_ok} fail={s_fail} "
-                  f"cluster: ok={c_ok} fail={c_fail} "
-                  f"total_qps={qps:.0f}", flush=True)
+            window_s_ok = s_ok - last_s_ok
+            window_s_fail = s_fail - last_s_fail
+            window_c_ok = c_ok - last_c_ok
+            window_c_fail = c_fail - last_c_fail
+            qps = (window_s_ok + window_s_fail + window_c_ok + window_c_fail) / max(elapsed, 0.001)
+            if args.client_mode == "cluster-only":
+                print(f"[progress] cluster_window: ok={window_c_ok} fail={window_c_fail} "
+                      f"cluster_total: ok={c_ok} fail={c_fail} qps={qps:.0f}", flush=True)
+            elif args.client_mode == "standalone-only":
+                print(f"[progress] standalone_window: ok={window_s_ok} fail={window_s_fail} "
+                      f"standalone_total: ok={s_ok} fail={s_fail} qps={qps:.0f}", flush=True)
+            else:
+                print(f"[progress] standalone_window: ok={window_s_ok} fail={window_s_fail} "
+                      f"cluster_window: ok={window_c_ok} fail={window_c_fail} qps={qps:.0f}", flush=True)
+            last = now
+            last_s_ok = s_ok
+            last_s_fail = s_fail
+            last_c_ok = c_ok
+            last_c_fail = c_fail
     except KeyboardInterrupt:
         pass
 
     stop_event.set()
     for cli, th in workers:
         th.join(timeout=3)
-    close_client(standalone_client)
-    close_client(cluster_client)
+    if standalone_client is not None:
+        close_client(standalone_client)
+    if cluster_client is not None:
+        close_client(cluster_client)
 
     # ── Report ──
     def _report(title: str, stats: Dict[str, Dict[str, Any]]) -> None:
@@ -483,8 +591,10 @@ def main() -> None:
                     print(f"    error[{count}]: {signature[:200]}")
                 for sample in stats[name]["samples"]:
                     print(f"    sample: {sample[:200]}")
-    _report("Standalone Client Results", standalone_stats)
-    _report("Cluster Client Results", cluster_stats)
+    if args.client_mode != "cluster-only":
+        _report("Standalone Client Results", standalone_stats)
+    if args.client_mode != "standalone-only":
+        _report("Cluster Client Results", cluster_stats)
     s_fail = sum(v["fail"] for v in standalone_stats.values())
     c_fail = sum(v["fail"] for v in cluster_stats.values())
     s_ok = sum(v["ok"] for v in standalone_stats.values())

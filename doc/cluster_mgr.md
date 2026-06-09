@@ -65,6 +65,101 @@ eloqctl remove eloqkv-cluster --force
 | `upgrade` | Run local SQLite schema upgrades. |
 | `remove <cluster> [--force]` | Remove local cluster metadata and perform best-effort remote cleanup. |
 
+## Targeted Component Operations
+
+`eloqctl` can operate on one node or one component at a time, but the basic command table above does not spell out the exact CLI shapes.
+
+Start only one EloqKV node that already exists in the saved topology:
+
+```sh
+eloqctl start eloqkv-cluster --nodes 10.0.0.12:6379
+```
+
+This is the right command when you want to bring back just one tx, standby, or voter node by `host:port` without starting the whole cluster.
+
+Stop only one EloqKV node:
+
+```sh
+eloqctl stop eloqkv-cluster --nodes 10.0.0.12:6379 --force
+```
+
+Stop only tx services for the cluster, without touching monitor or storage:
+
+```sh
+eloqctl stop eloqkv-cluster --tx true
+```
+
+Stop only the log service:
+
+```sh
+eloqctl stop eloqkv-cluster --log
+```
+
+Stop only the storage service when it is managed by `eloqctl`:
+
+```sh
+eloqctl stop eloqkv-cluster --store
+```
+
+Stop everything in the cluster:
+
+```sh
+eloqctl stop eloqkv-cluster --all --force
+```
+
+Operate on monitor components one at a time:
+
+```sh
+eloqctl monitor start --cluster eloqkv-cluster --component grafana
+eloqctl monitor stop --cluster eloqkv-cluster --component prometheus
+eloqctl monitor status --cluster eloqkv-cluster --component node-exporter
+```
+
+Operate on all monitor components together:
+
+```sh
+eloqctl monitor start --cluster eloqkv-cluster
+eloqctl monitor stop --cluster eloqkv-cluster
+eloqctl monitor status --cluster eloqkv-cluster
+```
+
+Operate on standalone log service nodes:
+
+```sh
+eloqctl log-service start eloqkv-cluster
+eloqctl log-service stop eloqkv-cluster
+```
+
+Add a new standby node:
+
+```sh
+eloqctl scale eloqkv-cluster \
+  --add-nodes 10.0.0.12:6379 \
+  --ng-id 1 \
+  --is-candidate false
+```
+
+Add a new candidate/tx node:
+
+```sh
+eloqctl scale eloqkv-cluster \
+  --add-nodes 10.0.0.13:6379 \
+  --ng-id 1 \
+  --is-candidate true
+```
+
+Remove one existing tx/standby/voter node:
+
+```sh
+eloqctl scale eloqkv-cluster --remove-nodes 10.0.0.12:6379
+```
+
+Important distinctions:
+
+1. `start <cluster> --nodes ...` only starts nodes that are already present in the saved topology.
+2. `scale --add-nodes ...` changes cluster membership and is the correct command for adding a new standby or tx node.
+3. `monitor ... --component ...` targets monitor processes such as Grafana, Prometheus, Alertmanager, or node-exporter, not EloqKV tx/standby nodes.
+
 ## SSH And Endpoints
 
 Topology `connection.ssh_endpoints` can map a deployment host to the host/port used by the control machine for SSH. This is required for Docker E2E and useful behind bastions or port forwarding.

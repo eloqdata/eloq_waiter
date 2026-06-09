@@ -46,6 +46,21 @@ impl LocalExtractTask {
         Ok(Self::instances(entries))
     }
 
+    pub fn from_config_keys(
+        config: &DeployConfig,
+        keys: &[&str],
+    ) -> Result<IndexMap<TaskId, TaskInstance>> {
+        let links = config.deployment.all_download_links()?;
+        let entries = links
+            .iter()
+            .filter(|(key, _)| keys.contains(&key.as_str()))
+            .filter_map(|(key, url)| {
+                Self::unpack_dest_for_key(config, key).map(|dest| (key.clone(), url.clone(), dest))
+            })
+            .collect_vec();
+        Ok(Self::instances(entries))
+    }
+
     pub fn from_urls(
         entries: Vec<(String, DownloadUrl, String)>,
     ) -> IndexMap<TaskId, TaskInstance> {
@@ -359,11 +374,14 @@ impl TaskExecutor for LocalExtractTask {
 mod tests {
     use super::LocalExtractTask;
     use crate::config::config_base::PROMETHEUSALERT_FILE_KEY;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
     use indicatif::ProgressBar;
     use std::fs;
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
+    use tar::Builder;
     use std::time::{SystemTime, UNIX_EPOCH};
     use zip::write::SimpleFileOptions;
 
@@ -450,5 +468,44 @@ mod tests {
                 assert_ne!(mode & 0o111, 0, "{binary_name} should be executable");
             }
         }
+    }
+
+    #[test]
+    fn untar_gz_extracts_files_and_strips_top_level_directory() {
+        let root = temp_dir("tar-gz-extract");
+        let archive_path = root.join("sample.tar.gz");
+        let dest = root.join("dest");
+        fs::create_dir_all(&dest).unwrap();
+
+        let tar_gz = File::create(&archive_path).unwrap();
+        let encoder = GzEncoder::new(tar_gz, Compression::default());
+        let mut builder = Builder::new(encoder);
+
+        let payload = b"hello from tar.gz";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "sample-root/bin/hello.txt", &payload[..])
+            .unwrap();
+        builder.finish().unwrap();
+        let encoder = builder.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        let task = LocalExtractTask::new(
+            crate::cli::task::task_base::TaskId {
+                cmd: "extract".to_string(),
+                task: "sample.tar.gz_extract".to_string(),
+                host: "_local".to_string(),
+            },
+            ProgressBar::hidden(),
+        );
+        task.unpack_archive(&archive_path, &dest).unwrap();
+
+        let extracted = dest.join("bin/hello.txt");
+        assert!(extracted.exists());
+        assert_eq!(fs::read(&extracted).unwrap(), payload);
+        assert!(!dest.join("sample-root").exists());
     }
 }

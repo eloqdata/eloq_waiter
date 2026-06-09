@@ -6,7 +6,8 @@ use crate::cli::task::task_base::{
     TaskInstance,
 };
 use crate::cli::task::task_utils::{
-    check_pid, ctl_action_wait_complete, parse_process_pid, PID_NOT_FOUND, PROCESS_PID,
+    check_pid, critical_runtime_ports, ctl_action_wait_complete, parse_process_pid,
+    wait_tcp_ports_state, PID_NOT_FOUND, PROCESS_PID,
 };
 use crate::cli::{SubCommand, CMD, CMD_OUTPUT, CMD_STATUS};
 use crate::config::config_base::DeployConfig;
@@ -15,6 +16,7 @@ use crate::{get_ctl_cmd_string, task_return_value, wait_command_complete};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use redis::{Client, RedisResult, Value};
 use regex::Regex;
 use std::collections::HashMap;
@@ -112,6 +114,9 @@ macro_rules! tx_ctl {
 }
 
 pub(crate) static WAIT_SECS: &str = "wait_ready_seconds";
+const REDIS_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const REDIS_IO_TIMEOUT: Duration = Duration::from_secs(3);
+
 macro_rules! maybe_continue_probe {
     ($wait_secs:expr) => {
         if $wait_secs > 0 {
@@ -180,8 +185,10 @@ impl RedisProbe {
         };
         let client = redis::Client::open(client_url)?;
         loop {
-            match client.get_connection() {
+            match client.get_connection_with_timeout(REDIS_CONNECT_TIMEOUT) {
                 Ok(mut con) => {
+                    let _ = con.set_read_timeout(Some(REDIS_IO_TIMEOUT));
+                    let _ = con.set_write_timeout(Some(REDIS_IO_TIMEOUT));
                     // Send PING to verify Redis is actually serving commands,
                     // not just accepting TCP connections.
                     match redis::cmd("PING").query::<String>(&mut con) {
@@ -245,8 +252,12 @@ impl RedisProbe {
             let mut last_error: Option<String> = None;
             for url in &redis_urls {
                 let query_result: RedisResult<Value> = match Client::open(url.clone()) {
-                    Ok(client) => match client.get_connection() {
-                        Ok(mut con) => redis::cmd("CLUSTER").arg("NODES").query(&mut con),
+                    Ok(client) => match client.get_connection_with_timeout(REDIS_CONNECT_TIMEOUT) {
+                        Ok(mut con) => {
+                            let _ = con.set_read_timeout(Some(REDIS_IO_TIMEOUT));
+                            let _ = con.set_write_timeout(Some(REDIS_IO_TIMEOUT));
+                            redis::cmd("CLUSTER").arg("NODES").query(&mut con)
+                        }
                         Err(err) => {
                             last_error = Some(err.to_string());
                             continue;
@@ -719,10 +730,10 @@ impl TaskExecutor for EloqTxCtlTask {
             }
             "stop" | "force_stop" => {
                 let stop_cmd = self.ctl_cmd.cmd_value();
-                let mut matching_ports: Vec<String> = Vec::new();
+                let mut target_ports: Vec<String> = Vec::new();
                 match server_type {
                     "txservice" => {
-                        matching_ports = master_host_ports
+                        target_ports = master_host_ports
                             .iter()
                             .filter_map(|host_port| {
                                 let parts: Vec<&str> = host_port.split(':').collect();
@@ -735,7 +746,7 @@ impl TaskExecutor for EloqTxCtlTask {
                             .collect();
                     }
                     "standby" => {
-                        matching_ports = standby_host_ports
+                        target_ports = standby_host_ports
                             .iter()
                             .filter_map(|host_port| {
                                 let parts: Vec<&str> = host_port.split(':').collect();
@@ -749,16 +760,26 @@ impl TaskExecutor for EloqTxCtlTask {
                     }
                     "voter" => (),
                     "node" => {
-                        matching_ports.push(port.to_string());
+                        target_ports.push(port.to_string());
                     }
                     _ => {
                         unreachable!("Unknown server type: {}", server_type);
                     }
                 }
+                if target_ports.is_empty() {
+                    target_ports.push(port.to_string());
+                }
+
+                let runtime_ports = target_ports
+                    .iter()
+                    .filter_map(|p| p.parse::<u16>().ok())
+                    .flat_map(|p| critical_runtime_ports(&self.config, p))
+                    .unique()
+                    .collect::<Vec<_>>();
 
                 // Modify stop_cmd to use grep with the matched ports
-                if !matching_ports.is_empty() {
-                    let port_pattern = matching_ports.join("|");
+                if !target_ports.is_empty() {
+                    let port_pattern = target_ports.join("|");
                     let re = Regex::new(r"grep \d+").unwrap();
                     let modified_stop_cmd =
                         re.replace(&stop_cmd, &format!("grep -E '{}'", port_pattern));
@@ -772,17 +793,65 @@ impl TaskExecutor for EloqTxCtlTask {
                     );
 
                     // should not check using port from config
-                    wait_command_complete!(
+                    let mut stop_result = wait_command_complete!(
                         modified_stop_cmd.to_string(),
                         modified_check_status_cmd.to_string(),
                         ssh_session.clone(),
                         is_none
+                    )?;
+                    if !wait_tcp_ports_state(
+                        &ssh_session,
+                        &runtime_ports,
+                        false,
+                        Duration::from_secs(120),
                     )
+                    .await?
+                    {
+                        return Err(anyhow!(
+                            "timed out waiting for runtime ports to be released on {}: {:?}",
+                            self.task_id.host,
+                            runtime_ports
+                        ));
+                    }
+                    if let Some(output) = stop_result.get(CMD_OUTPUT) {
+                        let detail = TaskArgValue::into_inner_value::<String>(output.clone());
+                        stop_result.insert(
+                            CMD_OUTPUT.to_string(),
+                            TaskArgValue::Str(format!(
+                                "{detail}, runtime ports released={runtime_ports:?}"
+                            )),
+                        );
+                    }
+                    Ok(stop_result)
                 } else {
                     info!("No matching ports found for the given host.");
-                    tx_ctl!(self, check_process_status, {!=, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
+                    let mut stop_result = tx_ctl!(self, check_process_status, {!=, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
                         wait_command_complete!(stop_cmd, check_status_cmd, ssh_session.clone(), is_none)
-                    })
+                    })?;
+                    if !wait_tcp_ports_state(
+                        &ssh_session,
+                        &runtime_ports,
+                        false,
+                        Duration::from_secs(120),
+                    )
+                    .await?
+                    {
+                        return Err(anyhow!(
+                            "timed out waiting for runtime ports to be released on {}: {:?}",
+                            self.task_id.host,
+                            runtime_ports
+                        ));
+                    }
+                    if let Some(output) = stop_result.get(CMD_OUTPUT) {
+                        let detail = TaskArgValue::into_inner_value::<String>(output.clone());
+                        stop_result.insert(
+                            CMD_OUTPUT.to_string(),
+                            TaskArgValue::Str(format!(
+                                "{detail}, runtime ports released={runtime_ports:?}"
+                            )),
+                        );
+                    }
+                    Ok(stop_result)
                 }
             }
             "start" => {
@@ -793,13 +862,44 @@ impl TaskExecutor for EloqTxCtlTask {
                 let mut process_started = tx_ctl!(self, check_process_status, {==, PID_NOT_FOUND}, async || -> anyhow::Result<ExecutionValue> {
                      wait_command_complete!(start_cmd_for_wait, check_status_cmd, ssh_session.clone(), is_some)
                 })?;
+                let base_port: u16 = port.parse().map_err(|e| anyhow!("invalid service port {port}: {e}"))?;
+                let runtime_ports = critical_runtime_ports(&self.config, base_port);
+                if !wait_tcp_ports_state(
+                    &ssh_session,
+                    &runtime_ports,
+                    true,
+                    Duration::from_secs(120),
+                )
+                .await?
+                {
+                    return Err(anyhow!(
+                        "timed out waiting for runtime ports to listen on {}: {:?}",
+                        self.task_id.host,
+                        runtime_ports
+                    ));
+                }
+                let (endpoint_host, endpoint_port, tls_enabled) =
+                    self.redis_probe_endpoint(&self.task_id.host, base_port);
+                let probe = RedisProbe::with_password_and_tls(
+                    endpoint_host,
+                    endpoint_port,
+                    self.config.redis_password(None),
+                    tls_enabled,
+                );
+                probe.probe(120).await.map_err(|e| {
+                    anyhow!(
+                        "service started but Redis is not ready on {}:{} after waiting: {e}",
+                        self.task_id.host,
+                        endpoint_port
+                    )
+                })?;
                 if let Some(output) = process_started.get(CMD_OUTPUT) {
                     let start_output = TaskArgValue::into_inner_value::<String>(output.clone());
                     process_started.insert(CMD.to_string(), TaskArgValue::Str(start_cmd));
                     process_started.insert(
                         CMD_OUTPUT.to_string(),
                         TaskArgValue::Str(format!(
-                            "start process check={start_output}, cluster readiness is verified by later status/topology steps"
+                            "start process check={start_output}, runtime ports listening={runtime_ports:?}, redis probe succeeded"
                         )),
                     );
                 }

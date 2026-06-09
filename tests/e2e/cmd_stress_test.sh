@@ -45,7 +45,7 @@ TS_INFO_ONLY_INFLIGHT="${TS_INFO_ONLY_INFLIGHT:-8}"
 TS_INFO_ONLY_REPEAT="${TS_INFO_ONLY_REPEAT:-50}"
 TS_INFO_ONLY_DURATION="${TS_INFO_ONLY_DURATION_SECONDS:-30}"
 GRAFANA_UPDATE_URL="${GRAFANA_UPDATE_URL:-https://dl.grafana.com/grafana/release/13.0.1+security-01/grafana_13.0.1+security-01_25720641773_linux_amd64.tar.gz}"
-ELOQKV_UPDATE_VERSION="${ELOQKV_UPDATE_VERSION:-${ELOQKV_VERSION:-1.2.2}}"
+ELOQKV_UPDATE_VERSION="${ELOQKV_UPDATE_VERSION:-${ELOQKV_VERSION:-1.2.3}}"
 GRAFANA_HTTP_URL="${GRAFANA_HTTP_URL:-http://172.28.10.14:3301}"
 ALERTMANAGER_HTTP_URL="${ALERTMANAGER_HTTP_URL:-http://172.28.10.14:9093}"
 ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL="${ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL:-http://172.28.10.14:8080}"
@@ -302,12 +302,13 @@ do_monitor_update() {
 }
 
 do_cluster_update() {
-    echo "=== EloqKV rolling update check ==="
+    echo "=== EloqKV rolling update check (${ELOQKV_VERSION} -> ${ELOQKV_UPDATE_VERSION}) ==="
     assert_cluster_registered || return 1
     run_control_eloqctl_with_progress 900 "${SCRIPT_DIR}/cmd-stress-cluster-update.log" \
         update "${CLUSTER}" "${ELOQKV_UPDATE_VERSION}" --password "${PASSWD}" \
         || return 1
     wait_cluster_ready || return 1
+    assert_export_contains "version: ${ELOQKV_UPDATE_VERSION}" || return 1
     refresh_monitor_status || return 1
     if cluster_has_monitor_service "grafana"; then
         wait_monitor_ready || return 1
@@ -319,7 +320,7 @@ do_cluster_update() {
         wait_alertmanager_webhook_adapter_ready || return 1
     fi
     discover_master || return 1
-    echo "  rolling update verified"
+    echo "  rolling update verified (${ELOQKV_VERSION} -> ${ELOQKV_UPDATE_VERSION})"
 }
 
 do_eloqctl_mutate() {
