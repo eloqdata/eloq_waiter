@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/monographdb/eloq_waiter/compare/v1.7.0...v1.8.0) (2026-06-09)
+
+
+### Features
+
+* update local eloqctl changes ([#413](https://github.com/monographdb/eloq_waiter/issues/413)) ([b34178d](https://github.com/monographdb/eloq_waiter/commit/b34178d01a364773b8ed681fb4f932334a3ae01b))
+
 ## [1.7.0](https://github.com/monographdb/eloq_waiter/compare/v1.6.8...v1.7.0) (2026-06-01)
 
 
