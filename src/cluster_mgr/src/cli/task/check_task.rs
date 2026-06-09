@@ -6,6 +6,7 @@ use crate::{
     },
     config::{config_base::DeployConfig, DeploymentPackage},
 };
+use crate::cli::task::task_utils::configured_eloq_metrics_port;
 use anyhow::{bail, Ok, Result};
 use std::collections::HashMap;
 
