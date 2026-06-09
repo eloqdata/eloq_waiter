@@ -13,6 +13,10 @@ on:
         description: "EloqKV version"
         required: false
         default: "1.2.2"
+      update_version:
+        description: "EloqKV update target version (rolling upgrade)"
+        required: false
+        default: "1.2.3"
       workers:
         description: "Stress test workers"
         required: false
@@ -99,7 +103,8 @@ jobs:
           export DOCKER_E2E_DIR="$PWD/tests/docker_ha"
           export ELOQCTL_HOME="$HOME/.eloqctl"
           export ELOQCTL="$HOME/.eloqctl/bin/cluster_mgr"
-          export ELOQKV_VERSION="${{ github.event.inputs.version || '1.2.2' }}"
+          export ELOQKV_VERSION="${{ github.event.inputs.version || '1.2.3' }}"
+          export ELOQKV_UPDATE_VERSION="${{ github.event.inputs.update_version || '1.2.3' }}"
           export DURATION_SECONDS="${duration}"
           export INFO_ONLY_DURATION_SECONDS="30"
           export WORKERS="${workers}"
@@ -108,7 +113,7 @@ jobs:
           export RESP_COMPAT_VERSION="${resp_compat_version}"
           export SKIP_DEPS=1
           export STEPS="launch,cluster-update,monitor-update,eloqctl-mutate,py-stress,go-stress,ts-stress,resp-compat,remove"
-          echo "Running E2E with WORKERS=${WORKERS} INFLIGHT=${INFLIGHT} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT} RESP_COMPAT_VERSION=${RESP_COMPAT_VERSION}"
+          echo "Running E2E with ELOQKV_VERSION=${ELOQKV_VERSION} ELOQKV_UPDATE_VERSION=${ELOQKV_UPDATE_VERSION} WORKERS=${WORKERS} INFLIGHT=${INFLIGHT} DURATION_SECONDS=${DURATION_SECONDS} REPEAT=${REPEAT} RESP_COMPAT_VERSION=${RESP_COMPAT_VERSION}"
           tests/e2e/devctl.sh stress "${STEPS}"
 
       - name: Cleanup Docker

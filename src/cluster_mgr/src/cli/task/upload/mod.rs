@@ -1,5 +1,5 @@
 mod data_dir_upload_builder;
-mod eloq_upload_builder;
+pub mod eloq_upload_builder;
 pub mod monitor_upload_builder;
 mod proxy_upload_builder;
 mod tx_conf_upload_builder;

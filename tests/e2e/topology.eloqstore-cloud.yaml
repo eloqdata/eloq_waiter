@@ -1,0 +1,74 @@
+connection:
+  username: "eloq"
+  auth_type: "keypair"
+  auth:
+    keypair: "${ELOQCTL_DOCKER_SSH_KEY}"
+deployment:
+  cluster_name: "test-e2e"
+  product: "EloqKV"
+  version: "${ELOQKV_VERSION}"
+  install_dir: "/home/eloq"
+  enable_wal: false
+  enable_io_uring: false
+  enable_tls: true
+  cluster_mode: true
+  checkpointer_interval: 120
+  hardware:
+    172.28.10.11:
+      cpu: 7
+      memory: 1024
+      event_dispatcher_num: 1
+    172.28.10.12:
+      cpu: 7
+      memory: 1024
+      event_dispatcher_num: 1
+    172.28.10.13:
+      cpu: 2
+      memory: 1024
+    172.28.10.14:
+      cpu: 4
+      memory: 1024
+  tx_service:
+    tx_host_ports: [172.28.10.11:6379]
+    standby_host_ports: [172.28.10.12:6379]
+    voter_host_ports: [172.28.10.13:6379]
+    requirepass: "testpass"
+  storage_service:
+    eloqdss:
+      backend: !eloqstore
+        eloq_store_cloud_store_path: "storeeloqservice"
+        eloq_store_cloud_provider: "minio"
+        eloq_store_cloud_access_key: "minioadmin"
+        eloq_store_cloud_secret_key: "minioadmin"
+        eloq_store_cloud_endpoint: "http://172.28.10.20:9000"
+        eloq_store_cloud_region: "us-east-1"
+        eloq_store_cloud_verify_ssl: false
+        eloq_store_reuse_local_files: true
+        eloq_store_prewarm_cloud_cache: true
+  log_service:
+    nodes:
+      - host: "172.28.10.14"
+        port: 9000
+        data_dir: ["/home/eloq/log-data"]
+    replica: 1
+    aws_access_key_id: "minioadmin"
+    aws_secret_key: "minioadmin"
+    bucket_name: "eloqservice"
+    bucket_prefix: "log"
+    endpoint: "http://172.28.10.20:9000"
+  monitor:
+    data_dir: ""
+    eloq_metrics:
+      path: "/eloq_metrics"
+      port: 18081
+    prometheus:
+      download_url: "https://github.com/prometheus/prometheus/releases/download/v2.42.0/prometheus-2.42.0.linux-amd64.tar.gz"
+      port: 9500
+      host: "172.28.10.14"
+    grafana:
+      download_url: "https://dl.grafana.com/oss/release/grafana-9.3.6.linux-amd64.tar.gz"
+      port: 3301
+      host: "172.28.10.14"
+    node_exporter:
+      url: "https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz"
+      port: 9200

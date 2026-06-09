@@ -10,10 +10,9 @@ use crate::cli::task::group::Config;
 use crate::cli::task::local_extract_task::LocalExtractTask;
 use crate::cli::task::redis_op_task::{ClusterNodes, RedisOpTask};
 use crate::cli::task::task_base::{TaskExecutionContext, TaskHost, TaskId, TaskInstance};
-use crate::cli::task::upload::upload_task_builder::{upload_tasks, UploadTaskBuilderType};
 use crate::cli::task::wait_replica_ready_task::WaitReplicaReadyTask;
 use crate::cli::SubCommand;
-use crate::config::config_base::DeployConfig;
+use crate::config::config_base::{DeployConfig, ELOQ_FILE_KEY, ELOQ_LOG_FILE_KEY};
 use crate::config::storage_service_config::DataStoreServiceBackend;
 use crate::config::DeploymentPackage;
 use anyhow::bail;
@@ -113,6 +112,96 @@ impl UpgradeContext {
 }
 
 // ── Helper: build a round of topo→failover→stop ─────────────────────────────
+
+pub struct StopStandbyOnly {
+    ctx: UpgradeContext,
+}
+
+impl StopStandbyOnly {
+    pub fn new(ctx: UpgradeContext) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl Step for StopStandbyOnly {
+    fn name(&self) -> &str {
+        "StopStandbyOnly"
+    }
+
+    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
+        if !self.ctx.has_standby() {
+            return Ok(TaskExecutionContext::dummy());
+        }
+        let stop = EloqTxCtlTask::from_config(
+            SubCommand::Stop {
+                cluster: self.ctx.cluster.clone(),
+                tx: None,
+                log: false,
+                store: false,
+                monitor: false,
+                force: true,
+                all: false,
+                password: self.ctx.redis_password.clone(),
+                nodes: Vec::new(),
+            },
+            &self.ctx.deploy,
+            ServerType::Standby,
+        );
+        Ok(single_barrier_ctx("stop-standby", stop))
+    }
+}
+
+pub struct FailoverAndStopOldMaster {
+    ctx: UpgradeContext,
+}
+
+impl FailoverAndStopOldMaster {
+    pub fn new(ctx: UpgradeContext) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl Step for FailoverAndStopOldMaster {
+    fn name(&self) -> &str {
+        "FailoverAndStopOldMaster"
+    }
+
+    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
+        if !self.ctx.has_standby() {
+            let stop_tx = EloqTxCtlTask::from_config(
+                SubCommand::Stop {
+                    cluster: self.ctx.cluster.clone(),
+                    tx: Some(true),
+                    log: true,
+                    store: false,
+                    monitor: false,
+                    force: true,
+                    all: false,
+                    password: self.ctx.redis_password.clone(),
+                    nodes: Vec::new(),
+                },
+                &self.ctx.deploy,
+                ServerType::Tx,
+            );
+            return Ok(single_barrier_ctx("stop-old-master", stop_tx));
+        }
+
+        let tx_host_ports = self.ctx.tx_host_ports();
+        let standby_host_ports = self.ctx.standby_host_ports();
+        let mut all_nodes = tx_host_ports.clone();
+        all_nodes.extend(standby_host_ports);
+
+        build_round(
+            "failover-stop-master",
+            &tx_host_ports,
+            &tx_host_ports,
+            &all_nodes,
+            &self.ctx,
+        )
+    }
+}
 
 fn build_round(
     round_label: &str,
@@ -219,48 +308,45 @@ fn build_round(
 
 // ── Concrete Steps ──────────────────────────────────────────────────────────
 
-pub struct DownloadAndUpload {
+pub struct DownloadAndExtract {
     ctx: UpgradeContext,
 }
 
-impl DownloadAndUpload {
+impl DownloadAndExtract {
     pub fn new(ctx: UpgradeContext) -> Self {
         Self { ctx }
     }
 }
 
 #[async_trait]
-impl Step for DownloadAndUpload {
+impl Step for DownloadAndExtract {
     fn name(&self) -> &str {
-        "DownloadAndUpload"
+        "DownloadAndExtract"
     }
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
         let mut downloads = vec![];
-        let mut upload_img = IndexMap::new();
 
         downloads.push(self.ctx.deploy.deployment.tx_image().to_owned());
         if let Some(img) = self.ctx.deploy.deployment.log_image() {
             downloads.push(img.to_owned());
         }
-        upload_img.extend(upload_tasks(
-            UploadTaskBuilderType::EloqImage,
-            &self.ctx.config,
-        ));
 
         let download_task = DownloadTask::instances(DownloadTask::from_urls(downloads));
-        let extract_task = LocalExtractTask::from_config(&self.ctx.deploy)?;
-        let barrier: Vec<usize> = [download_task.len(), extract_task.len(), upload_img.len()]
+        let extract_task = LocalExtractTask::from_config_keys(
+            &self.ctx.deploy,
+            &[ELOQ_FILE_KEY, ELOQ_LOG_FILE_KEY],
+        )?;
+        let barrier: Vec<usize> = [download_task.len(), extract_task.len()]
             .into_iter()
             .filter(|&n| n > 0)
             .collect();
         let mut executable = IndexMap::new();
         executable.extend(download_task);
         executable.extend(extract_task);
-        executable.extend(upload_img);
 
         Ok(TaskExecutionContext {
-            task_group: "download-and-upload".to_string(),
+            task_group: "download-and-extract".to_string(),
             barrier: if barrier.is_empty() {
                 None
             } else {
@@ -268,6 +354,125 @@ impl Step for DownloadAndUpload {
             },
             executable,
         })
+    }
+}
+
+pub struct UploadToStandby {
+    ctx: UpgradeContext,
+}
+
+impl UploadToStandby {
+    pub fn new(ctx: UpgradeContext) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl Step for UploadToStandby {
+    fn name(&self) -> &str {
+        "UploadToStandby"
+    }
+
+    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
+        let all_uploads =
+            crate::cli::task::upload::eloq_upload_builder::EloqUpload::eloq_image_upload(
+                &self.ctx.deploy.deployment,
+            );
+
+        let standby_hosts: std::collections::HashSet<String> = self
+            .ctx
+            .standby_host_ports()
+            .iter()
+            .filter_map(|hp| hp.split(':').next().map(|h| h.to_string()))
+            .collect();
+
+        let log_hosts: std::collections::HashSet<String> = self
+            .ctx
+            .deploy
+            .deployment
+            .log_service
+            .as_ref()
+            .map(|srv| {
+                srv.log_host_unique()
+                    .iter()
+                    .map(|h| h.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let filtered: Vec<_> = all_uploads
+            .into_iter()
+            .filter(|u| standby_hosts.contains(&u.host) || log_hosts.contains(&u.host))
+            .collect();
+
+        if filtered.is_empty() {
+            return Ok(TaskExecutionContext::dummy());
+        }
+
+        let upload_tasks = crate::cli::task::upload::eloq_upload_builder::EloqUpload::build_tasks(
+            &self.ctx.config,
+            "update",
+            "upload_to_standby",
+            filtered,
+        );
+
+        Ok(single_barrier_ctx("upload-to-standby", upload_tasks))
+    }
+}
+
+pub struct UploadToMaster {
+    ctx: UpgradeContext,
+}
+
+impl UploadToMaster {
+    pub fn new(ctx: UpgradeContext) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl Step for UploadToMaster {
+    fn name(&self) -> &str {
+        "UploadToMaster"
+    }
+
+    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
+        let all_uploads =
+            crate::cli::task::upload::eloq_upload_builder::EloqUpload::eloq_image_upload(
+                &self.ctx.deploy.deployment,
+            );
+
+        let tx_hosts: std::collections::HashSet<String> = self
+            .ctx
+            .tx_host_ports()
+            .iter()
+            .filter_map(|hp| hp.split(':').next().map(|h| h.to_string()))
+            .collect();
+
+        let voter_hosts: std::collections::HashSet<String> = self
+            .ctx
+            .voter_host_ports()
+            .iter()
+            .filter_map(|hp| hp.split(':').next().map(|h| h.to_string()))
+            .collect();
+
+        let filtered: Vec<_> = all_uploads
+            .into_iter()
+            .filter(|u| tx_hosts.contains(&u.host) || voter_hosts.contains(&u.host))
+            .collect();
+
+        if filtered.is_empty() {
+            return Ok(TaskExecutionContext::dummy());
+        }
+
+        let upload_tasks = crate::cli::task::upload::eloq_upload_builder::EloqUpload::build_tasks(
+            &self.ctx.config,
+            "update",
+            "upload_to_master",
+            filtered,
+        );
+
+        Ok(single_barrier_ctx("upload-to-master", upload_tasks))
     }
 }
 
@@ -358,25 +563,6 @@ impl Step for StopLog {
             &self.ctx.deploy,
         );
         Ok(single_barrier_ctx("stop-log", stop_log))
-    }
-}
-
-pub struct UnpackTxLog;
-
-impl UnpackTxLog {
-    pub fn new(_ctx: UpgradeContext) -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl Step for UnpackTxLog {
-    fn name(&self) -> &str {
-        "UnpackTxLog"
-    }
-
-    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
-        Ok(TaskExecutionContext::dummy())
     }
 }
 
@@ -508,7 +694,7 @@ impl Step for StartTx {
     }
 
     async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
-        let start_tx = EloqTxCtlTask::from_config(
+        let mut start_tx = EloqTxCtlTask::from_config(
             SubCommand::Start {
                 cluster: self.ctx.cluster.clone(),
                 nodes: Vec::new(),
@@ -516,6 +702,19 @@ impl Step for StartTx {
             &self.ctx.deploy,
             ServerType::Tx,
         );
+
+        if self.ctx.has_voter() {
+            let start_voter = EloqTxCtlTask::from_config(
+                SubCommand::Start {
+                    cluster: self.ctx.cluster.clone(),
+                    nodes: Vec::new(),
+                },
+                &self.ctx.deploy,
+                ServerType::Voter,
+            );
+            start_tx.extend(start_voter);
+        }
+
         Ok(single_barrier_ctx("start-tx", start_tx))
     }
 }
@@ -761,25 +960,6 @@ impl Step for FailoverBackAndStopStandby {
     }
 }
 
-pub struct UnpackStandby;
-
-impl UnpackStandby {
-    pub fn new(_ctx: UpgradeContext) -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl Step for UnpackStandby {
-    fn name(&self) -> &str {
-        "UnpackStandby"
-    }
-
-    async fn build(&self) -> anyhow::Result<TaskExecutionContext> {
-        Ok(TaskExecutionContext::dummy())
-    }
-}
-
 pub struct StartStandby {
     ctx: UpgradeContext,
 }
@@ -916,38 +1096,36 @@ impl Step for VerifyVersion {
 // ── Builder ──────────────────────────────────────────────────────────────────
 
 /// Build the list of steps for a rolling binary upgrade (`eloqctl update`).
+///
+/// Strategy: update standby first, then failover, then update old master.
+/// This minimizes downtime because the master continues serving during
+/// the standby update phase.
 pub fn build_upgrade_steps(ctx: UpgradeContext) -> Vec<Box<dyn Step>> {
     vec![
-        Box::new(DownloadAndUpload::new(ctx.clone())),
-        Box::new(StopTxNodes::new(ctx.clone())),
+        Box::new(DownloadAndExtract::new(ctx.clone())),
+        Box::new(StopStandbyOnly::new(ctx.clone())),
+        Box::new(UploadToStandby::new(ctx.clone())),
         Box::new(StopLog::new(ctx.clone())),
-        Box::new(UnpackTxLog::new(ctx.clone())),
         Box::new(CleanEloqStoreData::new(ctx.clone())),
         Box::new(StartLogAndWait::new(ctx.clone())),
-        Box::new(StartTx::new(ctx.clone())),
-        Box::new(WaitCurrentMaster::new(ctx.clone())),
-        Box::new(WaitTxReplicaReady::new(ctx.clone())),
-        Box::new(FailoverBackAndStopStandby::new(ctx.clone())),
-        Box::new(UnpackStandby::new(ctx.clone())),
         Box::new(StartStandby::new(ctx.clone())),
         Box::new(WaitStandbyReplicaReady::new(ctx.clone())),
-        Box::new(StopVoters::new(ctx.clone())),
-        Box::new(StartVoters::new(ctx.clone())),
+        Box::new(FailoverAndStopOldMaster::new(ctx.clone())),
+        Box::new(UploadToMaster::new(ctx.clone())),
+        Box::new(StartTx::new(ctx.clone())),
+        Box::new(WaitTxReplicaReady::new(ctx.clone())),
         Box::new(VerifyVersion::new(ctx)),
     ]
 }
 
 /// Build the list of steps for a rolling config restart (`eloqctl update-conf --restart`).
+///
+/// Strategy: restart standby first with new config, then failover, then restart old master.
 pub fn build_config_restart_steps(ctx: UpgradeContext) -> Vec<Box<dyn Step>> {
     vec![
-        Box::new(StopTxNodes::new(ctx.clone())),
+        Box::new(StopStandbyOnly::new(ctx.clone())),
+        Box::new(FailoverAndStopOldMaster::new(ctx.clone())),
         Box::new(StartTx::new(ctx.clone())),
-        Box::new(WaitCurrentMaster::new(ctx.clone())),
         Box::new(WaitTxReplicaReady::new(ctx.clone())),
-        Box::new(FailoverBackAndStopStandby::new(ctx.clone())),
-        Box::new(StartStandby::new(ctx.clone())),
-        Box::new(WaitStandbyReplicaReady::new(ctx.clone())),
-        Box::new(StopVoters::new(ctx.clone())),
-        Box::new(StartVoters::new(ctx.clone())),
     ]
 }

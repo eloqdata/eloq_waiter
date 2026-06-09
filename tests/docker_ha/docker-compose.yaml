@@ -99,6 +99,7 @@ services:
     container_name: eloqctl-e2e-stress-python
     hostname: stress-python
     working_dir: /workspace/eloq_waiter
+    init: true
     command: ["sleep", "infinity"]
     volumes:
       - "../..:/workspace/eloq_waiter"
@@ -119,6 +120,7 @@ services:
     container_name: eloqctl-e2e-stress-go
     hostname: stress-go
     working_dir: /workspace/eloq_waiter
+    init: true
     command: ["sleep", "infinity"]
     volumes:
       - "../..:/workspace/eloq_waiter"
@@ -139,6 +141,7 @@ services:
     container_name: eloqctl-e2e-stress-ts
     hostname: stress-ts
     working_dir: /workspace/eloq_waiter
+    init: true
     command: ["sleep", "infinity"]
     volumes:
       - "../..:/workspace/eloq_waiter"
@@ -158,6 +161,7 @@ services:
     image: eloqctl-e2e-resp-compat:latest
     container_name: eloqctl-e2e-resp-compat
     hostname: resp-compat
+    init: true
     command: ["sleep", "infinity"]
     depends_on:
       - eloq-tx
