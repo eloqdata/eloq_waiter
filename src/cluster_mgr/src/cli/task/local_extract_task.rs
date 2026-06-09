@@ -381,6 +381,7 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
+    use tar::Builder;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tar::Builder;
     use zip::write::SimpleFileOptions;
