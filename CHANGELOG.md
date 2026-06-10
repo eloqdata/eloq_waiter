@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.2](https://github.com/monographdb/eloq_waiter/compare/v1.8.1...v1.8.2) (2026-06-10)
+
+
+### Bug Fixes
+
+* optimize download resilience with spawn_blocking and increased timeouts ([#417](https://github.com/monographdb/eloq_waiter/issues/417)) ([edd68a2](https://github.com/monographdb/eloq_waiter/commit/edd68a25387ee6385ed4e0531f2061ad7669d3db))
+
 ## [1.8.1](https://github.com/monographdb/eloq_waiter/compare/v1.8.0...v1.8.1) (2026-06-09)
 
 
