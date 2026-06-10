@@ -130,10 +130,7 @@ pub fn upload_tasks(
         UploadTaskBuilderType::TxConf => TxConfUpload {}.build(conf),
         UploadTaskBuilderType::ScaleTxConf => unreachable!(),
         UploadTaskBuilderType::EloqImage => {
-            let cluster_config = match conf {
-                Config::Cluster(cfg) => cfg,
-                _ => panic!("Expected ClusterConfig for TxConfUpload"),
-            };
+            let Config::Cluster(cluster_config) = conf;
             EloqUpload::build_tasks(
                 conf,
                 "update",

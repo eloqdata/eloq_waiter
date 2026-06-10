@@ -91,9 +91,7 @@ impl EloqStoreDataCleanTask {
     ) -> IndexMap<TaskId, TaskInstance> {
         let mut task_map = IndexMap::new();
 
-        let deploy_config = match config {
-            Config::Cluster(cfg) => cfg,
-        };
+        let Config::Cluster(deploy_config) = config;
 
         // Check if EloqStore Cloud mode is enabled
         let Some(storage_service) = deploy_config.deployment.storage_service.as_ref() else {

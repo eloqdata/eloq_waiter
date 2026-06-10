@@ -1169,9 +1169,7 @@ impl CmdExecutor {
         quiet: bool,
         verbose: bool,
     ) -> Result<()> {
-        let cfg = match config.clone() {
-            Config::Cluster(cfg) => cfg,
-        };
+        let Config::Cluster(cfg) = config.clone();
 
         let download_only = match &cmd {
             SubCommand::Update { download_only, .. } => *download_only,
