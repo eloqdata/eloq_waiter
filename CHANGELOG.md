@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/eloqdata/eloq_waiter/compare/v1.8.2...v1.8.3) (2026-06-17)
+
+
+### Code Refactoring
+
+* unify user-facing eloqctl naming ([#420](https://github.com/eloqdata/eloq_waiter/issues/420)) ([7aba8b7](https://github.com/eloqdata/eloq_waiter/commit/7aba8b754715a32e5dffd4de75b284ed1b18a30e))
+
 ## [1.8.2](https://github.com/eloqdata/eloq_waiter/compare/v1.8.1...v1.8.2) (2026-06-10)
 
 
