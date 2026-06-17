@@ -8,7 +8,7 @@ Build the local `eloqctl` first:
 
 ```sh
 cd /home/starrysky/workspace/eloqdata-kernel/eloq_waiter
-cargo build -p cluster_mgr
+cargo build -p cluster_mgr --bin eloqctl
 ```
 
 ### Run the full flow step by step (equivalent to `tests/e2e/devctl.sh full`)
@@ -97,7 +97,7 @@ Notes:
 
 ```sh
 cd /home/starrysky/workspace/eloqdata-kernel/eloq_waiter
-cargo build -p cluster_mgr
+cargo build -p cluster_mgr --bin eloqctl
 tests/e2e/devctl.sh env-up
 tests/e2e/devctl.sh install-control
 tests/e2e/devctl.sh render-topology
@@ -158,7 +158,7 @@ Host side:
 
 ```sh
 cd /home/starrysky/workspace/eloqdata-kernel/eloq_waiter
-cargo build -p cluster_mgr
+cargo build -p cluster_mgr --bin eloqctl
 export E2E_TOPOLOGY_TEMPLATE=tests/e2e/topology.eloqstore-cloud.yaml
 export ELOQKV_VERSION=1.3.0
 tests/e2e/devctl.sh env-up

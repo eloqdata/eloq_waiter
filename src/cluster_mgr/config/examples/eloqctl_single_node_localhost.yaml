@@ -1,0 +1,26 @@
+connection:
+  username: "${USER}"
+  auth_type: "keypair"
+  auth:
+    # Update this if your local SSH key uses a different filename, such as id_ed25519.
+    keypair: "/home/${USER}/.ssh/id_rsa"
+deployment:
+  cluster_name: "eloqkv-local-demo"
+  product: "EloqKV"
+  version: "latest"
+  install_dir: "${ELOQCTL_HOME}/demo/eloqkv-local-demo"
+  tx_service:
+    tx_host_ports: [127.0.0.1:6389]
+  log_service:
+    nodes:
+      - host: 127.0.0.1
+        port: 9000
+        data_dir:
+          - "${ELOQCTL_HOME}/demo/eloqkv-local-demo/wal"
+    replica: 1
+  storage_service:
+    rocksdb: !LOCAL
+  hardware:
+    127.0.0.1:
+      cpu: 2
+      memory: 2048

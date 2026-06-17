@@ -34,13 +34,13 @@ mkdir -p "${PKG_DIR}/bin" "${OUTPUT_DIR}"
 
 pushd "${WORKSPACE_DIR}" >/dev/null
 
-cargo build --package cluster_mgr --release
+cargo build --package cluster_mgr --bin eloqctl --release
 
 "${WORKSPACE_DIR}/version.sh" >"${PKG_DIR}/version" 2>/dev/null || true
 cp -r "${WORKSPACE_DIR}/src/cluster_mgr/config" "${PKG_DIR}/"
 cp -r "${WORKSPACE_DIR}/tests" "${PKG_DIR}/"
-cp "${TARGET_DIR}/release/cluster_mgr" "${PKG_DIR}/bin/"
-ln -sfn cluster_mgr "${PKG_DIR}/bin/eloqctl"
+cp "${TARGET_DIR}/release/eloqctl" "${PKG_DIR}/bin/"
+ln -sfn eloqctl "${PKG_DIR}/bin/cluster_mgr"
 
 tar -czf "${OUTPUT_DIR}/${TARBALL}" -C "${PKG_DIR}" .
 

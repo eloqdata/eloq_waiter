@@ -1,6 +1,6 @@
 # Developer Helper Commands
 
-`devtools` is the legacy developer helper binary in this workspace. New deployment and operations work should use `eloqctl` from `cluster_mgr`.
+`devtools` is the legacy developer helper binary in this workspace. New deployment and operations work should use `eloqctl`.
 
 ## Scope
 
@@ -17,9 +17,9 @@ eloqctl --help
 The most commonly used repository-level commands are:
 
 ```sh
-cargo check -p cluster_mgr
-cargo build -p cluster_mgr
-cargo build -p cluster_mgr --release
+cargo check -p cluster_mgr --bin eloqctl
+cargo build -p cluster_mgr --bin eloqctl
+cargo build -p cluster_mgr --bin eloqctl --release
 scripts/install-dev.sh
 scripts/test-before-push.sh
 scripts/install-git-hooks.sh
@@ -27,6 +27,6 @@ scripts/install-git-hooks.sh
 
 ## Notes
 
-1. `cluster_mgr` currently targets EloqKV only.
+1. `eloqctl` currently targets EloqKV only.
 2. Docker E2E tests use the locally installed `eloqctl` and SSH into Ubuntu containers.
 3. Legacy MySQL/MariaDB-oriented examples in older devtools documentation no longer describe the active cluster-manager path.

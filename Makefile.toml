@@ -94,7 +94,7 @@ script = '''
 #!/bin/bash
 WORKSPACE_DIR="${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 TARGET_DIR=${CARGO_TARGET_DIR:-${WORKSPACE_DIR}/target}
-CLUSTER_MGR_RELEASE=${TARGET_DIR}/release/cluster_mgr
+ELOQCTL_RELEASE=${TARGET_DIR}/release/eloqctl
 echo "pkg_eloqctl.workspace = ${WORKSPACE_DIR}"
 PKG_DIR=${ELOQCTL_PKG_DIR:-eloqctl}
 mkdir -p "${PKG_DIR}/bin"
@@ -103,8 +103,8 @@ ${WORKSPACE_DIR}/version.sh > version 2>/dev/null || true
 cp -r ${WORKSPACE_DIR}/src/cluster_mgr/config ./
 cp -r ${WORKSPACE_DIR}/tests ./
 cd bin
-cp "$CLUSTER_MGR_RELEASE" ./
-ln -sfn cluster_mgr eloqctl 2>/dev/null || true
+cp "$ELOQCTL_RELEASE" ./eloqctl
+ln -sfn eloqctl cluster_mgr 2>/dev/null || true
 '''
 dependencies = ["generate_proto", "build_eloqctl"]
 

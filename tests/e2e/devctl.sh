@@ -52,7 +52,7 @@ cluster_name() {
 }
 
 build_eloqctl() {
-    (cd "${REPO_ROOT}" && cargo build -p cluster_mgr)
+    (cd "${REPO_ROOT}" && cargo build -p cluster_mgr --bin eloqctl)
 }
 
 install_control() {
