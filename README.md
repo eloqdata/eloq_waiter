@@ -31,6 +31,20 @@ When the installer detects an existing `eloqctl` state directory, it also runs
 
 ## Quick Start
 
+Before using `eloqctl` against a fresh machine, bootstrap every target host first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eloqdata/eloq_waiter/main/scripts/setup-host.sh | sudo bash
+```
+
+Then copy the control-machine public key to each target host:
+
+```sh
+ssh-copy-id -i ~/.ssh/id_rsa.pub eloq@<target-host>
+```
+
+The website prerequisite guide explains what the setup script configures and how to verify the machine state.
+
 Launch an EloqKV cluster from a topology file:
 
 ```sh

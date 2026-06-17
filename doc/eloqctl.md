@@ -23,6 +23,15 @@ SQLite stores local operational metadata only, including the cluster index, lock
 
 ## Common Workflow
 
+Prepare each target host before first deployment:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eloqdata/eloq_waiter/main/scripts/setup-host.sh | sudo bash
+ssh-copy-id -i ~/.ssh/id_rsa.pub eloq@<target-host>
+```
+
+The setup script installs basic host dependencies, creates the `eloq` user if needed, enables passwordless sudo for that user, configures SSH, raises file-descriptor and core-dump limits, and prepares `/var/crash`.
+
 ```sh
 eloqctl check /path/to/topology.yaml
 eloqctl launch /path/to/topology.yaml
