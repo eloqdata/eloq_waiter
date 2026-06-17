@@ -1,6 +1,7 @@
-# EloqKV Cluster Manager
+# EloqKV `eloqctl`
 
 `eloqctl` deploys and operates EloqKV clusters on SSH-accessible machines. The current cluster manager supports EloqKV only.
+This document is the user-facing command reference for `eloqctl`.
 
 ## Core Concepts
 

@@ -14,7 +14,7 @@ echo "[2/4] Check formatting"
 cargo fmt --all -- --check
 
 echo "[3/4] Check and lint"
-cargo check -p cluster_mgr
+cargo check -p cluster_mgr --bin eloqctl
 cargo clippy --all-targets --all-features -- -D warnings
 
 echo "[4/4] Done"

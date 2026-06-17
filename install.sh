@@ -8,7 +8,7 @@ else
     TAG="$1"
 fi
 
-REPO_SLUG="${ELOQCTL_REPO:-monographdb/eloq_waiter}"
+REPO_SLUG="${ELOQCTL_REPO:-eloqdata/eloq_waiter}"
 RELEASES_URL="${ELOQCTL_RELEASES_URL:-https://github.com/${REPO_SLUG}/releases}"
 LATEST_API_URL="https://api.github.com/repos/${REPO_SLUG}/releases/latest"
 
@@ -36,14 +36,15 @@ if [ -z "${ELOQCTL_HOME:-}" ]; then
 fi
 
 BIN_DIR="${ELOQCTL_HOME}/bin"
-BIN_PATH="${BIN_DIR}/cluster_mgr"
+BIN_PATH="${BIN_DIR}/eloqctl"
+LEGACY_BIN_PATH="${BIN_DIR}/cluster_mgr"
 STATE_DB_PATH="${ELOQCTL_HOME}/db/cluster_mgr_state.db"
 TMP_TARBALL="$(mktemp "${TMPDIR:-/tmp}/eloqctl.XXXXXX.tar.gz")"
 trap 'rm -f "${TMP_TARBALL}"' EXIT
 mkdir -p "${BIN_DIR}"
 
 HAD_EXISTING_INSTALL=false
-if [ -x "${BIN_PATH}" ] || [ -f "${STATE_DB_PATH}" ]; then
+if [ -x "${BIN_PATH}" ] || [ -x "${LEGACY_BIN_PATH}" ] || [ -f "${STATE_DB_PATH}" ]; then
     HAD_EXISTING_INSTALL=true
 fi
 
@@ -95,12 +96,26 @@ install_binary() {
     return 0
 }
 
+ensure_binary_compat() {
+    if [ ! -e "${BIN_PATH}" ] && [ -e "${LEGACY_BIN_PATH}" ]; then
+        ln -sfn cluster_mgr "${BIN_PATH}"
+    fi
+    if [ ! -e "${LEGACY_BIN_PATH}" ] && [ -e "${BIN_PATH}" ]; then
+        ln -sfn eloqctl "${LEGACY_BIN_PATH}"
+    fi
+}
+
 if ! install_binary; then
     echo "Failed to download and/or extract eloqctl archive."
     exit 1
 fi
 
-chmod 755 "${BIN_DIR}/cluster_mgr"
+ensure_binary_compat
+
+chmod 755 "${BIN_DIR}/eloqctl"
+if [ -e "${LEGACY_BIN_PATH}" ]; then
+    chmod 755 "${LEGACY_BIN_PATH}"
+fi
 
 if [ "${HAD_EXISTING_INSTALL}" = true ]; then
     echo "Running local state upgrade..."

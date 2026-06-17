@@ -5,7 +5,7 @@
 Install the desired release tag with the installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh -s -- v1.6.7
+curl -fsSL https://raw.githubusercontent.com/eloqdata/eloq_waiter/main/install.sh | sh -s -- v1.8.1
 ```
 
 For local development builds, reinstall from the current checkout:

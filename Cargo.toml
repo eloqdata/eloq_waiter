@@ -6,4 +6,4 @@ resolver = "2"
 [workspace.package]
 version = "1.8.2"
 edition = "2021"
-repository = "https://github.com/monographdb/monograph_waiter"
+repository = "https://github.com/eloqdata/eloq_waiter"

@@ -9,13 +9,13 @@ The active cluster manager product target is **EloqKV**. Legacy EloqSQL, MonoSQL
 Install the latest release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/eloqdata/eloq_waiter/main/install.sh | sh
 ```
 
 Install a specific release tag:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monographdb/eloq_waiter/main/install.sh | sh -s -- v1.6.7
+curl -fsSL https://raw.githubusercontent.com/eloqdata/eloq_waiter/main/install.sh | sh -s -- v1.8.1
 ```
 
 For local development, build and install the current checkout:
@@ -24,7 +24,7 @@ For local development, build and install the current checkout:
 scripts/install-dev.sh
 ```
 
-This installs `${ELOQCTL_HOME:-$HOME/.eloqctl}/bin/cluster_mgr` and links `${ELOQCTL_HOME:-$HOME/.eloqctl}/config` to `src/cluster_mgr/config` in this repository.
+This installs `${ELOQCTL_HOME:-$HOME/.eloqctl}/bin/eloqctl` and links `${ELOQCTL_HOME:-$HOME/.eloqctl}/config` to `src/cluster_mgr/config` in this repository. For upgrade compatibility, a legacy `${ELOQCTL_HOME:-$HOME/.eloqctl}/bin/cluster_mgr` link is also retained.
 
 When the installer detects an existing `eloqctl` state directory, it also runs
 `eloqctl upgrade` automatically to migrate local cluster metadata.
@@ -36,6 +36,16 @@ Launch an EloqKV cluster from a topology file:
 ```sh
 eloqctl launch /path/to/topology.yaml
 ```
+
+For a local single-node trial after installation, start from the bundled example:
+
+```sh
+cp "${ELOQCTL_HOME:-$HOME/.eloqctl}/config/examples/eloqctl_single_node_localhost.yaml" ./eloqkv-local-demo.yaml
+eloqctl launch ./eloqkv-local-demo.yaml
+eloqctl status eloqkv-local-demo --wait 60
+```
+
+This example targets `127.0.0.1`, stores files under `${ELOQCTL_HOME:-$HOME/.eloqctl}/demo/eloqkv-local-demo`, and assumes the current user can SSH to localhost with the key configured in the YAML file.
 
 Check live status by cluster name. `status` does not require the YAML file; it uses the local cluster index to find the saved topology and then probes the real hosts:
 
@@ -87,18 +97,18 @@ sudo apt install build-essential pkg-config libssl-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Build the cluster manager:
+Build the `eloqctl` binary:
 
 ```sh
-cargo build -p cluster_mgr
-cargo build -p cluster_mgr --release
+cargo build -p cluster_mgr --bin eloqctl
+cargo build -p cluster_mgr --bin eloqctl --release
 ```
 
 Useful local commands:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p cluster_mgr
+cargo check -p cluster_mgr --bin eloqctl
 scripts/install-dev.sh
 scripts/test-before-push.sh
 scripts/install-git-hooks.sh
@@ -106,15 +116,14 @@ scripts/install-git-hooks.sh
 
 ## Quality Gates
 
-The push gate is `scripts/test-before-push.sh`. It performs:
+The local push gate is `scripts/test-before-push.sh`. It performs:
 
 1. Local dev install of `eloqctl`.
 2. Rust formatting check.
-3. `cargo check -p cluster_mgr`.
+3. `cargo check -p cluster_mgr --bin eloqctl`.
 4. `cargo clippy --all-targets --all-features -- -D warnings`.
-5. Docker HA EloqKV E2E.
-6. Docker rolling update E2E.
-7. Docker scale E2E.
+
+Full Docker E2E coverage runs in GitHub Actions rather than in the local pre-push script.
 
 The gate uses the Rust nightly toolchain specified in `rust-toolchain.toml`. Ensure the clippy component is installed:
 
@@ -132,7 +141,7 @@ The Docker E2E tests keep `eloqctl` on the host and use Ubuntu containers only a
 
 ## Documentation
 
-1. Cluster manager commands: `doc/cluster_mgr.md`
+1. `eloqctl` commands: `doc/eloqctl.md`
 2. Declarative reconcile model: `doc/declarative_reconcile.md`
 3. Idempotency guarantees: `doc/idempotency.md`
 4. Backup and dump tools: `doc/backup_and_dump_tools.md`
