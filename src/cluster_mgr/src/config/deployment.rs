@@ -263,7 +263,13 @@ impl Deployment {
     /// decide whether a per-node `eloq_data_path` override should also redirect
     /// the EloqStore data directory (an explicit shared value still wins).
     fn global_eloq_store_data_path_list(&self) -> Option<&str> {
-        match self.storage_service.as_ref()?.eloqdss.as_ref()?.backend_config() {
+        match self
+            .storage_service
+            .as_ref()?
+            .eloqdss
+            .as_ref()?
+            .backend_config()
+        {
             DataStoreServiceBackend::EloqStore(config) => {
                 config.eloq_store_data_path_list.as_deref()
             }
@@ -988,8 +994,7 @@ impl Deployment {
                                             Some(value.to_string()),
                                         );
                                     }
-                                    if let Some(value) = config.eloq_store_standby_max_concurrency
-                                    {
+                                    if let Some(value) = config.eloq_store_standby_max_concurrency {
                                         ini.set(
                                             SECTION_STORE,
                                             "eloq_store_standby_max_concurrency",
