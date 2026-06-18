@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/eloqdata/eloq_waiter/compare/v1.8.4...v1.9.0) (2026-06-18)
+
+
+### Features
+
+* add resp-compat summary report to CI and bump default eloqkv to 1.3.1 ([#425](https://github.com/eloqdata/eloq_waiter/issues/425)) ([6905ee7](https://github.com/eloqdata/eloq_waiter/commit/6905ee70d5874076304d7843bef238039e90ee2d))
+
 ## [1.8.4](https://github.com/eloqdata/eloq_waiter/compare/v1.8.3...v1.8.4) (2026-06-17)
 
 
