@@ -533,10 +533,31 @@ with open('${cts}','w') as f:
     {
         echo ""
         echo "─── Standalone Mode ───"
-        grep "^Summary:" "${standalone_log}" || echo "Summary: N/A"
-        echo ""
-        echo "Failed tests:"
-        awk '/^FailedTest/,/^$/' "${standalone_log}" | grep "^FailedTest" | sort || echo "  (none)"
+        if [ -s "${standalone_log}" ]; then
+            grep "^Summary:" "${standalone_log}" || {
+                echo "Summary: not found in log"
+                echo "  (log size: $(wc -c < "${standalone_log}") bytes)"
+                echo "  first 5 lines:"
+                head -5 "${standalone_log}" | while IFS= read -r line; do echo "    | ${line}"; done
+                echo "  last 5 lines:"
+                tail -5 "${standalone_log}" | while IFS= read -r line; do echo "    | ${line}"; done
+            }
+            echo ""
+            echo "Failed tests:"
+            local standalone_failed
+            standalone_failed=$(awk '/^FailedTest/,/^$/' "${standalone_log}" | grep "^FailedTest" | sort || true)
+            if [ -n "${standalone_failed}" ]; then
+                echo "${standalone_failed}"
+            else
+                if grep -q "^Summary:" "${standalone_log}"; then
+                    echo "  (none)"
+                else
+                    echo "  (log contains no Summary line — test may have failed to run)"
+                fi
+            fi
+        else
+            echo "  (log file empty or missing)"
+        fi
     } >> "${summary_log}"
 
     # Wait for cluster to recover after standalone test
@@ -566,10 +587,31 @@ r.close()
     {
         echo ""
         echo "─── Cluster Mode ───"
-        grep "^Summary:" "${cluster_log}" || echo "Summary: N/A"
-        echo ""
-        echo "Failed tests:"
-        awk '/^FailedTest/,/^$/' "${cluster_log}" | grep "^FailedTest" | sort || echo "  (none)"
+        if [ -s "${cluster_log}" ]; then
+            grep "^Summary:" "${cluster_log}" || {
+                echo "Summary: not found in log"
+                echo "  (log size: $(wc -c < "${cluster_log}") bytes)"
+                echo "  first 5 lines:"
+                head -5 "${cluster_log}" | while IFS= read -r line; do echo "    | ${line}"; done
+                echo "  last 5 lines:"
+                tail -5 "${cluster_log}" | while IFS= read -r line; do echo "    | ${line}"; done
+            }
+            echo ""
+            echo "Failed tests:"
+            local cluster_failed
+            cluster_failed=$(awk '/^FailedTest/,/^$/' "${cluster_log}" | grep "^FailedTest" | sort || true)
+            if [ -n "${cluster_failed}" ]; then
+                echo "${cluster_failed}"
+            else
+                if grep -q "^Summary:" "${cluster_log}"; then
+                    echo "  (none)"
+                else
+                    echo "  (log contains no Summary line — test may have failed to run)"
+                fi
+            fi
+        else
+            echo "  (log file empty or missing)"
+        fi
     } >> "${summary_log}"
 
     if [ ${standalone_status} -ne 0 ] || [ ${cluster_status} -ne 0 ]; then

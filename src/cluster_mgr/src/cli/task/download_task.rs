@@ -238,15 +238,25 @@ impl TaskExecutor for DownloadTask {
         let save_path = save_dir.join(&self.name);
         let expected_digest = self.expected_digest().await.ok().flatten();
 
-        // Try HEAD first to check remote content-length for cache validation
-        let remote_len = HTTP_CLIENT
+        // Try HEAD first to check remote content-length for cache validation,
+        // and resolve the final URL after redirects (github.com → S3) so
+        // subsequent Range requests go directly to the object store.
+        let (remote_len, effective_url) = HTTP_CLIENT
             .head(&self.url)
             .header(CONNECTION, "close")
             .timeout(HTTP_REQUEST_TIMEOUT)
             .send()
             .await
             .ok()
-            .and_then(|r| r.content_length());
+            .map_or((None, self.url.clone()), |r| {
+                (r.content_length(), r.url().to_string())
+            });
+        if effective_url != self.url {
+            info!(
+                "resolved download URL for {}: {} → {}",
+                self.name, self.url, effective_url
+            );
+        }
 
         if save_path.exists() {
             let digest_matches = match &expected_digest {
@@ -337,7 +347,7 @@ impl TaskExecutor for DownloadTask {
                 }
             }
 
-            let mut request = HTTP_CLIENT.get(&self.url).header(CONNECTION, "close");
+            let mut request = HTTP_CLIENT.get(&effective_url).header(CONNECTION, "close");
             if resume_from > 0 {
                 request = request.header(RANGE, format!("bytes={resume_from}-"));
             }
@@ -371,11 +381,29 @@ impl TaskExecutor for DownloadTask {
                         .append(true)
                         .open(part_path.as_path())
                         .map_err(|err| DownloadErr(url.clone(), err.to_string()))?;
+                    info!(
+                        "resuming download for {} from byte {}",
+                        self.name, resume_from
+                    );
                     (file, total_len, true)
+                } else if resume_from > 0 {
+                    info!(
+                        "server returned {} instead of 206 for {}, restarting full download",
+                        status.as_str(),
+                        self.name
+                    );
+                    self.pg_bar
+                        .set_message(format!("{} Resuming failed, restarting...", self.name));
+                    self.pg_bar.set_position(0);
+                    fs::remove_file(&part_path).ok();
+                    let file = std::fs::File::create(part_path.as_path())
+                        .map_err(|err| DownloadErr(url.clone(), err.to_string()))?;
+                    (
+                        file,
+                        response.content_length().unwrap_or(remote_len.unwrap_or(0)),
+                        false,
+                    )
                 } else {
-                    if resume_from > 0 {
-                        fs::remove_file(&part_path).ok();
-                    }
                     let file = std::fs::File::create(part_path.as_path())
                         .map_err(|err| DownloadErr(url.clone(), err.to_string()))?;
                     (
