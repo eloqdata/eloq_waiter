@@ -53,6 +53,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          echo "::group::Disk usage before cleanup"
+          df -h
+          echo "::endgroup::"
+
+          # Remove large preinstalled toolchains not used by this repository.
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          sudo apt-get clean
+          docker system prune -af --volumes 2>/dev/null || true
+
+          echo "::group::Disk usage after cleanup"
+          df -h
+          echo "::endgroup::"
+
       - name: Install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
