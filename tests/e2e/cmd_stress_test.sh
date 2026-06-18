@@ -50,6 +50,7 @@ GRAFANA_HTTP_URL="${GRAFANA_HTTP_URL:-http://172.28.10.14:3301}"
 ALERTMANAGER_HTTP_URL="${ALERTMANAGER_HTTP_URL:-http://172.28.10.14:9093}"
 ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL="${ALERTMANAGER_WEBHOOK_ADAPTER_HTTP_URL:-http://172.28.10.14:8080}"
 RESP_COMPAT_VERSION="${RESP_COMPAT_VERSION:-7.0.0}"
+RESP_COMPAT_TIMEOUT_SECONDS="${RESP_COMPAT_TIMEOUT_SECONDS:-3600}"
 
 PASSWD="testpass"
 N1="172.28.10.11"
@@ -595,6 +596,7 @@ do_resp_compat() {
     local script="/opt/resp-compatibility/resp_compatibility_eloq.py"
     local ssl_flag=""
     [ "${TLS_ENABLED}" = "1" ] && ssl_flag="--ssl"
+    local observer_timeout=$((RESP_COMPAT_TIMEOUT_SECONDS + 60))
 
     # Generate summary report header
     {
@@ -618,11 +620,15 @@ with open('${cts}','w') as f:
 "
 
     echo "--- standalone mode ---"
-    docker compose -f "${compose_file}" exec -T resp-compat bash -c \
-        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed >/tmp/standalone.log 2>&1"
-    docker compose -f "${compose_file}" cp resp-compat:/tmp/standalone.log "${standalone_log}"
-    cat "${standalone_log}"
-    local standalone_status=${PIPESTATUS[0]}
+    local standalone_inner_cmd
+    standalone_inner_cmd=$(cat <<EOF
+set -o pipefail
+python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed | tee /tmp/standalone.log
+EOF
+)
+    run_with_progress "${observer_timeout}" "${standalone_log}" \
+        bash -lc "docker compose -f '${compose_file}' exec -T resp-compat bash -lc $(printf '%q' "${standalone_inner_cmd}")"
+    local standalone_status=$?
 
     # Extract standalone summary and failed tests
     {
@@ -672,11 +678,15 @@ r.close()
     done
 
     echo "--- cluster mode ---"
-    docker compose -f "${compose_file}" exec -T resp-compat bash -c \
-        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed --cluster >/tmp/cluster.log 2>&1"
-    docker compose -f "${compose_file}" cp resp-compat:/tmp/cluster.log "${cluster_log}"
-    cat "${cluster_log}"
-    local cluster_status=${PIPESTATUS[0]}
+    local cluster_inner_cmd
+    cluster_inner_cmd=$(cat <<EOF
+set -o pipefail
+python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed --cluster | tee /tmp/cluster.log
+EOF
+)
+    run_with_progress "${observer_timeout}" "${cluster_log}" \
+        bash -lc "docker compose -f '${compose_file}' exec -T resp-compat bash -lc $(printf '%q' "${cluster_inner_cmd}")"
+    local cluster_status=$?
 
     # Extract cluster summary and failed tests
     {
