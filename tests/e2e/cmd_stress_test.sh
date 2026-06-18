@@ -211,29 +211,34 @@ step() {
 # ── Master discovery (works independently of launch) ──
 discover_master() {
     echo "  discovering cluster topology ..."
-    local nodes_info
-    nodes_info=$(docker compose -f "${DOCKER_E2E_DIR}/docker-compose.yaml" exec -T stress-python python3 -c "
+    local slots_info
+    slots_info=$(docker compose -f "${DOCKER_E2E_DIR}/docker-compose.yaml" exec -T stress-python python3 -c "
 import ssl
 TLS={'ssl':True,'ssl_cert_reqs':ssl.CERT_NONE,'ssl_check_hostname':False}
 from redis import Redis
-r=Redis(host='${N1}',port=6379,password='${PASSWD}',socket_timeout=5,**TLS)
-print(r.execute_command('CLUSTER','NODES').decode())
+r=Redis(host='${N1}',port=6379,password='${PASSWD}',socket_timeout=5,decode_responses=True,**TLS)
+slots=r.execute_command('CLUSTER','SLOTS')
+master=slots[0][2]
+replica=slots[0][3] if len(slots[0]) > 3 else None
+print(f\"MASTER={master[0]}:{master[1]}\")
+print(f\"REPLICA={replica[0]}:{replica[1]}\" if replica else \"REPLICA=\")
 r.close()
 " 2>/dev/null) || { echo "FAIL: cannot connect to cluster for discovery"; return 1; }
 
     MASTER=""
+    REPLICA=""
     while IFS= read -r line; do
-        local addr role
-        addr=$(echo "$line" | awk '{print $2}' | cut -d@ -f1)
-        role=$(echo "$line" | awk '{print $3}')
-        if echo "$role" | grep -q 'master'; then
-            MASTER="${addr}"
-        elif echo "$role" | grep -q 'slave'; then
-            REPLICA="${addr}"
-        fi
-    done <<< "$nodes_info"
+        case "$line" in
+            MASTER=*)
+                MASTER="${line#MASTER=}"
+                ;;
+            REPLICA=*)
+                REPLICA="${line#REPLICA=}"
+                ;;
+        esac
+    done <<< "$slots_info"
     if [ -z "$MASTER" ]; then
-        echo "FAIL: could not discover master from CLUSTER NODES"
+        echo "FAIL: could not discover master from CLUSTER SLOTS"
         return 1
     fi
     echo "  master=${MASTER} replica=${REPLICA}"
@@ -499,7 +504,9 @@ do_resp_compat() {
     local cluster_log="${SCRIPT_DIR}/resp-compat-cluster.log"
     local summary_log="${SCRIPT_DIR}/resp-compat-summary.log"
     local cts="/tmp/cts_filtered.json"
-    local script="/opt/resp-compatibility/resp_compatibility.py"
+    local script="/opt/resp-compatibility/resp_compatibility_eloq.py"
+    local ssl_flag=""
+    [ "${TLS_ENABLED}" = "1" ] && ssl_flag="--ssl"
 
     # Generate summary report header
     {
@@ -524,7 +531,7 @@ with open('${cts}','w') as f:
 
     echo "--- standalone mode ---"
     docker compose -f "${compose_file}" exec -T resp-compat bash -c \
-        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed >/tmp/standalone.log 2>&1"
+        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed >/tmp/standalone.log 2>&1"
     docker compose -f "${compose_file}" cp resp-compat:/tmp/standalone.log "${standalone_log}"
     cat "${standalone_log}"
     local standalone_status=${PIPESTATUS[0]}
@@ -578,7 +585,7 @@ r.close()
 
     echo "--- cluster mode ---"
     docker compose -f "${compose_file}" exec -T resp-compat bash -c \
-        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed --cluster >/tmp/cluster.log 2>&1"
+        "python3 -u ${script} --host ${master_host} --port ${master_port} --password ${PASSWD} ${ssl_flag} --testfile ${cts} --specific-version ${RESP_COMPAT_VERSION} --show-failed --cluster >/tmp/cluster.log 2>&1"
     docker compose -f "${compose_file}" cp resp-compat:/tmp/cluster.log "${cluster_log}"
     cat "${cluster_log}"
     local cluster_status=${PIPESTATUS[0]}
