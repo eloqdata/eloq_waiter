@@ -181,6 +181,93 @@ assert_export_contains() {
         || { echo "FAIL: export does not contain expected text: ${expected}"; return 1; }
 }
 
+ssh_port_for_node() {
+    local host="${1%:*}"
+    case "${host}" in
+        172.28.10.11)
+            echo 2221
+            ;;
+        172.28.10.12)
+            echo 2222
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+dump_eloqkv_backtrace_for_node() {
+    local role="$1"
+    local node="$2"
+    local host="${node%:*}"
+    local ssh_port
+    if ! ssh_port="$(ssh_port_for_node "${node}")"; then
+        echo "---- ${role} (${node}) ----"
+        echo "  skip: unknown SSH port for node"
+        return 0
+    fi
+
+    echo "---- ${role} (${node}) ----"
+    ssh_cmd "${ssh_port}" bash -lc "$(cat <<'EOF'
+set +e
+echo "  hostname=$(hostname)"
+echo "  user=$(id -un)"
+if ! command -v gdb >/dev/null 2>&1; then
+    echo "  skip: gdb not installed"
+    exit 0
+fi
+pid_line=$(ps -u eloq -o pid=,args= | grep '[e]loqkv' | head -n1)
+if [ -z "${pid_line}" ]; then
+    echo "  skip: eloqkv process not found"
+    ps -u eloq -o pid=,args= || true
+    exit 0
+fi
+pid=$(printf '%s\n' "${pid_line}" | awk '{print $1}')
+echo "  pid=${pid}"
+echo "  cmd=${pid_line}"
+sudo -n timeout 30s gdb -batch -nx \
+    -ex 'set pagination off' \
+    -ex 'thread apply all bt full' \
+    -p "${pid}" 2>&1 || true
+EOF
+    )" || true
+}
+
+dump_cluster_change_backtraces() {
+    local master="${MASTER:-}"
+    local replica="${REPLICA:-}"
+    if discover_master >/dev/null 2>&1; then
+        master="${MASTER}"
+        replica="${REPLICA}"
+    fi
+    if [ -z "${master}" ]; then
+        master="${N1}:6379"
+    fi
+    if [ -z "${replica}" ]; then
+        replica="${N2}:6379"
+    fi
+
+    echo "---- cluster node backtraces ----"
+    echo "  master=${master}"
+    echo "  standby=${replica}"
+    dump_eloqkv_backtrace_for_node "master" "${master}"
+    if [ "${replica}" != "${master}" ]; then
+        dump_eloqkv_backtrace_for_node "standby" "${replica}"
+    fi
+}
+
+run_control_eloqctl_with_cluster_backtraces() {
+    local timeout_seconds="$1"
+    local log_file="$2"
+    shift 2
+    local subcommand="$1"
+    local control_log_file="${CONTROL_ELOQCTL_HOME}/logs/last-${subcommand}.log"
+    local observer_timeout=$((timeout_seconds + 60))
+    run_with_progress "${observer_timeout}" "${log_file}" --eloq-log "${control_log_file}" \
+        bash -lc "$(control_ssh_exec_string_with_timeout "${timeout_seconds}" "$@")" \
+        || { dump_failure_diagnostics "${log_file}"; dump_cluster_change_backtraces; return 1; }
+}
+
 cleanup() {
     if [ "${KEEP_LOGS:-0}" != "1" ]; then
         rm -f "${SCRIPT_DIR}/cmd-stress-"*.log "${SCRIPT_DIR}/launch-cmd-stress.log" "${TOPO}"
@@ -309,7 +396,8 @@ do_monitor_update() {
 do_cluster_update() {
     echo "=== EloqKV rolling update check (${ELOQKV_VERSION} -> ${ELOQKV_UPDATE_VERSION}) ==="
     assert_cluster_registered || return 1
-    run_control_eloqctl_with_progress 900 "${SCRIPT_DIR}/cmd-stress-cluster-update.log" \
+    discover_master || return 1
+    run_control_eloqctl_with_cluster_backtraces 900 "${SCRIPT_DIR}/cmd-stress-cluster-update.log" \
         update "${CLUSTER}" "${ELOQKV_UPDATE_VERSION}" --password "${PASSWD}" \
         || return 1
     wait_cluster_ready || return 1
@@ -350,7 +438,7 @@ do_eloqctl_mutate() {
     echo "=== eloqctl mutation check ==="
 
     echo "  failover ${original_master} -> ${original_replica}"
-    run_control_eloqctl_with_progress 240 "${SCRIPT_DIR}/cmd-stress-failover-1.log" \
+    run_control_eloqctl_with_cluster_backtraces 240 "${SCRIPT_DIR}/cmd-stress-failover-1.log" \
         failover "${CLUSTER}" \
         --old-leader-host "${original_master_host}" --old-leader-port "${original_master_port}" \
         --new-leader-host "${original_replica_host}" --new-leader-port "${original_replica_port}" \
@@ -366,7 +454,7 @@ do_eloqctl_mutate() {
     current_master_host="${MASTER%:*}"
     current_master_port="${MASTER##*:}"
     echo "  failover ${MASTER} -> ${original_master}"
-    run_control_eloqctl_with_progress 240 "${SCRIPT_DIR}/cmd-stress-failover-2.log" \
+    run_control_eloqctl_with_cluster_backtraces 240 "${SCRIPT_DIR}/cmd-stress-failover-2.log" \
         failover "${CLUSTER}" \
         --old-leader-host "${current_master_host}" --old-leader-port "${current_master_port}" \
         --new-leader-host "${original_master_host}" --new-leader-port "${original_master_port}" \
